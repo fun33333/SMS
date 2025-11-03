@@ -124,6 +124,16 @@ export function DataTable<T extends { id: number }>({
                     <span className="whitespace-nowrap">Edit</span>
                   </button>
                 )}
+                {(allowDelete && onDelete) && (
+                  <button
+                    onClick={() => onDelete(item)}
+                    className="flex-1 inline-flex justify-center items-center px-3 sm:px-4 py-2.5 sm:py-3 border-2 border-red-300 text-xs sm:text-sm font-semibold rounded-lg text-red-700 transition-all hover:bg-red-50 active:scale-95 touch-manipulation"
+                    style={{ minHeight: '44px' }}
+                  >
+                    <Trash2 className="h-4 w-4 sm:h-5 sm:w-5 mr-1.5 flex-shrink-0" />
+                    <span className="whitespace-nowrap">Delete</span>
+                  </button>
+                )}
               </div>
             )}
           </div>

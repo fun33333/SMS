@@ -12,7 +12,7 @@ import { ExperienceStep } from "./teacher-form/experience-step"
 import { TeacherPreview } from "./teacher-form/teacher-preview"
 import { useToast } from "@/hooks/use-toast"
 import { toast as sonnerToast } from "sonner"
-import { getClassrooms } from "@/lib/api"
+import { getAllCampuses, getClassrooms } from "@/lib/api"
 import { useFormErrorHandler } from "@/hooks/use-error-handler"
 import { ErrorDisplay } from "@/components/ui/error-display"
 import { getApiBaseUrl } from "@/lib/api"
@@ -277,22 +277,33 @@ export function TeacherForm() {
         }
       } catch {}
 
-      // Prepare data for API submission
+      // Resolve campus id (principal often has campus code like "6" vs backend pk like 64)
+      let resolvedCampusId: number | null = null;
+      try {
+        const campusInput = formData.current_campus;
+        const campusesRes: any = await getAllCampuses();
+        const campuses = Array.isArray(campusesRes?.results) ? campusesRes.results : (Array.isArray(campusesRes) ? campusesRes : []);
+        const numFromInput = Number(String(campusInput).match(/\d+/)?.[0] || campusInput);
+        // Prefer exact id match
+        let match = campuses.find((c: any) => Number(c.id ?? c.campus_id) === numFromInput);
+        if (!match) {
+          // Try by campus_name containing the number
+          match = campuses.find((c: any) => String(c.campus_name || c.name || '').toLowerCase().includes(String(numFromInput)));
+        }
+        resolvedCampusId = match ? Number(match.id ?? match.campus_id) : (Number.isFinite(numFromInput) ? numFromInput : null);
+      } catch {
+        resolvedCampusId = formData.current_campus ? parseInt(formData.current_campus) : null;
+      }
+
       const submitData: any = {
         ...formData,
-        // Convert campus to integer
-        current_campus: formData.current_campus ? parseInt(formData.current_campus) : null,
-        // Convert numeric fields
+        current_campus: resolvedCampusId,
         year_of_passing: formData.year_of_passing ? parseInt(formData.year_of_passing) : null,
         total_experience_years: formData.total_experience_years ? parseFloat(formData.total_experience_years) : null,
-        // Convert boolean fields
         is_currently_active: Boolean(formData.is_currently_active),
-        // Class-teacher consistency
         is_class_teacher: Boolean(formData.is_class_teacher || (formData.class_teacher_level && formData.class_teacher_grade && formData.class_teacher_section)),
         assigned_classroom: resolvedAssignedClassroom,
         assigned_classrooms: Array.isArray(formData.assigned_classrooms) ? formData.assigned_classrooms.map((x:any)=> Number(x)) : [],
-        
-        // Fix date fields - send null instead of empty strings for optional dates
         dob: formData.dob && typeof formData.dob === 'string' && formData.dob.trim() !== '' ? formData.dob : null,
         joining_date: formData.joining_date && typeof formData.joining_date === 'string' && formData.joining_date.trim() !== '' ? formData.joining_date : null,
         experience_from_date: formData.experience_from_date && typeof formData.experience_from_date === 'string' && formData.experience_from_date.trim() !== '' ? formData.experience_from_date : null,
@@ -317,7 +328,6 @@ export function TeacherForm() {
         // Success toast with teacher name, employee code, and classroom(s)
         const teacherName = result?.full_name || formData.full_name || "Teacher"
         const employeeCode = result?.employee_code || "Pending"
-        // Prefer multiple classroom summary when available
         const assignedList = Array.isArray(result?.assigned_classrooms) ? result.assigned_classrooms : []
         const classroomName = assignedList.length > 0
           ? `${assignedList.length} classroom${assignedList.length > 1 ? 's' : ''}`

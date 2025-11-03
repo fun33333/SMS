@@ -205,16 +205,16 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
           { title: "Add Student", href: "/admin/students/add" },
         ],
       },
-      {
-        key: "principals",
-        title: "Principals",
-        icon: Award,
-        href: "/admin/principals/list",
-        subItems: [
-          { title: "Add Principal", href: "/admin/principals/add" },
-          { title: "Principal List", href: "/admin/principals/list" }
-        ],
-      },
+      // {
+      //   key: "principals",
+      //   title: "Principals",
+      //   icon: Award,
+      //   href: "/admin/principals/list",
+      //   subItems: [
+      //     { title: "Add Principal", href: "/admin/principals/add" },
+      //     { title: "Principal List", href: "/admin/principals/list" }
+      //   ],
+      // },
       {
         key: "teachers",
         title: "Teachers",

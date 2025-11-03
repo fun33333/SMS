@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Save, RefreshCw, Edit3, History, Eraser, Send, Clock3, Bell, Eye, ChevronDown, EyeOff, X } from "lucide-react";
 import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { getCurrentUserRole } from "@/lib/permissions";
-import { getCurrentUserProfile, getClassStudents, markBulkAttendance, getAttendanceHistory, getAttendanceForDate, editAttendance, submitAttendance, getBackfillPermissions, finalizeAttendance, reviewAttendance, coordinatorApproveAttendance } from "@/lib/api";
+import { getCurrentUserProfile, getClassStudents, markBulkAttendance, getAttendanceHistory, getAttendanceForDate, editAttendance, submitAttendance, getBackfillPermissions, finalizeAttendance, reviewAttendance, coordinatorApproveAttendance, getApiBaseUrl } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
 
 
@@ -34,20 +34,7 @@ interface ClassInfo {
   campus?: string;
 }
 
-interface AttendanceRecord {
-  student_id: number;
-  status: AttendanceStatus;
-  remarks?: string;
-}
 
-interface AttendanceResult {
-  message: string;
-  attendance_id: number;
-  total_students: number;
-  present_count: number;
-  absent_count: number;
-  attendance_percentage: number;
-}
 
 interface SimpleClassRoom {
   id: number;
@@ -93,6 +80,15 @@ function TeacherAttendanceContent() {
   const [classroomOptions, setClassroomOptions] = useState<SimpleClassRoom[]>([]);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const resolveMediaUrl = (url?: string) => {
+    if (!url) return "";
+    if (/^(https?:)?\/\//.test(url) || url.startsWith('data:')) return url;
+    const base = getApiBaseUrl();
+    const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+    const path = url.startsWith('/') ? url : `/${url}`;
+    return `${cleanBase}${path}`;
+  };
+
 
   const userRole = getCurrentUserRole();
   const classroomId = searchParams.get('classroom');
@@ -195,8 +191,13 @@ function TeacherAttendanceContent() {
       setStudents(studentsData);
       setLoadingStudents(false);
 
-      // Load existing attendance for today if any
-      await loadExistingAttendance(selected.id, selectedDate);
+      // Determine initial date (support ?date=YYYY-MM-DD)
+      const dateParam = searchParams.get('date')
+      const initialDate = dateParam || selectedDate
+      setSelectedDate(initialDate)
+
+      // Load existing attendance for initial date if any
+      await loadExistingAttendance(selected.id, initialDate);
 
     } catch (err: unknown) {
       console.error('Error fetching teacher data:', err);
@@ -1489,9 +1490,9 @@ function TeacherAttendanceContent() {
 									<TableRow key={student.id}>
 										<TableCell className="font-medium">
 											<div className="flex items-center space-x-2 sm:space-x-3">
-												{student.photo ? (
-													<img src={student.photo} alt={student.name} className="h-6 w-6 sm:h-8 sm:w-8 rounded-full object-cover" />
-												) : (
+										{student.photo ? (
+											<img src={resolveMediaUrl(student.photo)} alt={student.name} className="h-6 w-6 sm:h-8 sm:w-8 rounded-full object-cover" />
+										) : (
 													<div className="h-6 w-6 sm:h-8 sm:w-8 rounded-full bg-[#6096ba] flex items-center justify-center text-white text-xs sm:text-sm font-medium">
 														{student.name.charAt(0).toUpperCase()}
 													</div>

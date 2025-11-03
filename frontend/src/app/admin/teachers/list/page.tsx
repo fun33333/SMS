@@ -336,6 +336,31 @@ export default function TeacherListPage() {
     }
   };
 
+  // Delete handler
+  const handleDelete = async (teacher: Teacher) => {
+    try {
+      if (!confirm(`Are you sure you want to delete ${teacher.full_name}?`)) return;
+      const base = getApiBaseUrl();
+      const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+      const res = await fetch(`${cleanBase}/api/teachers/${teacher.id}/`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('sis_access_token')}`,
+        },
+      });
+      if (res.ok || res.status === 204) {
+        alert('Teacher deleted successfully.');
+        fetchTeachers();
+      } else {
+        const msg = await res.text();
+        alert(`Failed to delete: ${res.status} ${msg}`);
+      }
+    } catch (err) {
+      console.error('Delete teacher error:', err);
+      alert('Error deleting teacher');
+    }
+  };
+
   // Columns definition for DataTable
   const columns = [
     {
@@ -550,9 +575,11 @@ export default function TeacherListPage() {
         columns={columns}
         onView={(teacher) => router.push(`/admin/teachers/profile?id=${teacher.id}`)}
         onEdit={(teacher) => handleEdit(teacher)}
+        onDelete={(teacher) => handleDelete(teacher)}
         isLoading={loading}
         emptyMessage="No teachers found"
-        allowEdit={userRole !== 'superadmin' && userRole !== 'principal'}
+        allowEdit={userRole !== 'superadmin' && userRole !== 'coordinator'}
+        allowDelete={userRole !== 'superadmin' && userRole !== 'coordinator'}
       />
 
       <PaginationControls

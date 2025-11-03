@@ -1,15 +1,14 @@
 "use client"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, Building2, GraduationCap, TrendingUp } from "lucide-react"
 import Link from "next/link"
+import { Users, Building2, GraduationCap, TrendingUp } from "lucide-react"
 import { useState, useEffect } from "react"
-import { getCurrentUserProfile, getClassroomStudents, getTeacherTodayAttendance, getTeacherWeeklyAttendance, getTeacherMonthlyTrend } from "@/lib/api"
+import { getCurrentUserProfile, getClassroomStudents, getTeacherTodayAttendance, getTeacherWeeklyAttendance, getTeacherMonthlyTrend, getAttendanceHistory } from "@/lib/api"
 import { getCurrentUserRole } from "@/lib/permissions"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Area, AreaChart } from "recharts"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
-
-import { BarChart2, UserCheck, Users as UsersIcon, Award, CalendarCheck, BookOpen, UserPlus, FileText, PieChart as PieChartIcon, TrendingUp as TrendingUpIcon, Activity, Clock, Star } from "lucide-react"
+import { BarChart2, UserCheck, Users as UsersIcon, Award, CalendarCheck, BookOpen, UserPlus, FileText, PieChart as PieChartIcon, TrendingUp as TrendingUpIcon, Activity, Clock, Star, History as HistoryIcon } from "lucide-react"
 
 interface TopStudent {
   name: string;
@@ -51,6 +50,9 @@ export default function TeacherClassDashboard() {
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [absenteesToday, setAbsenteesToday] = useState<Array<{ id: number; name: string; code?: string; gender?: string }>>([])
+  const [atRisk, setAtRisk] = useState<Array<{ id: number; name: string; attendanceRate: number }>>([])
+  const [recentSubmissions, setRecentSubmissions] = useState<any[]>([])
 
   useEffect(() => {
     const role = getCurrentUserRole()
@@ -75,11 +77,19 @@ export default function TeacherClassDashboard() {
             const classroomId = teacherProfile.assigned_classroom.id
             
             // Fetch all data in parallel for better performance
-            const [classroomData, todayAttendance, weeklyAttendance, monthlyTrend] = await Promise.all([
+            const [classroomData, todayAttendance, weeklyAttendance, monthlyTrend, last30DaysHistory] = await Promise.all([
               getClassroomStudents(classroomId, teacherProfile.teacher_id) as any,
               getTeacherTodayAttendance(classroomId),
               getTeacherWeeklyAttendance(classroomId),
-              getTeacherMonthlyTrend(classroomId)
+              getTeacherMonthlyTrend(classroomId),
+              (async () => {
+                const end = new Date()
+                const start = new Date()
+                start.setDate(end.getDate() - 30)
+                const s = start.toISOString().split('T')[0]
+                const e = end.toISOString().split('T')[0]
+                return await getAttendanceHistory(classroomId, s, e)
+              })()
             ])
             
             // Handle different response formats
@@ -106,6 +116,13 @@ export default function TeacherClassDashboard() {
                 absent: (todayAttendance as any).absent_count || 0,
                 leave: (todayAttendance as any).leave_count || 0
               }
+              try {
+                const studentAttendance = (todayAttendance as any).student_attendance || []
+                const abs = studentAttendance
+                  .filter((r: any) => r.status === 'absent')
+                  .map((r: any) => ({ id: r.student_id, name: r.student_name, code: r.student_code, gender: r.student_gender }))
+                setAbsenteesToday(abs)
+              } catch {}
             }
             
             // Process weekly attendance data
@@ -188,6 +205,34 @@ export default function TeacherClassDashboard() {
               { grade: 'C', count: Math.floor(students.length * 0.10) },
             ]
             
+            // Compute at-risk (last 30 days < 80% present)
+            try {
+              const perStudent: Record<number, { name: string; present: number; total: number }> = {}
+              if (Array.isArray(last30DaysHistory)) {
+                last30DaysHistory.forEach((sheet: any) => {
+                  const arr = sheet.student_attendance || []
+                  arr.forEach((r: any) => {
+                    const sid = Number(r.student_id)
+                    if (!perStudent[sid]) perStudent[sid] = { name: r.student_name || `ID ${sid}`, present: 0, total: 0 }
+                    perStudent[sid].total += 1
+                    if (r.status === 'present') perStudent[sid].present += 1
+                  })
+                })
+              }
+              const computed = Object.entries(perStudent)
+                .map(([id, v]) => ({ id: Number(id), name: v.name, attendanceRate: v.total ? Math.round((v.present / v.total) * 100) : 0 }))
+                .filter(x => x.attendanceRate < 80)
+                .sort((a, b) => a.attendanceRate - b.attendanceRate)
+                .slice(0, 8)
+              setAtRisk(computed)
+            } catch {}
+
+            // Recent submissions (last 6 records)
+            try {
+              const recent = Array.isArray(last30DaysHistory) ? last30DaysHistory.slice(0, 6) : []
+              setRecentSubmissions(recent)
+            } catch {}
+
             const finalClassInfo = {
               name: teacherProfile.assigned_classroom.name || "Unknown Class",
               section: teacherProfile.assigned_classroom.section || "",
@@ -346,10 +391,110 @@ export default function TeacherClassDashboard() {
           </CardContent>
         </Card>
       </div>
+      {/* Absentees Today and At-Risk */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="border-2 bg-white">
+          <CardHeader>
+            <CardTitle className="text-[#274c77] flex items-center gap-2">
+              <Users className="h-5 w-5 text-[#ef4444]" />
+              Absentees Today
+            </CardTitle>
+            <CardDescription>Students absent today</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="max-h-60 overflow-y-auto pr-1">
+              {absenteesToday.length === 0 ? (
+                <div className="text-sm text-gray-500">No absentees today. 🎉</div>
+              ) : (
+                <div className="space-y-2">
+                  {absenteesToday.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between p-2 rounded-lg border border-gray-200">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{s.name}</p>
+                        <p className="text-xs text-gray-500 truncate">{s.code}</p>
+                      </div>
+                      <span className="text-xs px-2 py-1 rounded-full bg-red-50 text-red-600 border border-red-200">Absent</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 bg-white">
+          <CardHeader>
+            <CardTitle className="text-[#274c77] flex items-center gap-2">
+              <Activity className="h-5 w-5 text-[#f59e0b]" />
+              At-Risk (30 days)
+            </CardTitle>
+            <CardDescription>Attendance rate below 80%</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="max-h-60 overflow-y-auto pr-1">
+              {atRisk.length === 0 ? (
+                <div className="text-sm text-gray-500">No at-risk students in last 30 days.</div>
+              ) : (
+                <div className="space-y-2">
+                  {atRisk.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between p-2 rounded-lg border border-gray-200">
+                      <p className="text-sm font-medium text-gray-900 truncate mr-2">{s.name}</p>
+                      <span className="text-xs px-2 py-1 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200">{s.attendanceRate}%</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 bg-white">
+        <CardHeader>
+          <CardTitle className="text-[#274c77] flex items-center gap-2">
+            <HistoryIcon className="h-5 w-5 text-[#6096ba]" />
+            Recent Attendance
+          </CardTitle>
+          <CardDescription>Latest attendance sheets and status</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {Array.isArray(recentSubmissions) && recentSubmissions.length > 0 ? (
+            <div className="grid grid-cols-1 gap-3 max-h-60 overflow-y-auto pr-1">
+              {recentSubmissions.map((r, idx) => {
+                const dateObj = new Date(r.date)
+                const dateStr = isNaN(dateObj.getTime()) ? String(r.date) : dateObj.toISOString().split('T')[0]
+                return (
+                <Link key={idx} href={`/admin/teachers/attendance?date=${encodeURIComponent(dateStr)}`} className="p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{dateObj.toLocaleDateString?.() || String(r.date)}</p>
+                    <span className={`shrink-0 text-xs px-2 py-1 rounded-full border ${r.status === 'final' ? 'bg-green-50 text-green-700 border-green-200' : r.status === 'submitted' ? 'bg-blue-50 text-blue-700 border-blue-200' : r.status === 'under_review' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>{(r.status || 'draft').replace('_',' ')}</span>
+                  </div>
+                  <div className="mt-2 text-xs text-gray-600 grid grid-cols-2 gap-2">
+                    <span className="truncate">Present: {r.present_count || 0}</span>
+                    <span className="truncate">Absent: {r.absent_count || 0}</span>
+                  </div>
+                  <div className="mt-1 text-xs font-semibold text-[#274c77]">
+                    Attendance: {(() => {
+                      const p = Number(r.present_count || 0)
+                      const a = Number(r.absent_count || 0)
+                      const l = Number(r.leave_count || 0)
+                      const total = Number(r.total_students || 0) || (p + a + l)
+                      if (!total) return 0
+                      return Math.round((p / total) * 100)
+                    })()}%
+                  </div>
+                </Link>
+              )})}
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500">No recent sheets found.</div>
+          )}
+        </CardContent>
+      </Card>
+      </div>
 
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
         {/* Attendance Chart - New UI */}
         <Card className="border-2 bg-gradient-to-br from-[#e7ecef] to-[#a3cef1]/20">
           <CardHeader>
@@ -422,7 +567,7 @@ export default function TeacherClassDashboard() {
         </Card>
 
         {/* Class Summary Card */}
-        <Card className="border-2 bg-gradient-to-br from-[#e7ecef] to-[#a3cef1]/20">
+        {/* <Card className="border-2 bg-gradient-to-br from-[#e7ecef] to-[#a3cef1]/20">
           <CardHeader>
             <CardTitle className="text-[#274c77] flex items-center gap-2">
               <Users className="h-5 w-5 text-[#6096ba]" />
@@ -452,136 +597,14 @@ export default function TeacherClassDashboard() {
               </div>
             </div>
           </CardContent>
-        </Card>
+        </Card> */}
       </div>
 
-      {/* Class Progress Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Subject Performance Chart */}
-        <Card className="border-2 bg-gradient-to-br from-[#e7ecef] to-[#a3cef1]/20">
-          <CardHeader>
-            <CardTitle className="text-[#274c77] flex items-center gap-2">
-              <BookOpen className="h-5 w-5 text-[#6096ba]" />
-              Subject Performance
-            </CardTitle>
-            <CardDescription>Average marks by subject for this class</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={[
-                  { subject: 'Math', marks: 85, color: '#6096ba' },
-                  { subject: 'English', marks: 78, color: '#a3cef1' },
-                  { subject: 'Science', marks: 92, color: '#274c77' },
-                  { subject: 'Urdu', marks: 88, color: '#8b8c89' },
-                  { subject: 'Islamiat', marks: 95, color: '#ef4444' },
-                ]}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#a3cef1" opacity={0.3} />
-                  <XAxis 
-                    dataKey="subject" 
-                    stroke="#274c77" 
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis 
-                    stroke="#274c77" 
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                    domain={[0, 100]}
-                  />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: '#ffffff', 
-                      border: '2px solid #6096ba',
-                      borderRadius: '12px',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                    }} 
-                    labelStyle={{ color: '#274c77', fontWeight: 'bold' }}
-                    formatter={(value: any) => [`${value}%`, 'Average Marks']}
-                  />
-                  <Bar 
-                    dataKey="marks" 
-                    radius={[8, 8, 0, 0]}
-                    fill="#6096ba"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-              </div>
-          </CardContent>
-        </Card>
 
-        {/* Class Progress Doughnut Chart */}
-        <Card className="border-2 bg-gradient-to-br from-[#e7ecef] to-[#a3cef1]/20">
-          <CardHeader>
-            <CardTitle className="text-[#274c77] flex items-center gap-2">
-              <Award className="h-5 w-5 text-[#6096ba]" />
-              Class Progress Overview
-            </CardTitle>
-            <CardDescription>Overall class performance metrics</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={[
-                      { name: 'Excellent (90-100)', value: Math.floor(classInfo.totalStudents * 0.25), color: '#10b981' },
-                      { name: 'Good (80-89)', value: Math.floor(classInfo.totalStudents * 0.35), color: '#6096ba' },
-                      { name: 'Average (70-79)', value: Math.floor(classInfo.totalStudents * 0.25), color: '#f59e0b' },
-                      { name: 'Needs Improvement', value: Math.floor(classInfo.totalStudents * 0.15), color: '#ef4444' },
-                    ]}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {[
-                      { name: 'Excellent (90-100)', value: Math.floor(classInfo.totalStudents * 0.25), color: '#10b981' },
-                      { name: 'Good (80-89)', value: Math.floor(classInfo.totalStudents * 0.35), color: '#6096ba' },
-                      { name: 'Average (70-79)', value: Math.floor(classInfo.totalStudents * 0.25), color: '#f59e0b' },
-                      { name: 'Needs Improvement', value: Math.floor(classInfo.totalStudents * 0.15), color: '#ef4444' },
-                    ].map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: '#ffffff', 
-                      border: '2px solid #6096ba',
-                      borderRadius: '12px',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                    }} 
-                    formatter={(value: any, name: any) => [`${value} students`, name]}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                <span>Excellent</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-[#6096ba]"></div>
-                <span>Good</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                <span>Average</span>
-                </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                <span>Needs Help</span>
-                </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
+      
     </div>
   )
 }
