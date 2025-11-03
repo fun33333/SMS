@@ -316,6 +316,7 @@ export default function StudentListPage() {
       
       if (response.ok) {
         const studentData = await response.json();
+        // Load full data; UI will hide specific fields (grade/section/GR/shift/is_draft)
         setEditFormData({
           name: studentData.name || '',
           gender: studentData.gender || '',
@@ -369,32 +370,21 @@ export default function StudentListPage() {
     
     setIsSubmitting(true);
     try {
-      // Prepare update data - only send fields that have values
+      // Prepare update data - send all provided values EXCEPT excluded fields
+      const excludeKeys = new Set(['current_grade','section','gr_no','shift','is_draft']);
       const updateData: any = {};
-      
-      // Add all fields that have values
       Object.keys(editFormData).forEach(key => {
+        if (excludeKeys.has(key)) return;
         if (editFormData[key] !== '' && editFormData[key] !== null && editFormData[key] !== undefined) {
           updateData[key] = editFormData[key];
         }
       });
       
-      // Convert specific fields
-      if (updateData.from_year) {
-        updateData.from_year = parseInt(updateData.from_year);
-      }
-      if (updateData.to_year) {
-        updateData.to_year = parseInt(updateData.to_year);
-      }
-      if (updateData.enrollment_year) {
-        updateData.enrollment_year = parseInt(updateData.enrollment_year);
-      }
-      if (updateData.siblings_count) {
-        updateData.siblings_count = parseInt(updateData.siblings_count);
-      }
-      if (updateData.is_draft) {
-        updateData.is_draft = updateData.is_draft === 'true';
-      }
+      // Convert numeric fields
+      if (updateData.from_year) updateData.from_year = parseInt(updateData.from_year);
+      if (updateData.to_year) updateData.to_year = parseInt(updateData.to_year);
+      if (updateData.enrollment_year) updateData.enrollment_year = parseInt(updateData.enrollment_year);
+      if (updateData.siblings_count) updateData.siblings_count = parseInt(updateData.siblings_count);
 
       console.log('Updating student with data:', updateData);
 
@@ -850,24 +840,6 @@ export default function StudentListPage() {
               <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Academic Information</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="current_grade">Current Grade</Label>
-                  <Input
-                    id="current_grade"
-                    value={editFormData.current_grade || ''}
-                    onChange={(e) => setEditFormData({...editFormData, current_grade: e.target.value})}
-                    placeholder="Enter current grade"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="section">Section</Label>
-                  <Input
-                    id="section"
-                    value={editFormData.section || ''}
-                    onChange={(e) => setEditFormData({...editFormData, section: e.target.value})}
-                    placeholder="Enter section"
-                  />
-                </div>
-                <div>
                   <Label htmlFor="last_class_passed">Last Class Passed</Label>
                   <Input
                     id="last_class_passed"
@@ -895,15 +867,6 @@ export default function StudentListPage() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="gr_no">GR Number</Label>
-                  <Input
-                    id="gr_no"
-                    value={editFormData.gr_no || ''}
-                    onChange={(e) => setEditFormData({...editFormData, gr_no: e.target.value})}
-                    placeholder="Enter GR number"
-                  />
-                </div>
-                <div>
                   <Label htmlFor="enrollment_year">Enrollment Year</Label>
                   <Input
                     id="enrollment_year"
@@ -912,30 +875,6 @@ export default function StudentListPage() {
                     onChange={(e) => setEditFormData({...editFormData, enrollment_year: e.target.value})}
                     placeholder="Enter enrollment year"
                   />
-                </div>
-                <div>
-                  <Label htmlFor="shift">Shift</Label>
-                  <Select value={editFormData.shift || ''} onValueChange={(value) => setEditFormData({...editFormData, shift: value})}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select shift" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="morning">Morning</SelectItem>
-                      <SelectItem value="afternoon">Afternoon</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="is_draft">Is Draft</Label>
-                  <Select value={editFormData.is_draft || ''} onValueChange={(value) => setEditFormData({...editFormData, is_draft: value})}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="true">Yes</SelectItem>
-                      <SelectItem value="false">No</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
               </div>
             </div>

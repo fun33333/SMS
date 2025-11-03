@@ -35,24 +35,18 @@ export default function LoginPage() {
   const [error, setError] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  // Store logged-in teacher info (for demo, can use context/global state)
   const [teacherInfo, setTeacherInfo] = useState<Teacher | null>(null);
-  // Password change modal state
   const [showPasswordChangeModal, setShowPasswordChangeModal] = useState(false);
   const [userEmail, setUserEmail] = useState('');
-  // Forgot password modal state
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setAnimate(true), 100);
     
-    // Check if user is already logged in and logout them
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('sis_access_token');
       if (token) {
-        // User is logged in, logout them completely
         localStorage.clear();
-        // Also clear cookies
         document.cookie = 'sis_access_token=; path=/; max-age=0';
         document.cookie = 'sis_refresh_token=; path=/; max-age=0';
       }
@@ -228,8 +222,8 @@ export default function LoginPage() {
             {/* Logo Section */}
             <div className="flex items-center justify-center mb-8">
               <div className="flex items-center space-x-3">
-                <div className="flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-[#274c77] to-[#6096ba] rounded-xl shadow-lg">
-                  <GraduationCap className="w-7 h-7 sm:w-9 sm:h-9 text-white" />
+                <div className="flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-xl shadow-lg">
+                  <img src="/Logo 2 pen.png" alt="Logo" className="w-10 h-10 sm:w-12 sm:h-12 object-contain" />
                 </div>
                 <div className="text-left">
                   <h1 className="text-xl sm:text-2xl font-bold text-[#274c77]">School Portal</h1>

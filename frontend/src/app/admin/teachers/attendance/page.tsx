@@ -8,10 +8,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Save, RefreshCw, Edit3, History, Eraser, Send, Clock3, Bell, Eye, ChevronDown, EyeOff, X } from "lucide-react";
 import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { getCurrentUserRole } from "@/lib/permissions";
-import { getCurrentUserProfile, getClassStudents, markBulkAttendance, getAttendanceHistory, getAttendanceForDate, editAttendance, submitAttendance, getBackfillPermissions, finalizeAttendance, reviewAttendance, coordinatorApproveAttendance } from "@/lib/api";
+import { getCurrentUserProfile, getClassStudents, markBulkAttendance, getAttendanceHistory, getAttendanceForDate, editAttendance, submitAttendance, getBackfillPermissions, finalizeAttendance, reviewAttendance, coordinatorApproveAttendance, getApiBaseUrl } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
-// import AttendanceStateControls from "@/components/attendance/attendance-state-controls";
-// import BackfillPermission from "@/components/attendance/backfill-permission";
+
 
 type AttendanceStatus = "present" | "absent" | "leave";
 
@@ -35,20 +34,7 @@ interface ClassInfo {
   campus?: string;
 }
 
-interface AttendanceRecord {
-  student_id: number;
-  status: AttendanceStatus;
-  remarks?: string;
-}
 
-interface AttendanceResult {
-  message: string;
-  attendance_id: number;
-  total_students: number;
-  present_count: number;
-  absent_count: number;
-  attendance_percentage: number;
-}
 
 interface SimpleClassRoom {
   id: number;
@@ -94,6 +80,15 @@ function TeacherAttendanceContent() {
   const [classroomOptions, setClassroomOptions] = useState<SimpleClassRoom[]>([]);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const resolveMediaUrl = (url?: string) => {
+    if (!url) return "";
+    if (/^(https?:)?\/\//.test(url) || url.startsWith('data:')) return url;
+    const base = getApiBaseUrl();
+    const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+    const path = url.startsWith('/') ? url : `/${url}`;
+    return `${cleanBase}${path}`;
+  };
+
 
   const userRole = getCurrentUserRole();
   const classroomId = searchParams.get('classroom');
@@ -196,8 +191,13 @@ function TeacherAttendanceContent() {
       setStudents(studentsData);
       setLoadingStudents(false);
 
-      // Load existing attendance for today if any
-      await loadExistingAttendance(selected.id, selectedDate);
+      // Determine initial date (support ?date=YYYY-MM-DD)
+      const dateParam = searchParams.get('date')
+      const initialDate = dateParam || selectedDate
+      setSelectedDate(initialDate)
+
+      // Load existing attendance for initial date if any
+      await loadExistingAttendance(selected.id, initialDate);
 
     } catch (err: unknown) {
       console.error('Error fetching teacher data:', err);
@@ -1152,7 +1152,6 @@ function TeacherAttendanceContent() {
                 </select>
               </div>
             )}
-            {/* Backfill Permissions Icon */}
             {!isWeekend && (
               <div className="relative">
                 <Button
@@ -1440,91 +1439,100 @@ function TeacherAttendanceContent() {
               <p className="text-gray-500 text-sm">Please contact administrator to add students to this classroom</p>
             </div>
           ) : (
-				<div className="overflow-x-auto">
-              <Table>
-						<TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs sm:text-sm">Student</TableHead>
-                    <TableHead className="text-xs sm:text-sm">Student ID</TableHead>
-                    <TableHead className="text-xs sm:text-sm">Gender</TableHead>
-                    <TableHead className="text-xs sm:text-sm">Status</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-                  {students.map((student) => (
-                    <TableRow key={student.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center space-x-2 sm:space-x-3">
-                          {student.photo ? (
-                            <img 
-                              src={student.photo} 
-                              alt={student.name}
-                              className="h-6 w-6 sm:h-8 sm:w-8 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="h-6 w-6 sm:h-8 sm:w-8 rounded-full bg-[#6096ba] flex items-center justify-center text-white text-xs sm:text-sm font-medium">
-                            {student.name.charAt(0).toUpperCase()}
-                          </div>
-                          )}
-                          <span className="text-xs sm:text-sm truncate">{student.name}</span>
+				<>
+					{/* Mobile list view */}
+					<div className="block sm:hidden space-y-2">
+						{students.map((student) => (
+							<div key={student.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-200 bg-white">
+								<div className="flex items-center gap-2 min-w-0">
+									<div className="min-w-0">
+										<p className="text-sm font-medium text-gray-900 truncate">{student.name}</p>
+										<div className="flex items-center gap-2 text-[11px] text-gray-600">
+											<span className="px-2 py-0.5 rounded-full bg-gray-100">{student.student_id || student.student_code || 'Not Assigned'}</span>
+											<span className="px-2 py-0.5 rounded-full bg-gray-100 capitalize">{student.gender}</span>
 										</div>
-									</TableCell>
-                      <TableCell className="text-xs sm:text-sm">{student.student_id || student.student_code || 'Not Assigned'}</TableCell>
-                      <TableCell className="text-xs sm:text-sm">{student.gender}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-col sm:flex-row space-y-1 sm:space-y-0 sm:space-x-1">
-                        <Button
-                            size="sm"
-                          variant={attendance[student.id] === 'present' ? 'default' : 'outline'}
-                            className={`${
-                            attendance[student.id] === 'present'
-                              ? 'bg-green-600 hover:bg-green-700 text-white'
-                                : 'border-green-500 text-green-500 hover:bg-green-50'
-                          } text-xs px-2 py-1`}
-                            onClick={() => handleAttendanceChange(student.id, 'present')}
-                            disabled={!isDateEditable()}
-                        >
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            <span className="hidden sm:inline">Present</span>
-                            <span className="sm:hidden">P</span>
-                        </Button>
-                        <Button
-                            size="sm"
-                          variant={attendance[student.id] === 'absent' ? 'default' : 'outline'}
-                            className={`${
-                            attendance[student.id] === 'absent'
-                              ? 'bg-red-600 hover:bg-red-700 text-white'
-                                : 'border-red-500 text-red-500 hover:bg-red-50'
-                          } text-xs px-2 py-1`}
-                            onClick={() => handleAttendanceChange(student.id, 'absent')}
-                            disabled={!isDateEditable()}
-                        >
-                            <XCircle className="h-3 w-3 mr-1" />
-                            <span className="hidden sm:inline">Absent</span>
-                            <span className="sm:hidden">A</span>
-                        </Button>
-                        <Button
-                            size="sm"
-                          variant={attendance[student.id] === 'leave' ? 'default' : 'outline'}
-                            className={`${
-                            attendance[student.id] === 'leave'
-                                ? 'bg-blue-600 hover:bg-blue-700 text-white' 
-                                : 'border-blue-500 text-blue-500 hover:bg-blue-50'
-                          } text-xs px-2 py-1`}
-                            onClick={() => handleAttendanceChange(student.id, 'leave')}
-                            disabled={!isDateEditable()}
-                        >
-                            <Calendar className="h-3 w-3 mr-1" />
-                            <span className="hidden sm:inline">Leave</span>
-                            <span className="sm:hidden">L</span>
-                        </Button>
-                        </div>
-									</TableCell>
+									</div>
+								</div>
+								<div className="flex items-center gap-1 ml-2">
+									<Button size="sm" variant={attendance[student.id] === 'present' ? 'default' : 'outline'}
+										className={`${attendance[student.id] === 'present' ? 'bg-green-600 hover:bg-green-700 text-white' : 'border-green-500 text-green-600 hover:bg-green-50'} px-2 py-1 text-xs`}
+										onClick={() => handleAttendanceChange(student.id, 'present')} disabled={!isDateEditable()}>
+										P
+										</Button>
+									<Button size="sm" variant={attendance[student.id] === 'absent' ? 'default' : 'outline'}
+										className={`${attendance[student.id] === 'absent' ? 'bg-red-600 hover:bg-red-700 text-white' : 'border-red-500 text-red-600 hover:bg-red-50'} px-2 py-1 text-xs`}
+										onClick={() => handleAttendanceChange(student.id, 'absent')} disabled={!isDateEditable()}>
+										A
+										</Button>
+									<Button size="sm" variant={attendance[student.id] === 'leave' ? 'default' : 'outline'}
+										className={`${attendance[student.id] === 'leave' ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'border-blue-500 text-blue-600 hover:bg-blue-50'} px-2 py-1 text-xs`}
+										onClick={() => handleAttendanceChange(student.id, 'leave')} disabled={!isDateEditable()}>
+										L
+										</Button>
+								</div>
+							</div>
+						))}
+					</div>
+
+					{/* Desktop/Tablet table view */}
+					<div className="hidden sm:block overflow-x-auto">
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead className="text-xs sm:text-sm">Student</TableHead>
+									<TableHead className="text-xs sm:text-sm">Student ID</TableHead>
+									<TableHead className="text-xs sm:text-sm">Gender</TableHead>
+									<TableHead className="text-xs sm:text-sm">Status</TableHead>
 								</TableRow>
-							))}
-						</TableBody>
-					</Table>
-				</div>
+							</TableHeader>
+							<TableBody>
+								{students.map((student) => (
+									<TableRow key={student.id}>
+										<TableCell className="font-medium">
+											<div className="flex items-center space-x-2 sm:space-x-3">
+										{student.photo ? (
+											<img src={resolveMediaUrl(student.photo)} alt={student.name} className="h-6 w-6 sm:h-8 sm:w-8 rounded-full object-cover" />
+										) : (
+													<div className="h-6 w-6 sm:h-8 sm:w-8 rounded-full bg-[#6096ba] flex items-center justify-center text-white text-xs sm:text-sm font-medium">
+														{student.name.charAt(0).toUpperCase()}
+													</div>
+												)}
+												<span className="text-xs sm:text-sm truncate">{student.name}</span>
+											</div>
+										</TableCell>
+										<TableCell className="text-xs sm:text-sm">{student.student_id || student.student_code || 'Not Assigned'}</TableCell>
+										<TableCell className="text-xs sm:text-sm capitalize">{student.gender}</TableCell>
+										<TableCell>
+											<div className="flex flex-col sm:flex-row space-y-1 sm:space-y-0 sm:space-x-1">
+												<Button size="sm" variant={attendance[student.id] === 'present' ? 'default' : 'outline'}
+													className={`${attendance[student.id] === 'present' ? 'bg-green-600 hover:bg-green-700 text-white' : 'border-green-500 text-green-500 hover:bg-green-50'} text-xs px-2 py-1`}
+													onClick={() => handleAttendanceChange(student.id, 'present')} disabled={!isDateEditable()}>
+													<CheckCircle className="h-3 w-3 mr-1" />
+													<span className="hidden sm:inline">Present</span>
+													<span className="sm:hidden">P</span>
+												</Button>
+												<Button size="sm" variant={attendance[student.id] === 'absent' ? 'default' : 'outline'}
+													className={`${attendance[student.id] === 'absent' ? 'bg-red-600 hover:bg-red-700 text-white' : 'border-red-500 text-red-500 hover:bg-red-50'} text-xs px-2 py-1`}
+													onClick={() => handleAttendanceChange(student.id, 'absent')} disabled={!isDateEditable()}>
+													<XCircle className="h-3 w-3 mr-1" />
+													<span className="hidden sm:inline">Absent</span>
+													<span className="sm:hidden">A</span>
+												</Button>
+												<Button size="sm" variant={attendance[student.id] === 'leave' ? 'default' : 'outline'}
+													className={`${attendance[student.id] === 'leave' ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'border-blue-500 text-blue-500 hover:bg-blue-50'} text-xs px-2 py-1`}
+													onClick={() => handleAttendanceChange(student.id, 'leave')} disabled={!isDateEditable()}>
+													<Calendar className="h-3 w-3 mr-1" />
+													<span className="hidden sm:inline">Leave</span>
+													<span className="sm:hidden">L</span>
+												</Button>
+											</div>
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					</div>
+				</>
           )}
         </CardContent>
       </Card>

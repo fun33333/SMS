@@ -10,9 +10,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Users, Search, Edit, X, Mail, Calendar, Clock, Award } from "lucide-react"
-import { getAllCoordinators, getApiBaseUrl } from "@/lib/api"
+import { getAllCoordinators, getAllCampuses, getApiBaseUrl } from "@/lib/api"
 import { getCurrentUserRole, getCurrentUser } from "@/lib/permissions"
-import { DataTable, PaginationControls, LoadingState } from "@/components/shared"
+import { DataTable, LoadingState } from "@/components/shared"
 
 interface CoordinatorUser {
   id: number
@@ -40,6 +40,7 @@ export default function CoordinatorListPage() {
   const [loading, setLoading] = useState(true)
   const [userRole, setUserRole] = useState<string>("")
   const [userCampus, setUserCampus] = useState<string>("")
+  const [campusIdToName, setCampusIdToName] = useState<Record<string, string>>({})
   const [editingCoordinator, setEditingCoordinator] = useState<CoordinatorUser | null>(null)
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [editFormData, setEditFormData] = useState<any>({})
@@ -88,6 +89,22 @@ export default function CoordinatorListPage() {
       
       try {
         console.log('Loading coordinators - userRole:', userRole, 'userCampus:', userCampus)
+        // Ensure campus map loaded (id -> name) for robust comparison
+        if (Object.keys(campusIdToName).length === 0) {
+          try {
+            const campuses: any = await getAllCampuses()
+            const results = campuses?.results || campuses || []
+            const map: Record<string, string> = {}
+            results.forEach((c: any) => {
+              const id = String(c.id ?? c.campus_id ?? '').trim()
+              const name = c.campus_name || c.name || ''
+              if (id) map[id] = name
+            })
+            setCampusIdToName(map)
+          } catch (e) {
+            console.warn('Failed to load campuses for mapping (optional):', e)
+          }
+        }
         
         // Principal: Get coordinators from their campus only
         if (userRole === 'principal' && userCampus) {
@@ -101,33 +118,32 @@ export default function CoordinatorListPage() {
           console.log('Coordinators list:', coordinatorsList)
           
           // Filter coordinators by campus
+          const normalize = (val: any): { name: string; num?: string } => {
+            if (val === undefined || val === null) return { name: '' }
+            // If numeric id, map to name when possible
+            if (typeof val === 'number' || /^\d+$/.test(String(val))) {
+              const idStr = String(val)
+              const mapped = campusIdToName[idStr]
+              return { name: (mapped || idStr).toLowerCase(), num: idStr }
+            }
+            const s = String(val).toLowerCase()
+            const m = s.match(/(\d+)/)
+            return { name: s, num: m ? m[1] : undefined }
+          }
+
+          const userNorm = normalize(userCampus)
           const campusCoordinators = coordinatorsList.filter((coord: any) => {
-            const coordCampus = coord.campus?.campus_name || coord.campus
-            console.log(`Coordinator ${coord.full_name} campus: ${coordCampus}, Principal campus: ${userCampus}`)
-            
-            // Handle different campus formats
-            const coordCampusStr = String(coordCampus).toLowerCase()
-            const userCampusStr = String(userCampus).toLowerCase()
-            
-            // Check exact match
-            if (coordCampusStr === userCampusStr) {
-              console.log(`Exact match found: ${coordCampus} === ${userCampus}`)
-              return true
-            }
-            
-            // Check if coordinator campus is just a number and user campus contains that number
-            if (coordCampusStr === '6' && userCampusStr.includes('6')) {
-              console.log(`Number match found: ${coordCampus} in ${userCampus}`)
-              return true
-            }
-            
-            // Check if user campus is just a number and coordinator campus contains that number
-            if (userCampusStr === '6' && coordCampusStr.includes('6')) {
-              console.log(`Reverse number match found: ${userCampus} in ${coordCampus}`)
-              return true
-            }
-            
-            console.log(`No match: ${coordCampus} !== ${userCampus}`)
+            const raw = coord.campus?.campus_name || coord.campus
+            const coordNorm = normalize(raw)
+            console.log(`Coordinator ${coord.full_name} campus: ${raw}, normalized:`, coordNorm, 'Principal campus:', userCampus, 'normalized:', userNorm)
+
+            // Exact string match
+            if (coordNorm.name && coordNorm.name === userNorm.name) return true
+            // If both have numbers, compare the numbers
+            if (coordNorm.num && userNorm.num && coordNorm.num === userNorm.num) return true
+            // If only one has number, allow contains check
+            if (coordNorm.num && userNorm.name.includes(coordNorm.num)) return true
+            if (userNorm.num && coordNorm.name.includes(userNorm.num)) return true
             return false
           })
           
@@ -146,6 +162,7 @@ export default function CoordinatorListPage() {
               campus_name: coord.campus?.campus_name || coord.campus || userCampus,
               is_active: coord.is_currently_active !== false,
               level: coord.level?.name || (coord.level ? `Level ${coord.level}` : 'Not Assigned'),
+              shift: coord.shift || '',
               joining_date: coord.joining_date || 'Unknown'
             }
           })
@@ -316,7 +333,8 @@ export default function CoordinatorListPage() {
     {
       key: 'shift',
       label: 'Shift',
-      icon: <Clock className="w-4 h-4" />
+      icon: <Clock className="w-4 h-4" />,
+      render: (row: any) => row.shift
     },
     {
       key: 'joining_date',
@@ -326,7 +344,8 @@ export default function CoordinatorListPage() {
     {
       key: 'status',
       label: 'Status',
-      icon: <Users className="w-4 h-4" />
+      icon: <Users className="w-4 h-4" />,
+      render: (row: any) => row.status
     }
   ]
 
@@ -499,10 +518,34 @@ export default function CoordinatorListPage() {
             columns={columns}
             onView={(coordinator) => router.push(`/admin/coordinator/profile/${coordinator.id}`)}
             onEdit={(coordinator) => handleEdit(filtered.find(u => u.id === coordinator.id)!)}
+            onDelete={async (coordinator) => {
+              if (userRole !== 'principal') return;
+              if (!confirm('Are you sure you want to delete this coordinator?')) return;
+              try {
+                const baseUrl = getApiBaseUrl();
+                const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+                const res = await fetch(`${cleanBase}/api/coordinators/${coordinator.id}/`, {
+                  method: 'DELETE',
+                  headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('sis_access_token')}`,
+                  }
+                });
+                if (res.ok || res.status === 204) {
+                  alert('Coordinator deleted successfully.');
+                  window.location.reload();
+                } else {
+                  const msg = await res.text();
+                  alert(`Failed to delete: ${res.status} ${msg}`);
+                }
+              } catch (e) {
+                console.error('Delete coordinator error:', e);
+                alert('Error deleting coordinator');
+              }
+            }}
             isLoading={loading}
             emptyMessage="No coordinators found"
             allowEdit={userRole !== 'student'}
-            allowDelete={false}
+            allowDelete={userRole === 'principal'}
           />
           </>
         )}

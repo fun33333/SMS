@@ -355,7 +355,7 @@ function UploadArea({ existing, onFile }: { existing?: string | null, onFile: (d
         ) : (
           <div>
             <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V8a2 0 012-2h6a2 0 012 2v8m-6-4l-3 3m6-3l3 3" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V8a2 2 0 012-2h6a2 2 0 012 2v8m-6-4l-3 3m6-3l3 3" />
             </svg>
             <p className="mt-2 font-medium">Upload campus photo</p>
             <p className="mt-1 text-sm text-gray-500">PNG, JPG or GIF. Click to choose or drag and drop here.</p>
