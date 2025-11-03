@@ -84,40 +84,21 @@ export function DataTable<T extends { id: number }>({
               overflow: 'hidden'
             }}
           >
-            {/* Horizontal Scrollable Content - All Columns in One Row */}
-            <div 
-              className="overflow-x-auto relative"
-              style={{ 
-                WebkitOverflowScrolling: 'touch',
-                scrollbarWidth: 'thin',
-                scrollbarColor: '#cbd5e1 transparent'
-              }}
-            >
-              <div className="flex" style={{ minWidth: 'max-content' }}>
-                {columns.map((column) => (
-                  <div 
-                    key={column.key} 
-                    className="flex-shrink-0 border-r border-gray-100 last:border-r-0"
-                    style={{ 
-                      minWidth: 'calc(100vw - 1rem)', 
-                      width: 'calc(100vw - 1rem)',
-                      padding: '1rem 0.875rem'
-                    }}
-                  >
-                    <div className="space-y-2">
-                      <div className="text-xs sm:text-sm font-bold text-gray-600 uppercase tracking-wide mb-1.5">
-                        {column.label}:
-                      </div>
-                      <div className="text-sm sm:text-base text-gray-900 break-words leading-relaxed" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-                        {column.render
-                          ? column.render(item)
-                          : String(item[column.key as keyof T] || '-')
-                        }
-                      </div>
-                    </div>
+            {/* Mobile: Stack columns; make content vertically scrollable within card */}
+            <div className="p-3 space-y-3 max-h-60 overflow-y-auto pr-2" style={{ WebkitOverflowScrolling: 'touch' }}>
+              {columns.map((column) => (
+                <div key={column.key} className="rounded-md border border-gray-100 p-3">
+                  <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-1">
+                    {column.label}
                   </div>
-                ))}
-              </div>
+                  <div className="text-sm text-gray-900 leading-relaxed break-words" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                    {column.render
+                      ? column.render(item)
+                      : String(item[column.key as keyof T] || '-')
+                    }
+                  </div>
+                </div>
+              ))}
             </div>
 
             {/* Fixed Action Buttons */}
