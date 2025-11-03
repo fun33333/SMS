@@ -178,7 +178,7 @@ export function CoordinatorForm({
           console.error('Fetch error:', fetchError);
           toast({
             title: "Connection Error",
-            description: "Cannot connect to backend server. Please make sure the backend is running on port 8000.",
+            description: "Cannot connect to backend server. Please make sure you are connected to the internet.",
             variant: "destructive"
           });
         }
