@@ -13,10 +13,22 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 from datetime import timedelta
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load environment variables from .env (if present) so os.getenv() picks them up
+# Uses python-dotenv which should be installed in the environment / requirements
+try:
+    from dotenv import load_dotenv
+    # BASE_DIR is the project root (d:/AIT/sis/backend). Look for .env there.
+    load_dotenv(BASE_DIR / '.env')
+except Exception:
+    # If python-dotenv is not installed, we'll silently continue and rely on OS env vars.
+    pass
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -51,10 +63,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_filters',
     'graphene_django',
-    # 'graphql_jwt.refresh_token.apps.RefreshTokenConfig',  # Commented out for Django 5.0 compatibility
-    # 'graphql_auth',  # Commented out for Django 5.0 compatibility
     'django_cleanup.apps.CleanupConfig',
-    # 'subjects',
     'classes.apps.ClassesConfig', 
     'coordinator',
     'attendance',
