@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Save, RefreshCw, Edit3, History, Eraser, Send, Clock3, Bell, Eye, ChevronDown, EyeOff, X } from "lucide-react";
-import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
+import { Calendar, Users, CheckCircle, XCircle, AlertCircle, Save, RefreshCw, Edit3, History, Eraser, Clock3, Bell, Eye, EyeOff, X } from "lucide-react";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import { getCurrentUserRole } from "@/lib/permissions";
-import { getCurrentUserProfile, getClassStudents, markBulkAttendance, getAttendanceHistory, getAttendanceForDate, editAttendance, submitAttendance, getBackfillPermissions, finalizeAttendance, reviewAttendance, coordinatorApproveAttendance, getApiBaseUrl } from "@/lib/api";
+import { getCurrentUserProfile, getClassStudents, markBulkAttendance, getAttendanceHistory, getAttendanceForDate, editAttendance, submitAttendance, getBackfillPermissions, finalizeAttendance, coordinatorApproveAttendance, getApiBaseUrl } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
 
 

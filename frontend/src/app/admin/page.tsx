@@ -15,6 +15,7 @@ import { ZakatStatusChart } from "@/components/dashboard/zakat-status-chart"
 import { HouseOwnershipChart } from "@/components/dashboard/house-ownership-chart"
 import { UserGreeting } from "@/components/dashboard/user-greeting"
 import { Users, GraduationCap, UsersRound, RefreshCcw, EllipsisVertical } from "lucide-react"
+import { Skeleton, CardSkeleton } from "@/components/ui/skeleton"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { getGradeDistribution, getGenderDistribution, getEnrollmentTrend, getMotherTongueDistribution, getReligionDistribution, getAgeDistribution, getZakatStatusDistribution, getHouseOwnershipDistribution } from "@/lib/chart-utils"
 import type { FilterState, LegacyStudent as DashboardStudent } from "@/types/dashboard"
@@ -167,9 +168,9 @@ export default function MainDashboardPage() {
       .print-meta { font-size: 12px; opacity: .9; }
       .filters-bar { margin: 8px 0 14px; display:flex; flex-wrap:wrap; gap:6px; }
       .filters-bar .tag { display:inline-block; background:#eef2ff; border:1px solid #c7d2fe; color:#1e3a8a; padding:4px 8px; border-radius:9999px; font-size:12px; font-weight:600; }
-      .two-col-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .two-col-grid .grid-item { break-inside: avoid; }
-      .two-col-grid .span-2 { grid-column: span 2; }
+      .two-col-grid { display: grid; grid-template-columns: 1fr !important; gap: 16px; }
+      .two-col-grid .grid-item { break-inside: avoid; grid-column: 1 / -1; }
+      .two-col-grid .span-2 { grid-column: 1 / -1; }
       .chart-summary { margin-top: 8px; }
       .chart-summary .caption { font-weight: 700; color: #274c77; margin-bottom: 6px; }
       .chart-summary table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
@@ -272,9 +273,9 @@ export default function MainDashboardPage() {
       .no-print { display: none !important; }
       .filters-bar { margin: 8px 0 14px; display:flex; flex-wrap:wrap; gap:6px; }
       .filters-bar .tag { display:inline-block; background:#eef2ff; border:1px solid #c7d2fe; color:#1e3a8a; padding:4px 8px; border-radius:9999px; font-size:12px; font-weight:600; }
-      .two-col-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .two-col-grid .grid-item { break-inside: avoid; }
-      .two-col-grid .span-2 { grid-column: span 2; }
+      .two-col-grid { display: grid; grid-template-columns: 1fr !important; gap: 16px; }
+      .two-col-grid .grid-item { break-inside: avoid; grid-column: 1 / -1; }
+      .two-col-grid .span-2 { grid-column: 1 / -1; }
       .chart-summary { margin-top: 8px; }
       .chart-summary .caption { font-weight: 700; color: #274c77; margin-bottom: 6px; }
       .chart-summary table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
@@ -397,8 +398,9 @@ export default function MainDashboardPage() {
   const [showLoader, setShowLoader] = useState(true)
   const [principalCampusId, setPrincipalCampusId] = useState<number | null>(null)
   const [cacheTimestamp, setCacheTimestamp] = useState<number>(0)
-  const [totalStudentsCount, setTotalStudentsCount] = useState<number>(0) // From API stats (for reference)
-  const [teachersCount, setTeachersCount] = useState<number>(0) // Total teachers count
+  const [totalStudentsCount, setTotalStudentsCount] = useState<number>(0) 
+  const [teachersCount, setTeachersCount] = useState<number>(0) 
+  const [teachers, setTeachers] = useState<any[]>([]) 
   const [weeklyAttendanceData, setWeeklyAttendanceData] = useState<any[]>([]) // Weekly attendance data
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false) // Refresh state
   const [shiftFilter, setShiftFilter] = useState<string>("all");
@@ -429,14 +431,15 @@ export default function MainDashboardPage() {
         try {
           const q = shiftFilter && shiftFilter !== 'all' ? `?shift=${encodeURIComponent(shiftFilter)}` : ''
           const teachersResponse: any = await apiGet(`/api/teachers/${q}`)
-          if (teachersResponse && Array.isArray(teachersResponse)) {
-            setTeachersCount(teachersResponse.length)
-          } else if (teachersResponse?.results && Array.isArray(teachersResponse.results)) {
-            setTeachersCount(teachersResponse.results.length)
-          }
+          const list = Array.isArray(teachersResponse)
+            ? teachersResponse
+            : (Array.isArray(teachersResponse?.results) ? teachersResponse.results : [])
+          setTeachers(list)
+          setTeachersCount(list.length)
         } catch (error) {
           console.error('Error fetching teachers:', error)
           setTeachersCount(0)
+          setTeachers([])
         }
 
         // Fetch weekly attendance data (last 7 days)
@@ -762,9 +765,30 @@ export default function MainDashboardPage() {
     })
   }, [filters, students])
 
+  // Filter teachers according to current filters so KPI reacts like charts
+  const filteredTeachersCount = useMemo(() => {
+    if (!teachers || teachers.length === 0) return 0
+    return teachers.filter((t: any) => {
+      // Campus filter
+      if (filters.campuses.length > 0) {
+        const tc = t?.campus
+        const teacherCampus = typeof tc === 'object' && tc
+          ? (tc.campus_name || tc.name || tc.campus_code || tc.code || '').toString().trim()
+          : (tc || '').toString().trim()
+        if (!filters.campuses.includes(teacherCampus)) return false
+      }
+      // Gender filter (if teacher has gender field)
+      if (filters.genders.length > 0) {
+        const tg = (t?.gender || '').toString()
+        if (!filters.genders.includes(tg)) return false
+      }
+      return true
+    }).length
+  }, [teachers, filters])
+
   const metrics = useMemo(() => {
-    // Use filtered students count to respect user's filter selections
-    const totalStudents = totalStudentsCount || filteredStudents.length
+    const totalStudents = filteredStudents.length
+    const teachersVisible = filteredTeachersCount
     
     // Calculate real attendance from weekly data (average of present students)
     const averageAttendance = weeklyAttendanceData.length > 0 
@@ -772,19 +796,19 @@ export default function MainDashboardPage() {
       : 0
     
     // Teacher:Student ratio based on filtered students
-    const teacherStudentRatio = teachersCount > 0 ? Math.round(totalStudents / teachersCount) : 0
+    const teacherStudentRatio = teachersVisible > 0 ? Math.round(totalStudents / teachersVisible) : 0
     
     // console.log('📊 Metrics calculated')
     
     return { 
       totalStudents, 
       averageAttendance, 
-      teachersCount,
+      teachersCount: teachersVisible,
       teacherStudentRatio,
       averageScore: 0, // Removed
       retentionRate: 0 // Removed
     }
-  }, [totalStudentsCount, filteredStudents.length, teachersCount, weeklyAttendanceData])
+  }, [totalStudentsCount, filteredStudents.length, filteredTeachersCount, weeklyAttendanceData])
 
   // Campus performance data - use filtered students
   const campusPerformanceData = useMemo(() => {
@@ -965,15 +989,17 @@ export default function MainDashboardPage() {
     try {
       // Fetch teachers count and weekly attendance data
       try {
-        const teachersResponse: any = await apiGet('/api/teachers/')
-        if (teachersResponse && Array.isArray(teachersResponse)) {
-          setTeachersCount(teachersResponse.length)
-        } else if (teachersResponse?.results && Array.isArray(teachersResponse.results)) {
-          setTeachersCount(teachersResponse.results.length)
-        }
+        const q = shiftFilter && shiftFilter !== 'all' ? `?shift=${encodeURIComponent(shiftFilter)}` : ''
+        const teachersResponse: any = await apiGet(`/api/teachers/${q}`)
+        const list = Array.isArray(teachersResponse)
+          ? teachersResponse
+          : (Array.isArray(teachersResponse?.results) ? teachersResponse.results : [])
+        setTeachers(list)
+        setTeachersCount(list.length)
       } catch (error) {
         console.error('Error fetching teachers:', error)
         setTeachersCount(0)
+        setTeachers([])
       }
 
       // Fetch weekly attendance data (last 7 days)
@@ -1226,24 +1252,60 @@ export default function MainDashboardPage() {
 
   if (loading || showLoader) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-100 via-white to-blue-300 rounded-3xl shadow-xl">
-        <div className="flex flex-col items-center gap-6">
-          <div className="relative">
-            <div className="w-24 h-24 rounded-full border-8 border-blue-400 border-t-transparent animate-spin" style={{ borderTopColor: '#FFD700' }}></div>
-            <img
-              src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT0rDiT9it7r-r__abYbK7u5UQ1av9CoxaChw&s"
-              alt="VIP Donor"
-              className="w-16 h-16 rounded-full border-4 border-yellow-400 shadow-lg absolute top-4 left-4"
-              style={{ boxShadow: '0 4px 16px 0 rgba(0, 110, 244, 0.4)' }}
-            />
+      <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-4 md:p-6 lg:p-8">
+        <div className="max-w-7xl mx-auto">
+          {/* Greeting */}
+          <div className="mb-6">
+              <div className="rounded-2xl bg-white/60 backdrop-blur border border-gray-200 p-5 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <Skeleton className="h-6 w-full sm:w-48" />
+                <Skeleton className="h-8 w-full sm:w-24" />
+              </div>
+            </div>
           </div>
-          <div className="text-center">
-            <h2 className="text-2xl font-bold text-blue-900 mb-2 tracking-tight">Welcome to the VIP Dashboard</h2>
-            <p className="text-lg text-blue-700 font-medium">Loading student data...</p>
-            <span className="block mt-2 text-sm text-yellow-700 font-semibold">Powered by Idara Al-Khair Foundation</span>
+
+          {/* Filters */}
+          <div className="mb-6 rounded-2xl bg-[#E7ECEF] p-4 shadow-lg">
+            <div className="flex flex-wrap gap-3">
+              <Skeleton className="h-10 w-full sm:w-36" />
+              <Skeleton className="h-10 w-full sm:w-40" />
+              <Skeleton className="h-10 w-full sm:w-32" />
+              <Skeleton className="h-10 w-full sm:w-36" />
+              <Skeleton className="h-10 w-full sm:w-40" />
+              <Skeleton className="h-10 w-full sm:w-32" />
+            </div>
+          </div>
+
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mt-8">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="rounded-xl bg-white p-5 shadow-sm border">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 gap-2">
+                  <Skeleton className="h-4 w-full sm:w-24" />
+                  <Skeleton className="h-10 w-10 rounded-lg" />
+                </div>
+                <Skeleton className="h-8 w-full sm:w-28 mb-2" />
+                <Skeleton className="h-3 w-full sm:w-40" />
+              </div>
+            ))}
+          </div>
+
+          {/* Charts rows */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mt-8">
+            <CardSkeleton />
+            <CardSkeleton />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mt-8">
+            <CardSkeleton />
+            <CardSkeleton />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:gap-6 mt-8">
+            <CardSkeleton />
           </div>
         </div>
-      </div>
+      </main>
     )
   }
 
