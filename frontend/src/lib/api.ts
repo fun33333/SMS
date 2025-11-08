@@ -60,6 +60,7 @@ const getEndpoints = () => ({
   CLASSROOM_STUDENTS: `${_a}/${_at}/class/${_id}/${_s}/`,
   AVAILABLE_STUDENTS: `${_a}/${_at}/class/${_id}/${_av}-${_s}/`,
   CURRENT_USER_PROFILE: `${_a}/${_cu}/`,
+  CHECK_EMAIL: `${_a}/users/check-email/`,
   // Behaviour
   BEHAVIOUR_CREATE: `/api/behaviour/record/`,
   BEHAVIOUR_STUDENT: (id: number | string) => `/api/behaviour/student/${id}/`,
@@ -957,6 +958,24 @@ export async function getCurrentUserProfile() {
   } catch (error) {
     console.error('Failed to fetch current user profile:', error);
     return null;
+  }
+}
+
+export async function checkEmailExists(email: string): Promise<boolean> {
+  try {
+    const base = getApiBaseUrl()
+    const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base
+    const url = `${cleanBase}${API_ENDPOINTS.CHECK_EMAIL}?email=${encodeURIComponent(email)}`
+    const res = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('sis_access_token') || ''}`
+      }
+    })
+    if (!res.ok) return false
+    const data = await res.json()
+    return Boolean(data?.exists)
+  } catch {
+    return false
   }
 }
 

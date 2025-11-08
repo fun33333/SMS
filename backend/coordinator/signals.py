@@ -1,9 +1,28 @@
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
+from .models import Coordinator
+from users.models import User
+
+
+@receiver(post_delete, sender=Coordinator)
+def delete_user_when_coordinator_deleted(sender, instance: Coordinator, **kwargs):
+    """Ensure associated auth user is removed when a coordinator record is deleted.
+    We match by email first, then by username (employee_code) if present.
+    """
+    # Delete by email
+    if instance.email:
+        User.objects.filter(email__iexact=instance.email).delete()
+    # Delete by employee_code as username
+    if instance.employee_code:
+        User.objects.filter(username=instance.employee_code).delete()
+
 from django.db.models.signals import post_save, m2m_changed
 from django.dispatch import receiver
 from coordinator.models import Coordinator
 from teachers.models import Teacher
 from classes.models import Grade
 from services.user_creation_service import UserCreationService
+from notifications.services import create_notification
 
 @receiver(post_save, sender=Coordinator)
 def create_coordinator_user(sender, instance, created, **kwargs):
@@ -24,6 +43,14 @@ def create_coordinator_user(sender, instance, created, **kwargs):
             from users.models import User
             if User.objects.filter(email=instance.email).exists():
                 print(f"User already exists for coordinator {instance.full_name}")
+                try:
+                    existing_user = User.objects.filter(email=instance.email).first()
+                    campus_name = instance.campus.campus_name if instance.campus else ''
+                    verb = "You have been added as a Coordinator"
+                    target_text = f"at {campus_name}" if campus_name else ""
+                    create_notification(recipient=existing_user, actor=None, verb=verb, target_text=target_text, data={"coordinator_id": instance.id})
+                except Exception:
+                    pass
                 return
             
             user, message = UserCreationService.create_user_from_entity(instance, 'coordinator')
@@ -31,6 +58,13 @@ def create_coordinator_user(sender, instance, created, **kwargs):
                 print(f"Failed to create user for coordinator {instance.id}: {message}")
             else:
                 print(f"✅ Created user for coordinator: {instance.full_name} ({instance.employee_code})")
+                try:
+                    campus_name = instance.campus.campus_name if instance.campus else ''
+                    verb = "You have been added as a Coordinator"
+                    target_text = f"at {campus_name}" if campus_name else ""
+                    create_notification(recipient=user, actor=None, verb=verb, target_text=target_text, data={"coordinator_id": instance.id})
+                except Exception:
+                    pass
         except Exception as e:
             print(f"Error creating user for coordinator {instance.id}: {str(e)}")
 
@@ -122,7 +156,19 @@ def on_assigned_levels_changed(sender, instance, action, reverse, model, pk_set,
         # If the coordinator doesn't yet have a user/employee code because we deferred on create,
         # attempt to create the user now that levels are available
         try:
-            if not getattr(instance, 'employee_code', None):
+            # Create user if there's not already a matching user by email or username.
+            # Rationale: when Coordinator with shift 'both' is created DRF saves the model first
+            # (employee_code gets generated) and assigned_levels are set after via M2M. The
+            # post_save handler defers creation and relies on this m2m_changed handler to
+            # finish user creation. We must not skip creation just because employee_code exists.
+            from users.models import User
+            user_exists = False
+            if instance.email:
+                user_exists = User.objects.filter(email__iexact=instance.email).exists()
+            if not user_exists and instance.employee_code:
+                user_exists = User.objects.filter(username=instance.employee_code).exists()
+
+            if not user_exists:
                 user, message = UserCreationService.create_user_from_entity(instance, 'coordinator')
                 if not user:
                     print(f"Failed to create user after levels set for coordinator {instance.id}: {message}")

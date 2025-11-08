@@ -14,13 +14,17 @@ interface AdminSidebarProps {
 }
 
 export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps) {
-  // For smooth text appearance after sidebar opens
   const [showText, setShowText] = useState(sidebarOpen);
   const [isMobile, setIsMobile] = useState(false);
   const [isTablet, setIsTablet] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(false);
   const OPEN_DURATION_MS = 700;
   const CLOSE_DURATION_MS = 1200;
+
+  // Helper to auto-close sidebar on mobile/tablet
+  const autoCloseSidebar = () => {
+    if (isMobile || isTablet) setSidebarOpen(false);
+  };
   
   // Responsive behavior - close sidebar on tablet/mobile
   useEffect(() => {
@@ -451,8 +455,9 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
 
             return (
               <div key={item.key}>
-                <Link href={item.href}>
-                  <button
+                <Link
+                    href={item.href}
+                    onClick={autoCloseSidebar}
                     className={`w-full flex ${sidebarOpen ? "items-center gap-3 px-4 py-3" : "justify-center items-center p-0"} rounded-xl font-semibold shadow-lg transition-all duration-500 ${isActive ? "bg-[#6096ba] text-[#e7ecef] shadow-xl" : "text-[#274c77] hover:bg-[#a3cef1]"}`}
                     style={{
                       backdropFilter: "blur(4px)",
@@ -491,8 +496,7 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
                         </svg>
                       ) : null}
                     </span>
-                  </button>
-                </Link>
+                  </Link>
 
                 {sidebarOpen && hasSubItems && (
                   <div
@@ -501,10 +505,13 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
                     aria-hidden={!isActive}
                   >
                     {item.subItems.map((subItem, index) => (
-                      <Link key={index} href={subItem.href}>
-                        <button className="block w-full text-left px-3 py-2 rounded-lg hover:bg-[#6096ba]/20 text-[#274c77] font-medium transition-all duration-300">
+                      <Link
+                          key={index}
+                          href={subItem.href}
+                          onClick={autoCloseSidebar}
+                          className="block w-full text-left px-3 py-2 rounded-lg hover:bg-[#6096ba]/20 text-[#274c77] font-medium transition-all duration-300"
+                        >
                           {subItem.title}
-                        </button>
                       </Link>
                     ))}
                   </div>

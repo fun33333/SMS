@@ -32,11 +32,36 @@ class CoordinatorFilter(django_filters.FilterSet):
         help_text="Coordinators who joined before this date"
     )
     
+    # Shift filter
+    shift = django_filters.ChoiceFilter(
+        choices=[
+            ('morning', 'Morning'),
+            ('afternoon', 'Afternoon'),
+            ('both', 'Both')
+        ],
+        method='filter_by_shift',
+        help_text="Filter by coordinator shift"
+    )
+    
     # Search functionality
     search = django_filters.CharFilter(
         method='filter_search',
         help_text="Search in name, employee_code, email"
     )
+    
+    def filter_by_shift(self, queryset, name, value):
+        """Custom filter method for shift"""
+        if not value:
+            return queryset
+            
+        if value == 'both':
+            return queryset.filter(assigned_levels__isnull=False).distinct()
+        else:
+            # For morning/afternoon, include both single shift and 'both' shift coordinators
+            return queryset.filter(
+                Q(level__shift=value) |  # Single shift coordinators
+                Q(assigned_levels__isnull=False)  # Both shift coordinators
+            ).distinct()
     
     def filter_search(self, queryset, name, value):
         """Custom search method for multiple fields"""

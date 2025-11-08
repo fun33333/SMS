@@ -83,8 +83,12 @@ class Coordinator(models.Model):
                 
                 # Generate employee code using IDGenerator
                 from utils.id_generator import IDGenerator
+                # Choose appropriate shift for employee code generation.
+                # If coordinator manages both shifts, prefer 'morning' as the canonical
+                # code generator input (legacy behaviour). Otherwise use the specific shift.
+                shift_for_code = self.shift if self.shift in ('morning', 'afternoon') else 'morning'
                 self.employee_code = IDGenerator.generate_unique_employee_code(
-                    self.campus, 'morning', year, 'coordinator'
+                    self.campus, shift_for_code, year, 'coordinator'
                 )
             except Exception as e:
                 print(f"Error generating employee code: {str(e)}")

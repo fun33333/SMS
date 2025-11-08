@@ -21,12 +21,27 @@ interface CoordinatorPreviewProps {
 export function CoordinatorPreview({ formData, onEdit, onSubmit, onCancel, isEdit, campuses = [], levels = [], isSubmitting = false }: CoordinatorPreviewProps) {
   // Get campus and level names
   const campusName = campuses.find(c => c.id === parseInt(formData.campus))?.campus_name || 'Not provided';
-  const levelName = levels.find(l => l.id === parseInt(formData.level))?.name || 'Not provided';
+  let levelName = 'Not provided';
+  if (formData.shift === 'both') {
+    const selectedIds: number[] = Array.isArray(formData.assigned_levels) ? formData.assigned_levels.map((x: any) => parseInt(x)) : []
+    const selectedLevels = levels.filter((l: any) => selectedIds.includes(l.id))
+    if (selectedLevels.length > 0) {
+      levelName = selectedLevels
+        .map((l: any) => {
+          const shiftLabel = (l.shift_display || (l.shift || '')).toString()
+          const code = l.code ? ` ${l.code}` : ''
+          return `${l.name} (${shiftLabel})${code ? ` • ${l.code}` : ''}`
+        })
+        .join(', ')
+    }
+  } else {
+    levelName = levels.find(l => l.id === parseInt(formData.level))?.name || 'Not provided';
+  }
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="max-w-4xl mx-auto p-4 sm:p-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
             <CheckCircle className="h-5 w-5 text-green-500" />
             {isEdit ? 'Edit Coordinator - Preview' : 'Add Coordinator - Preview'}
           </CardTitle>
@@ -141,13 +156,13 @@ export function CoordinatorPreview({ formData, onEdit, onSubmit, onCancel, isEdi
           </div>
 
           {/* Actions */}
-          <div className="flex justify-between pt-6 border-t">
-            <div className="flex space-x-4">
+          <div className="flex flex-col sm:flex-row justify-between gap-3 pt-6 border-t flex-wrap">
+            <div className="flex gap-3 w-full sm:w-auto min-w-0">
               <Button
                 type="button"
                 variant="outline"
                 onClick={onEdit}
-                className="flex items-center gap-2"
+                className="w-full sm:w-auto flex items-center gap-2"
               >
                 <Edit className="h-4 w-4" />
                 Edit
@@ -156,7 +171,7 @@ export function CoordinatorPreview({ formData, onEdit, onSubmit, onCancel, isEdi
                 type="button"
                 variant="outline"
                 onClick={onCancel}
-                className="flex items-center gap-2"
+                className="w-full sm:w-auto flex items-center gap-2 whitespace-nowrap"
               >
                 <X className="h-4 w-4" />
                 Cancel
@@ -166,7 +181,7 @@ export function CoordinatorPreview({ formData, onEdit, onSubmit, onCancel, isEdi
             <Button
               type="button"
               onClick={onSubmit}
-              className="flex items-center gap-2"
+              className="w-full sm:w-auto flex items-center gap-2 whitespace-nowrap"
               disabled={isSubmitting}
             >
               {isSubmitting ? (

@@ -4,6 +4,8 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Building2, GraduationCap, School, Users } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
 import { getCurrentUserProfile } from "@/lib/api"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import LevelManagement from "@/components/campus-management/level-management"
@@ -51,19 +53,19 @@ export default function CampusManagementPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start sm:items-center justify-between gap-3 flex-col sm:flex-row">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2" style={{ color: '#1976D2' }}>
-            <Building2 className="h-8 w-8" style={{ color: '#1976D2' }} />
+          <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2" style={{ color: '#1976D2' }}>
+            <Building2 className="h-7 w-7 sm:h-8 sm:w-8" style={{ color: '#1976D2' }} />
             Campus Management
           </h1>
-          <p className="text-gray-600 mt-1">
+          <p className="text-gray-600 mt-1 text-sm sm:text-base">
             Manage your campus structure: Levels, Grades, and Classrooms
           </p>
           {userProfile?.campus_name && (
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-xs sm:text-sm text-gray-500 mt-1">
               Campus: <span className="font-semibold">{userProfile.campus_name}</span>
             </p>
           )}
@@ -72,12 +74,13 @@ export default function CampusManagementPage() {
 
       {/* Management Tabs */}
       <Card className="border-0 shadow-lg">
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-6">
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
-            <TabsList className="grid w-full grid-cols-3 mb-6 bg-gray-100">
+            <div className="overflow-x-auto -mx-4 sm:mx-0 pb-2">
+              <TabsList className="hidden sm:grid w-full grid-cols-3 mb-4 sm:mb-6 bg-gray-100">
               <TabsTrigger 
                 value="levels" 
-                className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm"
+                className="flex items-center gap-2 text-sm sm:text-base data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm"
                 style={{ 
                   backgroundColor: activeTab === 'levels' ? 'white' : 'transparent',
                   color: activeTab === 'levels' ? '#1976D2' : '#6B7280'
@@ -88,7 +91,7 @@ export default function CampusManagementPage() {
               </TabsTrigger>
               <TabsTrigger 
                 value="grades" 
-                className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm"
+                className="flex items-center gap-2 text-sm sm:text-base data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm"
                 style={{ 
                   backgroundColor: activeTab === 'grades' ? 'white' : 'transparent',
                   color: activeTab === 'grades' ? '#1976D2' : '#6B7280'
@@ -99,7 +102,7 @@ export default function CampusManagementPage() {
               </TabsTrigger>
               <TabsTrigger 
                 value="classrooms" 
-                className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm"
+                className="flex items-center gap-2 text-sm sm:text-base data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm"
                 style={{ 
                   backgroundColor: activeTab === 'classrooms' ? 'white' : 'transparent',
                   color: activeTab === 'classrooms' ? '#1976D2' : '#6B7280'
@@ -108,7 +111,23 @@ export default function CampusManagementPage() {
                 <Users className="h-4 w-4" style={{ color: activeTab === 'classrooms' ? '#1976D2' : '#6B7280' }} />
                 Classrooms
               </TabsTrigger>
-            </TabsList>
+              </TabsList>
+            </div>
+
+            {/* Mobile: Dropdown instead of tabs */}
+            <div className="sm:hidden mb-4">
+              <Label className="sr-only">Section</Label>
+              <Select value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select section" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="levels">Levels</SelectItem>
+                  <SelectItem value="grades">Grades</SelectItem>
+                  <SelectItem value="classrooms">Classrooms</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             
             <TabsContent value="levels" className="mt-6">
               <LevelManagement campusId={userProfile?.campus_id} />

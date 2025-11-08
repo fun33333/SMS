@@ -12,7 +12,7 @@ import { ExperienceStep } from "./teacher-form/experience-step"
 import { TeacherPreview } from "./teacher-form/teacher-preview"
 import { useToast } from "@/hooks/use-toast"
 import { toast as sonnerToast } from "sonner"
-import { getAllCampuses, getClassrooms } from "@/lib/api"
+import { getAllCampuses, getClassrooms, checkEmailExists } from "@/lib/api"
 import { useFormErrorHandler } from "@/hooks/use-error-handler"
 import { ErrorDisplay } from "@/components/ui/error-display"
 import { getApiBaseUrl } from "@/lib/api"
@@ -205,6 +205,19 @@ export function TeacherForm() {
           variant: "destructive"
         })
         return
+      }
+
+      // Duplicate email check (global)
+      if (formData.email) {
+        const exists = await checkEmailExists(formData.email)
+        if (exists) {
+          toast({
+            title: "Email already exists",
+            description: "This email is already registered with another user.",
+            variant: "destructive"
+          })
+          return
+        }
       }
 
       // Force validation of email and CNIC before proceeding

@@ -5,6 +5,7 @@ from .views import (
     UserLoginView,
     UserProfileView,
     UserListView,
+    check_email_exists,
     # refresh_token_view,
     # logout_view,
     current_user_profile,
@@ -28,6 +29,7 @@ urlpatterns = [
     path('profile/', UserProfileView.as_view(), name='user_profile'),
     path('current-user/', current_user_profile, name='current_user_profile'),
     path('users/', UserListView.as_view(), name='user_list'),
+    path('users/check-email/', check_email_exists, name='check_email_exists'),
     
     # Password change OTP endpoints
     path('check-password-change-required/', check_password_change_required, name='check_password_change_required'),

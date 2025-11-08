@@ -50,6 +50,7 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
   const [formData, setFormData] = useState({ name: '', level: '' })
   const [saving, setSaving] = useState(false)
   const [selectedLevel, setSelectedLevel] = useState<string>('all')
+  const [mobileOpen, setMobileOpen] = useState(false)
   
   // Get campus ID from localStorage if not provided
   const userCampusId = campusId || getUserCampusId()
@@ -145,17 +146,17 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-start sm:items-center gap-3 flex-col sm:flex-row">
         <div>
-          <h2 className="text-xl font-semibold" style={{ color: '#1976D2' }}>Manage Grades</h2>
-          <p className="text-sm text-gray-600">
+          <h2 className="text-lg sm:text-xl font-semibold" style={{ color: '#1976D2' }}>Manage Grades</h2>
+          <p className="text-xs sm:text-sm text-gray-600">
             Create and manage grades for each level
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full sm:w-auto">
           <Button 
             onClick={handleCreate} 
-            className="flex items-center gap-2"
+            className="w-full sm:w-auto flex items-center justify-center gap-2"
             style={{ backgroundColor: '#2196F3', color: 'white' }}
           >
             <Plus className="h-4 w-4" />
@@ -164,11 +165,18 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
         </div>
       </div>
 
+      {/* Mobile collapse toggle */}
+      <div className="sm:hidden">
+        <Button variant="outline" onClick={() => setMobileOpen(!mobileOpen)} className="w-full">
+          {mobileOpen ? 'Hide List' : 'Show List'}
+        </Button>
+      </div>
+
       {/* Level Filter */}
-      <div className="flex items-center gap-4 bg-gray-50 p-4 rounded-lg">
-        <Label className="font-semibold">Filter by Level:</Label>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 bg-gray-50 p-3 sm:p-4 rounded-lg">
+        <Label className="font-semibold text-sm">Filter by Level:</Label>
         <Select value={selectedLevel} onValueChange={setSelectedLevel}>
-          <SelectTrigger className="w-[200px]">
+          <SelectTrigger className="w-full sm:w-[200px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -180,8 +188,8 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
             ))}
           </SelectContent>
         </Select>
-        <div className="ml-2 inline-flex items-center">
-          <span className="px-3 py-1 rounded-full text-sm font-medium" style={{ backgroundColor: '#E3F2FD', color: '#1976D2' }}>
+        <div className="sm:ml-2 inline-flex items-center">
+          <span className="px-3 py-1 rounded-full text-xs sm:text-sm font-medium" style={{ backgroundColor: '#E3F2FD', color: '#1976D2' }}>
             Total: {grades.length}
           </span>
         </div>
@@ -209,7 +217,33 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
           )}
         </div>
       ) : (
-        <Table>
+        <>
+        {/* Mobile cards */}
+        <div className={(mobileOpen ? 'grid' : 'hidden') + ' sm:hidden grid-cols-1 gap-3'}>
+          {grades.map((grade) => (
+            <div key={grade.id} className="rounded-lg border p-4 shadow-sm bg-white">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-base font-semibold">{grade.name}</div>
+                  <div className="text-xs text-gray-500">{grade.level_name}</div>
+                </div>
+                <span className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">{grade.code}</span>
+              </div>
+              <div className="mt-3 flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => handleEdit(grade)} className="text-gray-700 hover:text-gray-900">
+                  <Edit className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => handleDelete(grade)} className="text-red-600 hover:text-red-800">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop table */}
+        <div className={(mobileOpen ? 'hidden' : 'hidden') + ' sm:block overflow-x-auto -mx-4 sm:mx-0'}>
+        <Table className="min-w-[640px] sm:min-w-0">
           <TableHeader>
             <TableRow style={{ backgroundColor: '#1976D2' }}>
               <TableHead className="text-white font-semibold">Grade Name</TableHead>
@@ -223,7 +257,7 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
               <TableRow key={grade.id}>
                 <TableCell className="font-medium">{grade.name}</TableCell>
                 <TableCell>
-                  <span className="px-2 py-1 bg-gray-100 rounded text-sm font-mono">
+                  <span className="px-2 py-1 bg-gray-100 rounded text-xs sm:text-sm font-mono">
                     {grade.code}
                   </span>
                 </TableCell>
@@ -252,6 +286,8 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
             ))}
           </TableBody>
         </Table>
+        </div>
+        </>
       )}
 
       {/* Create/Edit Dialog */}
