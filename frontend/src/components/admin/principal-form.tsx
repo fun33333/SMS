@@ -9,7 +9,7 @@ import { PersonalInfoStep } from "./principal-form/personal-info-step"
 import { ProfessionalInfoStep } from "./principal-form/professional-info-step"
 import { WorkAssignmentStep } from "./principal-form/work-assignment-step"
 import { useToast } from "@/hooks/use-toast"
-import { createPrincipal, getAllCampuses, getAllPrincipals } from "@/lib/api"
+import { createPrincipal, getAllCampuses, getAllPrincipals, checkEmailExists } from "@/lib/api"
 import { useRouter } from "next/navigation"
 import { toast as sonnerToast } from "sonner"
 
@@ -93,13 +93,8 @@ export function PrincipalForm() {
   }
 
   const checkDuplicateEmail = async (email: string) => {
-    try {
-      const principals = await getAllPrincipals()
-      const exists = principals.some((p: any) => p.email?.toLowerCase() === email.toLowerCase())
-      return exists
-    } catch (error) {
-      return false
-    }
+    // Global check across all users
+    return await checkEmailExists(email)
   }
 
   const handleNext = async () => {

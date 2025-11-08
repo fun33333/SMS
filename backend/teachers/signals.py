@@ -1,7 +1,9 @@
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_save, pre_save, post_delete
 from django.dispatch import receiver
 from .models import Teacher
 from services.user_creation_service import UserCreationService
+from users.models import User
+from notifications.services import create_notification
 
 @receiver(post_save, sender=Teacher)
 def create_teacher_user(sender, instance, created, **kwargs):
@@ -9,16 +11,30 @@ def create_teacher_user(sender, instance, created, **kwargs):
     if created:  # Only on creation, not updates
         try:
             # Check if user already exists
-            from users.models import User
             if User.objects.filter(email=instance.email).exists():
                 print(f"User already exists for {instance.full_name}")
+                try:
+                    existing_user = User.objects.filter(email=instance.email).first()
+                    campus_name = getattr(getattr(instance, 'current_campus', None), 'campus_name', '')
+                    verb = "You have been added as a Teacher"
+                    target_text = f"at {campus_name}" if campus_name else ""
+                    create_notification(recipient=existing_user, actor=None, verb=verb, target_text=target_text, data={"teacher_id": instance.id})
+                except Exception:
+                    pass
                 return
-            
+
             user, message = UserCreationService.create_user_from_entity(instance, 'teacher')
             if not user:
                 print(f"Failed to create user for teacher {instance.id}: {message}")
             else:
                 print(f"✅ Created user for teacher: {instance.full_name} ({instance.employee_code})")
+                try:
+                    campus_name = getattr(getattr(instance, 'current_campus', None), 'campus_name', '')
+                    verb = "You have been added as a Teacher"
+                    target_text = f"at {campus_name}" if campus_name else ""
+                    create_notification(recipient=user, actor=None, verb=verb, target_text=target_text, data={"teacher_id": instance.id})
+                except Exception:
+                    pass
         except Exception as e:
             print(f"Error creating user for teacher {instance.id}: {str(e)}")
 
@@ -126,3 +142,14 @@ def teacher_teaches_coordinator_levels(teacher, coordinator):
             return True
     
     return False
+
+# Cleanup: when a Teacher is deleted, remove matching auth user
+@receiver(post_delete, sender=Teacher)
+def delete_user_when_teacher_deleted(sender, instance: Teacher, **kwargs):
+    try:
+        if instance.email:
+            User.objects.filter(email__iexact=instance.email).delete()
+        if instance.employee_code:
+            User.objects.filter(username=instance.employee_code).delete()
+    except Exception:
+        pass

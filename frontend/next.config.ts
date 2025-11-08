@@ -10,6 +10,16 @@ const nextConfig: NextConfig = {
   // Optimize output
   poweredByHeader: false,
   reactStrictMode: true,
+
+  // API proxy configuration
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: 'http://localhost:8000/api/:path*',
+      },
+    ]
+  },
   
   // Optimize chunks and minify (use Next.js defaults with Turbopack/Webpack)
   

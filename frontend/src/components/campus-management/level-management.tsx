@@ -53,6 +53,7 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
   const [selectedCoordinatorId, setSelectedCoordinatorId] = useState('')
   const [assigning, setAssigning] = useState(false)
   const [loadingCoordinators, setLoadingCoordinators] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
   
   const userCampusId = campusId || getUserCampusId()
 
@@ -197,20 +198,27 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-start sm:items-center gap-3 flex-col sm:flex-row">
         <div>
-          <h2 className="text-xl font-semibold" style={{ color: '#1976D2' }}>Manage Levels</h2>
-          <p className="text-sm text-gray-600">
+          <h2 className="text-lg sm:text-xl font-semibold" style={{ color: '#1976D2' }}>Manage Levels</h2>
+          <p className="text-xs sm:text-sm text-gray-600">
             Create and manage educational levels for your campus
           </p>
         </div>
         <Button 
           onClick={handleCreate} 
-          className="flex items-center gap-2"
+          className="w-full sm:w-auto flex items-center justify-center gap-2"
           style={{ backgroundColor: '#2196F3', color: 'white' }}
         >
           <Plus className="h-4 w-4" />
           Create Level
+        </Button>
+      </div>
+
+      {/* Mobile collapse toggle */}
+      <div className="sm:hidden">
+        <Button variant="outline" onClick={() => setMobileOpen(!mobileOpen)} className="w-full">
+          {mobileOpen ? 'Hide List' : 'Show List'}
         </Button>
       </div>
 
@@ -224,7 +232,45 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
           </Button>
         </div>
       ) : (
-        <Table>
+        <>
+        {/* Mobile cards */}
+        <div className={(mobileOpen ? 'grid' : 'hidden') + ' sm:hidden grid-cols-1 gap-3'}>
+          {levels.map((level) => (
+            <div key={level.id} className="rounded-lg border p-4 shadow-sm bg-white">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-base font-semibold">{level.name}</div>
+                  <div className="text-xs text-gray-500 capitalize">{level.shift}</div>
+                </div>
+                <span className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">{level.code}</span>
+              </div>
+              <div className="mt-2">
+                {level.coordinator_name ? (
+                  <div className="text-xs text-gray-700">
+                    Coordinator: <span className="font-medium">{level.coordinator_name}</span>
+                    <span className="text-gray-500"> ({level.coordinator_code})</span>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="outline" className="mt-1" onClick={() => openCoordinatorModal(level)}>
+                    <UserPlus className="h-4 w-4 mr-1" /> Assign Coordinator
+                  </Button>
+                )}
+              </div>
+              <div className="mt-3 flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => handleEdit(level)} className="text-gray-700 hover:text-gray-900">
+                  <Edit className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => handleDelete(level)} className="text-red-600 hover:text-red-800">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop table */}
+        <div className={(mobileOpen ? 'hidden' : 'hidden') + ' sm:block overflow-x-auto -mx-4 sm:mx-0'}>
+        <Table className="min-w-[720px] sm:min-w-0">
           <TableHeader>
             <TableRow style={{ backgroundColor: '#1976D2' }}>
               <TableHead className="text-white font-semibold">Name</TableHead>
@@ -240,15 +286,15 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
                 <TableCell className="font-medium">{level.name}</TableCell>
                 <TableCell className="capitalize">{level.shift}</TableCell>
                 <TableCell>
-                  <span className="px-2 py-1 bg-gray-100 rounded text-sm font-mono">
+                  <span className="px-2 py-1 bg-gray-100 rounded text-xs sm:text-sm font-mono">
                     {level.code}
                   </span>
                 </TableCell>
                 <TableCell>
                   {level.coordinator_name ? (
                     <div className="flex items-center gap-2">
-                      <span className="text-sm">{level.coordinator_name}</span>
-                      <span className="text-xs text-gray-500">({level.coordinator_code})</span>
+                      <span className="text-xs sm:text-sm">{level.coordinator_name}</span>
+                      <span className="text-[10px] sm:text-xs text-gray-500">({level.coordinator_code})</span>
                     </div>
                   ) : (
                     <Button 
@@ -285,6 +331,8 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
             ))}
           </TableBody>
         </Table>
+        </div>
+        </>
       )}
 
       {/* Create/Edit Dialog */}
@@ -361,7 +409,7 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
 
       {/* Coordinator Assignment Modal */}
       <Dialog open={coordinatorModalOpen} onOpenChange={setCoordinatorModalOpen}>
-        <DialogContent>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-full sm:max-w-lg p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Assign Coordinator to {selectedLevel?.name}</DialogTitle>
             <DialogDescription>
@@ -379,7 +427,7 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
                 </div>
               ) : (
                 <Select value={selectedCoordinatorId} onValueChange={setSelectedCoordinatorId}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select a coordinator" />
                   </SelectTrigger>
                   <SelectContent>
@@ -400,17 +448,19 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2">
             <Button
               variant="outline"
               onClick={() => setCoordinatorModalOpen(false)}
               disabled={assigning}
+              className="w-full sm:w-auto"
             >
               Cancel
             </Button>
             <Button 
               onClick={handleCoordinatorAssignment} 
               disabled={assigning || !selectedCoordinatorId}
+              className="w-full sm:w-auto"
             >
               {assigning ? 'Assigning...' : 'Assign Coordinator'}
             </Button>

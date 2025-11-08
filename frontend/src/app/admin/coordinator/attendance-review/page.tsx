@@ -3,15 +3,17 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Calendar, RefreshCw, AlertCircle, Users, Eye, Edit3, ChevronDown, ChevronUp, Save } from "lucide-react"
+import { Calendar, RefreshCw, AlertCircle, Users, Eye, Edit3, Save } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { getCurrentUserProfile, getCoordinatorClasses, getAttendanceHistory, getAttendanceForDate, editAttendance } from "@/lib/api"
+import { getCurrentUserProfile, getCoordinatorClasses, getAttendanceForDate, editAttendance } from "@/lib/api"
 import { useRouter } from "next/navigation"
 import HolidayManagement from "@/components/attendance/holiday-management"
 import BackfillPermission from "@/components/attendance/backfill-permission"
+
+
 
 interface CoordinatorProfile {
   level?: {
@@ -366,13 +368,13 @@ export default function AttendanceReviewPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-3 sm:p-0">
       {/* Header */}
-      <div className="bg-gradient-to-r from-[#274c77] to-[#6096ba] rounded-2xl p-6 text-white shadow-xl">
-      <div className="flex items-center justify-between">
+      <div className="bg-gradient-to-r from-[#274c77] to-[#6096ba] rounded-2xl p-4 sm:p-6 text-white shadow-xl">
+      <div className="flex items-start sm:items-center justify-between gap-3 flex-col sm:flex-row">
         <div>
-            <h1 className="text-3xl font-bold mb-2">Attendance Review</h1>
-            <div className="flex items-center space-x-4 text-lg">
+            <h1 className="text-2xl sm:text-3xl font-bold mb-1 sm:mb-2">Attendance Review</h1>
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-base sm:text-lg">
               <div className="flex items-center space-x-2">
                 <Users className="h-5 w-5" />
                 <span>{coordinatorProfile?.level?.name} Level</span>
@@ -383,7 +385,7 @@ export default function AttendanceReviewPage() {
               </div>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2 self-start sm:self-auto">
             <Button 
               onClick={fetchCoordinatorData}
               className="bg-white/20 hover:bg-white/30 text-white border border-white/30"
@@ -396,13 +398,13 @@ export default function AttendanceReviewPage() {
       </div>
 
       {/* Attendance Summary */}
-      <div className="bg-white rounded-2xl shadow-xl border-2 border-[#a3cef1] p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-[#274c77] flex items-center">
-            <Calendar className="h-6 w-6 mr-2" />
+      <div className="bg-white rounded-2xl shadow-xl border-2 border-[#a3cef1] p-4 sm:p-6">
+        <div className="flex items-start sm:items-center justify-between gap-3 flex-col sm:flex-row mb-4 sm:mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold text-[#274c77] flex items-center">
+            <Calendar className="h-5 sm:h-6 w-5 sm:w-6 mr-2" />
             Today's Attendance Summary ({new Date(selectedDate).toLocaleDateString()})
           </h2>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             <Input
               type="date"
               value={selectedDate}
@@ -410,7 +412,7 @@ export default function AttendanceReviewPage() {
                 setSelectedDate(e.target.value);
                 fetchAttendanceSummary(e.target.value);
               }}
-              className="w-40"
+              className="w-full sm:w-40"
             />
             <Button 
               onClick={() => fetchAttendanceSummary(selectedDate)}
@@ -429,7 +431,7 @@ export default function AttendanceReviewPage() {
             <span className="ml-2 text-gray-600">Loading attendance summary...</span>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {classroomAttendanceSummary.map((summary) => (
               <div key={summary.classroom_id} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                 <div className="flex items-center justify-between mb-2">
@@ -488,15 +490,15 @@ export default function AttendanceReviewPage() {
       </div>
 
       {/* Classrooms List */}
-      <div className="bg-white rounded-2xl shadow-xl border-2 border-[#a3cef1] p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-[#274c77] flex items-center">
-            <Users className="h-6 w-6 mr-2" />
+      <div className="bg-white rounded-2xl shadow-xl border-2 border-[#a3cef1] p-4 sm:p-6">
+        <div className="flex items-start sm:items-center justify-between gap-3 flex-col sm:flex-row mb-4 sm:mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold text-[#274c77] flex items-center">
+            <Users className="h-5 sm:h-6 w-5 sm:w-6 mr-2" />
             Classrooms ({classrooms.length})
           </h2>
               <Button 
             onClick={fetchCoordinatorData}
-                className="bg-[#6096ba] hover:bg-[#274c77] text-white"
+                className="bg-[#6096ba] hover:bg-[#274c77] text-white self-start sm:self-auto"
               >
                 <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
@@ -511,7 +513,8 @@ export default function AttendanceReviewPage() {
           </div>
         ) : (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="flex w-full space-x-2 mb-6 bg-gray-100 p-1 rounded-lg">
+            <div className="overflow-x-auto -mx-4 sm:mx-0 pb-2">
+            <TabsList className="flex min-w-[600px] sm:min-w-0 w-full space-x-2 mb-4 sm:mb-6 bg-gray-100 p-1 rounded-lg">
               <TabsTrigger 
                 value="all" 
                 className="flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors data-[state=active]:bg-white data-[state=active]:shadow-sm"
@@ -531,17 +534,18 @@ export default function AttendanceReviewPage() {
                 );
               })}
             </TabsList>
+            </div>
             
             {/* All Grades Tab */}
             <TabsContent value="all" className="space-y-3">
               {classrooms.map((classroom) => (
                 <div key={classroom.id} className="bg-white rounded-lg border border-gray-200 hover:shadow-md transition-shadow p-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex-1">
-                      <div className="flex items-center space-x-4">
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-gray-900 text-lg">{classroom.name}</h3>
-                          <div className="flex items-center space-x-6 mt-2 text-sm text-gray-600">
+                      <div className="flex items-start sm:items-center gap-3 sm:gap-4">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-gray-900 text-base sm:text-lg truncate">{classroom.name}</h3>
+                          <div className="flex flex-wrap items-center gap-3 sm:gap-6 mt-2 text-sm text-gray-600">
                             <div className="flex items-center space-x-2">
                               <span className="font-medium">Students:</span>
                               <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
@@ -572,11 +576,11 @@ export default function AttendanceReviewPage() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-2">
+                        <div className="flex gap-2 w-full sm:w-auto">
               <Button 
                 variant="outline"
                             size="sm" 
-                            className="border-[#6096ba] text-[#6096ba] hover:bg-[#6096ba] hover:text-white"
+                            className="w-full sm:w-auto border-[#6096ba] text-[#6096ba] hover:bg-[#6096ba] hover:text-white whitespace-nowrap"
                             onClick={() => {
                               router.push(`/admin/teachers/attendance?classroom=${classroom.id}`);
                             }}
@@ -587,7 +591,7 @@ export default function AttendanceReviewPage() {
               <Button 
                 variant="outline"
                                     size="sm" 
-                                    className="border-yellow-500 text-yellow-500 hover:bg-yellow-50"
+                                    className="w-full sm:w-auto border-yellow-500 text-yellow-500 hover:bg-yellow-50 whitespace-nowrap"
                                     onClick={() => toggleClassroomExpansion(classroom)}
                                     disabled={loadingAttendance}
               >
@@ -603,8 +607,8 @@ export default function AttendanceReviewPage() {
                   {expandedClassroom === classroom.id && (
                     <div className="mt-4 border-t pt-4">
                       <div className="mb-4">
-                        <div className="flex items-center space-x-4 mb-4">
-                          <div className="flex items-center space-x-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-4">
+                          <div className="flex items-center gap-2">
                             <Calendar className="h-4 w-4 text-gray-600" />
                             <label className="text-sm font-medium text-gray-700">Select Date:</label>
                             <Input
@@ -614,7 +618,7 @@ export default function AttendanceReviewPage() {
                                 setSelectedDate(e.target.value);
                                 fetchClassroomAttendance(classroom.id, e.target.value);
                               }}
-                              className="w-40"
+                              className="w-full sm:w-40"
                             />
                           </div>
                           <Button
@@ -810,12 +814,12 @@ export default function AttendanceReviewPage() {
                 <TabsContent key={grade} value={grade} className="space-y-3">
                   {gradeClassrooms.map((classroom) => (
                     <div key={classroom.id} className="bg-white rounded-lg border border-gray-200 hover:shadow-md transition-shadow p-4">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex-1">
-                          <div className="flex items-center space-x-4">
-                            <div className="flex-1">
-                              <h3 className="font-semibold text-gray-900 text-lg">{classroom.name}</h3>
-                              <div className="flex items-center space-x-6 mt-2 text-sm text-gray-600">
+                          <div className="flex items-start sm:items-center gap-3 sm:gap-4">
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-semibold text-gray-900 text-base sm:text-lg truncate">{classroom.name}</h3>
+                              <div className="flex flex-wrap items-center gap-3 sm:gap-6 mt-2 text-sm text-gray-600">
                                 <div className="flex items-center space-x-2">
                                   <span className="font-medium">Students:</span>
                                   <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
@@ -846,11 +850,11 @@ export default function AttendanceReviewPage() {
                 </div>
                   </div>
                 </div>
-                            <div className="flex items-center space-x-2">
+                            <div className="flex gap-2 w-full sm:w-auto">
                               <Button 
                                 variant="outline" 
                                 size="sm" 
-                                className="border-[#6096ba] text-[#6096ba] hover:bg-[#6096ba] hover:text-white"
+                                className="w-full sm:w-auto border-[#6096ba] text-[#6096ba] hover:bg-[#6096ba] hover:text-white whitespace-nowrap"
                                 onClick={() => {
                                   router.push(`/admin/teachers/attendance?classroom=${classroom.id}`);
                                 }}
@@ -861,7 +865,7 @@ export default function AttendanceReviewPage() {
                               <Button 
                                 variant="outline" 
                                 size="sm" 
-                                className="border-yellow-500 text-yellow-500 hover:bg-yellow-50"
+                                className="w-full sm:w-auto border-yellow-500 text-yellow-500 hover:bg-yellow-50 whitespace-nowrap"
                                 onClick={() => toggleClassroomExpansion(classroom)}
                                 disabled={loadingAttendance}
                               >
@@ -877,7 +881,7 @@ export default function AttendanceReviewPage() {
                   {expandedClassroom === classroom.id && (
                     <div className="mt-4 border-t pt-4">
                       <div className="mb-4">
-                        <div className="flex items-center space-x-4 mb-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-4">
                           <div className="flex items-center space-x-2">
                             <Calendar className="h-4 w-4 text-gray-600" />
                             <label className="text-sm font-medium text-gray-700">Select Date:</label>
@@ -888,7 +892,7 @@ export default function AttendanceReviewPage() {
                                 setSelectedDate(e.target.value);
                                 fetchClassroomAttendance(classroom.id, e.target.value);
                               }}
-                              className="w-40"
+                              className="w-full sm:w-40"
                             />
                 </div>
                           <Button

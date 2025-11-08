@@ -13,6 +13,16 @@ from .validators import validate_password_strength
 from services.email_notification_service import EmailNotificationService
 import secrets
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def check_email_exists(request):
+    """Return whether a user exists with the given email (case-insensitive)."""
+    email = request.query_params.get('email')
+    if not email:
+        return Response({'error': 'email query param is required'}, status=status.HTTP_400_BAD_REQUEST)
+    exists = User.objects.filter(email__iexact=email).exists()
+    return Response({'exists': exists})
+
 class UserRegistrationView(generics.CreateAPIView):
     """
     User registration endpoint

@@ -25,6 +25,28 @@ class CoordinatorViewSet(viewsets.ModelViewSet):
     ordering_fields = ['full_name', 'joining_date', 'employee_code']
     ordering = ['-joining_date']  # Default ordering
     
+    def get_queryset(self):
+        """Override queryset to optimize queries and handle shift filtering"""
+        queryset = Coordinator.objects.select_related('level', 'campus').prefetch_related('assigned_levels')
+        
+        # Get shift filter value from request
+        shift = self.request.query_params.get('shift')
+        
+        if shift:
+            if shift == 'both':
+                # Only coordinators with assigned_levels (both shifts)
+                queryset = queryset.filter(assigned_levels__isnull=False)
+            else:
+                # Single shift coordinators + both shift coordinators
+                queryset = queryset.filter(
+                    Q(level__shift=shift) |  # Single shift
+                    Q(assigned_levels__isnull=False)  # Both shifts
+                )
+            
+            queryset = queryset.distinct()
+            
+        return queryset
+    
     def create(self, request, *args, **kwargs):
         """Override create method to add debug logging"""
         logger.info(f"Received coordinator data: {request.data}")

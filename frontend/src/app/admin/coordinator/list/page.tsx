@@ -35,7 +35,7 @@ export default function CoordinatorListPage() {
   }, [])
 
   const [search, setSearch] = useState("")
-  const [shiftFilter, setShiftFilter] = useState("all")
+  const [shiftFilter, setShiftFilter] = useState("all")  // "all" means show everything
   const [coordinators, setCoordinators] = useState<CoordinatorUser[]>([])
   const [loading, setLoading] = useState(true)
   const [userRole, setUserRole] = useState<string>("")
@@ -84,12 +84,15 @@ export default function CoordinatorListPage() {
   }, [])
 
   useEffect(() => {
+    let isSubscribed = true;  // For avoiding state updates after unmount
+    
     async function load() {
+      if (!isSubscribed) return;
       setLoading(true)
       
       try {
-        console.log('Loading coordinators - userRole:', userRole, 'userCampus:', userCampus)
-        // Ensure campus map loaded (id -> name) for robust comparison
+        console.log('Loading coordinators - userRole:', userRole, 'userCampus:', userCampus, 'isSubscribed:', isSubscribed)
+        let campusMap = campusIdToName // local view (may be replaced after fetching)
         if (Object.keys(campusIdToName).length === 0) {
           try {
             const campuses: any = await getAllCampuses()
@@ -100,17 +103,17 @@ export default function CoordinatorListPage() {
               const name = c.campus_name || c.name || ''
               if (id) map[id] = name
             })
+            // update state for future renders
             setCampusIdToName(map)
+            campusMap = map // use local map immediately for this run
           } catch (e) {
             console.warn('Failed to load campuses for mapping (optional):', e)
           }
         }
-        
-        // Principal: Get coordinators from their campus only
+
         if (userRole === 'principal' && userCampus) {
           console.log('Loading coordinators for principal from campus:', userCampus)
-          const shiftParam = shiftFilter === "all" ? undefined : shiftFilter
-          const allCoordinators = await getAllCoordinators(shiftParam) as any
+          const allCoordinators = await getAllCoordinators('') as any  // Load all coordinators without shift filter
           console.log('All coordinators fetched:', allCoordinators)
           
           // Handle API response structure
@@ -123,7 +126,7 @@ export default function CoordinatorListPage() {
             // If numeric id, map to name when possible
             if (typeof val === 'number' || /^\d+$/.test(String(val))) {
               const idStr = String(val)
-              const mapped = campusIdToName[idStr]
+              const mapped = campusMap[idStr]
               return { name: (mapped || idStr).toLowerCase(), num: idStr }
             }
             const s = String(val).toLowerCase()
@@ -170,9 +173,8 @@ export default function CoordinatorListPage() {
           console.log('Mapped coordinators:', mappedCoordinators)
           setCoordinators(mappedCoordinators)
         } else {
-          // For other roles, also use getAllCoordinators for consistency
-          const shiftParam = shiftFilter === "all" ? undefined : shiftFilter
-          const allCoordinators = await getAllCoordinators(shiftParam) as any
+          // For other roles, always get all coordinators and filter on client side
+          const allCoordinators = await getAllCoordinators() as any
           console.log('All coordinators response:', allCoordinators)
           
           // Handle API response structure
@@ -192,21 +194,41 @@ export default function CoordinatorListPage() {
             shift: coord.shift || 'Unknown',
             joining_date: coord.joining_date || 'Unknown'
           }))
-          setCoordinators(mappedCoordinators)
+          
+          if (isSubscribed) {
+            console.log('Setting coordinators:', mappedCoordinators)
+            setCoordinators(mappedCoordinators)
+          }
         }
       } catch (error) {
         console.error('Error loading coordinators:', error)
-        setCoordinators([])
+        if (isSubscribed) {
+          setCoordinators([])
+        }
+      } finally {
+        if (isSubscribed) {
+          setLoading(false)
+        }
       }
-      
-      setLoading(false)
     }
+    
     load()
-  }, [userRole, userCampus, shiftFilter])
+    
+    // Cleanup function to prevent state updates after unmount
+    return () => {
+      isSubscribed = false;
+    }
+  }, [userRole, userCampus]) // Removed shiftFilter from dependencies since we want to filter client-side
 
   const filtered = useMemo(() => {
+    console.log('Filtering coordinators:', { 
+      totalCoordinators: coordinators.length,
+      search: search,
+      shiftFilter: shiftFilter
+    });
+    
     const q = search.trim().toLowerCase()
-    let filteredCoordinators = coordinators
+    let filteredCoordinators = [...coordinators]  // Create a new array to avoid mutations
     
     // Apply search filter
     if (q) {
@@ -215,17 +237,25 @@ export default function CoordinatorListPage() {
         (u.last_name || "").toLowerCase().includes(q) ||
         (u.username || "").toLowerCase().includes(q) ||
         (u.email || "").toLowerCase().includes(q) ||
-        (u.level || "").toLowerCase().includes(q) ||
         (u.joining_date || "").toLowerCase().includes(q)
       )
     }
     
-         // Apply shift filter
-         if (shiftFilter && shiftFilter !== "all") {
-           filteredCoordinators = filteredCoordinators.filter(u =>
-             (u.shift || "").toLowerCase() === shiftFilter.toLowerCase()
-           )
-         }
+    // Apply shift filter based on coordinator's shift status
+    if (shiftFilter !== "all") {  // When "all" is selected, don't filter by shift
+      filteredCoordinators = filteredCoordinators.filter(u => {
+        const shift = (u.shift || "").toLowerCase();
+        
+        // If filtering for "both", only show coordinators with both shifts
+        if (shiftFilter === "both") {
+          return shift === "both";
+        }
+        
+        // For morning/afternoon, show single shift coordinators and those with both shifts
+        return shift === shiftFilter.toLowerCase() || shift === "both";
+      });
+    }
+    // For "all", we keep all coordinators
     
     return filteredCoordinators
   }, [search, shiftFilter, coordinators])
@@ -263,7 +293,6 @@ export default function CoordinatorListPage() {
           can_assign_class_teachers: fullData.can_assign_class_teachers || false
         })
       } else {
-        // Fallback to basic data if API fails
         setEditFormData({
           full_name: `${coordinator.first_name} ${coordinator.last_name}`.trim(),
           email: coordinator.email,
@@ -325,11 +354,7 @@ export default function CoordinatorListPage() {
       label: 'Email',
       icon: <Mail className="w-4 h-4" />
     },
-    {
-      key: 'level',
-      label: 'Level',
-      icon: <Award className="w-4 h-4" />
-    },
+
     {
       key: 'shift',
       label: 'Shift',
@@ -432,32 +457,32 @@ export default function CoordinatorListPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: '#274c77' }}>Coordinator List</h1>
-          <p className="text-gray-600">
+    <div className="space-y-6 overflow-x-hidden">
+      <div className="flex items-start sm:items-center justify-between gap-3 flex-col sm:flex-row">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold truncate" style={{ color: '#274c77' }}>Coordinator List</h1>
+          <p className="text-gray-600 text-sm sm:text-base">
             {userRole === 'principal' && userCampus 
               ? `Coordinators from ${userCampus} campus` 
               : 'All coordinators across campuses'
             }
           </p>
         </div>
-        <Badge style={{ backgroundColor: '#6096ba', color: 'white' }} className="px-4 py-2">
+        <Badge style={{ backgroundColor: '#6096ba', color: 'white' }} className="px-3 py-1 self-start sm:self-auto">
           {filtered.length} Coordinators
         </Badge>
       </div>
 
-      <Card style={{ backgroundColor: 'white', borderColor: '#a3cef1' }}>
+      <Card className="w-full max-w-full" style={{ backgroundColor: 'white', borderColor: '#a3cef1' }}>
         <CardContent className="p-4">
-          <div className="flex gap-4">
-            <div className="relative flex-1">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+            <div className="relative flex-1 min-w-0">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
                 placeholder={
                   userRole === 'principal' && userCampus 
                     ? `Search coordinators from ${userCampus}...`
-                    : "Search by name, email, level..."
+                    : "Search by name or email..."
                 }
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -465,13 +490,13 @@ export default function CoordinatorListPage() {
                 style={{ borderColor: '#a3cef1' }}
               />
             </div>
-            <div className="w-48">
+            <div className="w-full sm:w-48">
               <Select value={shiftFilter} onValueChange={setShiftFilter}>
                 <SelectTrigger style={{ borderColor: '#a3cef1' }}>
-                  <SelectValue placeholder="Filter by shift" />
+                  <SelectValue placeholder="All Shifts" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Shifts</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
                   <SelectItem value="morning">Morning</SelectItem>
                   <SelectItem value="afternoon">Afternoon</SelectItem>
                   <SelectItem value="both">Both</SelectItem>
@@ -482,14 +507,14 @@ export default function CoordinatorListPage() {
         </CardContent>
       </Card>
 
-      <Card style={{ backgroundColor: 'white', borderColor: '#a3cef1' }}>
-        <CardHeader>
+      <Card className="w-full max-w-full" style={{ backgroundColor: 'white', borderColor: '#a3cef1' }}>
+        <CardHeader className="pb-2">
           <CardTitle style={{ color: '#274c77' }} className="flex items-center">
             <Users className="h-5 w-5 mr-2" />
             Coordinators
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-4 break-words">
           {loading ? (
             <LoadingState message={userRole === 'principal' && userCampus 
               ? `Loading coordinators from ${userCampus}...`
@@ -497,12 +522,12 @@ export default function CoordinatorListPage() {
             } />
           ) : (
             <>
+          <div className="overflow-x-auto w-full">
           <DataTable
             data={filtered.map(u => ({
               id: u.id,
-              name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username,
+              name: (`${u.first_name || ''} ${u.last_name || ''}`).trim() || u.username,
               email: u.email,
-              level: u.level || '—',
               shift: u.shift ? (
                 <Badge variant="outline" style={{ borderColor: '#6096ba', color: '#274c77' }}>
                   {u.shift.charAt(0).toUpperCase() + u.shift.slice(1)}
@@ -547,6 +572,7 @@ export default function CoordinatorListPage() {
             allowEdit={userRole !== 'student'}
             allowDelete={userRole === 'principal'}
           />
+          </div>
           </>
         )}
         </CardContent>

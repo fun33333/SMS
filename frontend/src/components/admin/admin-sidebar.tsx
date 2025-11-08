@@ -14,13 +14,17 @@ interface AdminSidebarProps {
 }
 
 export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps) {
-  // For smooth text appearance after sidebar opens
   const [showText, setShowText] = useState(sidebarOpen);
   const [isMobile, setIsMobile] = useState(false);
   const [isTablet, setIsTablet] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(false);
   const OPEN_DURATION_MS = 700;
   const CLOSE_DURATION_MS = 1200;
+
+  // Helper to auto-close sidebar on mobile/tablet
+  const autoCloseSidebar = () => {
+    if (isMobile || isTablet) setSidebarOpen(false);
+  };
   
   // Responsive behavior - close sidebar on tablet/mobile
   useEffect(() => {
@@ -501,10 +505,13 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
                     aria-hidden={!isActive}
                   >
                     {item.subItems.map((subItem, index) => (
-                      <Link key={index} href={subItem.href}>
-                        <button className="block w-full text-left px-3 py-2 rounded-lg hover:bg-[#6096ba]/20 text-[#274c77] font-medium transition-all duration-300">
+                      <Link
+                          key={index}
+                          href={subItem.href}
+                          onClick={autoCloseSidebar}
+                          className="block w-full text-left px-3 py-2 rounded-lg hover:bg-[#6096ba]/20 text-[#274c77] font-medium transition-all duration-300"
+                        >
                           {subItem.title}
-                        </button>
                       </Link>
                     ))}
                   </div>

@@ -14,7 +14,7 @@ import { getCurrentUser, getCurrentUserRole } from "@/lib/permissions"
 import { useFormErrorHandler } from "@/hooks/use-error-handler"
 import { ErrorDisplay } from "@/components/ui/error-display"
 import { toast as sonnerToast } from "sonner"
-import { getApiBaseUrl } from "@/lib/api"
+import { getApiBaseUrl, checkEmailExists } from "@/lib/api"
 
 const steps = [
   { id: 1, title: "Personal" },
@@ -506,6 +506,16 @@ export function CoordinatorForm({
     
     setIsSubmitting(true);
     try {
+      // Global duplicate email check before submission
+      if (formData?.email) {
+        const exists = await checkEmailExists(formData.email)
+        if (exists) {
+          setIsSubmitting(false)
+          setSubmitError('This email is already registered. Please use a different email address.')
+          return
+        }
+      }
+
       const base = getApiBaseUrl();
       const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
       const url = isEdit ? `${cleanBase}/api/coordinators/${editData?.id}/` : `${cleanBase}/api/coordinators/`;
@@ -679,7 +689,7 @@ export function CoordinatorForm({
   }
 
               return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-3 sm:p-4">
       {/* Error Popup Modal */}
       {submitError && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
@@ -719,12 +729,12 @@ export function CoordinatorForm({
       <div className="max-w-7xl mx-auto">
         <Card className="shadow-2xl border-0">
           <CardHeader className="bg-white border-b-2 border-gray-200 rounded-t-lg">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-2xl font-bold" style={{ color: '#365486' }}>
+            <div className="flex items-start sm:items-center justify-between gap-3 flex-col sm:flex-row">
+              <div className="min-w-0">
+                <CardTitle className="text-xl sm:text-2xl font-bold" style={{ color: '#365486' }}>
                   {isEdit ? 'Edit Coordinator' : 'Add New Coordinator'}
                 </CardTitle>
-                <CardDescription className="mt-2" style={{ color: '#365486' }}>
+                <CardDescription className="mt-1 sm:mt-2 text-sm sm:text-base" style={{ color: '#365486' }}>
                   {isEdit 
                     ? 'Update coordinator information and settings' 
                     : 'Fill in the details to add a new coordinator to the system'
@@ -732,17 +742,17 @@ export function CoordinatorForm({
                 </CardDescription>
           </div>
               <div className="text-right">
-                <div className="text-3xl font-bold" style={{ color: '#365486' }}>
+                <div className="text-2xl sm:text-3xl font-bold" style={{ color: '#365486' }}>
                   {Math.round((currentStep / totalSteps) * 100)}%
         </div>
-                <div className="text-sm" style={{ color: '#365486' }}>Complete</div>
+                <div className="text-xs sm:text-sm" style={{ color: '#365486' }}>Complete</div>
       </div>
     </div>
           </CardHeader>
           
           <CardContent className="p-0">
             {/* Progress Bar */}
-            <div className="bg-white px-8 py-6 border-b">
+            <div className="bg-white px-4 sm:px-8 py-4 sm:py-6 border-b">
               <ProgressBar 
                 steps={steps} 
                 currentStep={currentStep}
@@ -752,7 +762,7 @@ export function CoordinatorForm({
             </div>
 
             {/* Step Content */}
-            <div className="p-8">
+            <div className="p-4 sm:p-8">
               {currentStep === 1 && (
                 <PersonalInfoStep
                   formData={formData}
@@ -799,15 +809,15 @@ export function CoordinatorForm({
             )}
 
             {/* Enhanced Navigation */}
-            <div className="bg-gray-50 px-8 py-6 border-t">
-              <div className="flex justify-between items-center">
-                <div className="flex space-x-3">
+            <div className="bg-gray-50 px-4 sm:px-8 py-4 sm:py-6 border-t">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 flex-wrap">
+                <div className="flex gap-3 w-full sm:w-auto min-w-0">
                   {currentStep > 1 && (
                     <Button
                       type="button"
                       variant="outline"
                       onClick={handlePrevious}
-                      className="flex items-center gap-2 px-6 py-2 border-2 border-gray-300 hover:border-gray-400 transition-colors"
+                      className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 border-2 border-gray-300 hover:border-gray-400 transition-colors"
                     >
             <ArrowLeft className="h-4 w-4" />
             Previous
@@ -817,17 +827,17 @@ export function CoordinatorForm({
                     type="button"
                     variant="outline"
                     onClick={onCancel}
-                    className="px-6 py-2 border-2 border-red-300 text-red-600 hover:border-red-400 hover:bg-red-50 transition-colors"
+                    className="w-full sm:w-auto px-6 py-2 border-2 border-red-300 text-red-600 hover:border-red-400 hover:bg-red-50 transition-colors whitespace-nowrap"
                   >
                     Cancel
                   </Button>
                 </div>
                 
-                <div className="flex space-x-3">
+                <div className="flex gap-3 w-full sm:w-auto min-w-0">
                   <Button
                     type="button"
                     onClick={currentStep === totalSteps ? handleSave : handleNext}
-                    className="flex items-center gap-2 px-8 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-300 whitespace-nowrap"
                     disabled={isSubmitting}
                   >
                     {isSubmitting ? (

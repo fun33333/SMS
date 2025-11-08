@@ -66,6 +66,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
   const [selectedTeacher, setSelectedTeacher] = useState('')
   const [saving, setSaving] = useState(false)
   const [selectedGrade, setSelectedGrade] = useState<string>('all')
+  const [mobileOpen, setMobileOpen] = useState(false)
   
   // Get campus ID from localStorage if not provided
   const userCampusId = campusId || getUserCampusId()
@@ -253,16 +254,16 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-start sm:items-center gap-3 flex-col sm:flex-row">
         <div>
-          <h2 className="text-xl font-semibold" style={{ color: '#1976D2' }}>Manage Classrooms</h2>
-          <p className="text-sm text-gray-600">
+          <h2 className="text-lg sm:text-xl font-semibold" style={{ color: '#1976D2' }}>Manage Classrooms</h2>
+          <p className="text-xs sm:text-sm text-gray-600">
             Create classrooms and assign teachers
           </p>
         </div>
         <Button 
           onClick={handleCreate} 
-          className="flex items-center gap-2"
+          className="w-full sm:w-auto flex items-center justify-center gap-2"
           style={{ backgroundColor: '#2196F3', color: 'white' }}
         >
           <Plus className="h-4 w-4" />
@@ -270,11 +271,18 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
         </Button>
       </div>
 
+      {/* Mobile collapse toggle */}
+      <div className="sm:hidden">
+        <Button variant="outline" onClick={() => setMobileOpen(!mobileOpen)} className="w-full">
+          {mobileOpen ? 'Hide List' : 'Show List'}
+        </Button>
+      </div>
+
       {/* Grade Filter */}
-      <div className="flex items-center gap-4 bg-gray-50 p-4 rounded-lg">
-        <Label className="font-semibold">Filter by Grade:</Label>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 bg-gray-50 p-3 sm:p-4 rounded-lg">
+        <Label className="font-semibold text-sm">Filter by Grade:</Label>
         <Select value={selectedGrade} onValueChange={setSelectedGrade}>
-          <SelectTrigger className="w-[200px]">
+          <SelectTrigger className="w-full sm:w-[200px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -286,8 +294,8 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
             ))}
           </SelectContent>
         </Select>
-        <div className="ml-2 inline-flex items-center">
-          <span className="px-3 py-1 rounded-full text-sm font-medium" style={{ backgroundColor: '#E3F2FD', color: '#1976D2' }}>
+        <div className="sm:ml-2 inline-flex items-center">
+          <span className="px-3 py-1 rounded-full text-xs sm:text-sm font-medium" style={{ backgroundColor: '#E3F2FD', color: '#1976D2' }}>
             Total: {classrooms.length}
           </span>
         </div>
@@ -315,7 +323,46 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
           )}
         </div>
       ) : (
-        <Table>
+        <>
+        {/* Mobile cards */}
+        <div className={(mobileOpen ? 'grid' : 'hidden') + ' sm:hidden grid-cols-1 gap-3'}>
+          {classrooms.map((classroom) => (
+            <div key={classroom.id} className="rounded-lg border p-4 shadow-sm bg-white">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-base font-semibold">{classroom.grade_name} - {classroom.section}</div>
+                  <div className="text-xs text-gray-500">Capacity: {classroom.capacity}</div>
+                </div>
+                <span className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">{classroom.code}</span>
+              </div>
+              <div className="mt-2 text-xs text-gray-700">
+                {classroom.class_teacher_name ? (
+                  <div>Teacher: <span className="font-medium">{classroom.class_teacher_name}</span> ({classroom.class_teacher_code})</div>
+                ) : (
+                  <div className="text-gray-500">Teacher: Not Assigned</div>
+                )}
+                {classroom.assigned_by_name && (
+                  <div className="text-[10px] text-gray-500 mt-1">By {classroom.assigned_by_name}{classroom.assigned_at ? ` on ${new Date(classroom.assigned_at).toLocaleDateString()}` : ''}</div>
+                )}
+              </div>
+              <div className="mt-3 flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => handleAssignTeacher(classroom)} title="Assign Teacher">
+                  <UserPlus className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => handleEdit(classroom)} className="text-gray-700 hover:text-gray-900">
+                  <Edit className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => handleDelete(classroom)} className="text-red-600 hover:text-red-800">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop table */}
+        <div className={(mobileOpen ? 'hidden' : 'hidden') + ' sm:block overflow-x-auto -mx-4 sm:mx-0'}>
+        <Table className="min-w-[880px] sm:min-w-0">
           <TableHeader>
             <TableRow style={{ backgroundColor: '#1976D2' }}>
               <TableHead className="text-white font-semibold">Classroom</TableHead>
@@ -335,7 +382,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                   {classroom.grade_name} - {classroom.section}
                 </TableCell>
                 <TableCell>
-                  <span className="px-2 py-1 bg-gray-100 rounded text-sm font-mono">
+                  <span className="px-2 py-1 bg-gray-100 rounded text-xs sm:text-sm font-mono">
                     {classroom.code}
                   </span>
                 </TableCell>
@@ -345,8 +392,8 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                 <TableCell>
                   {classroom.class_teacher_name ? (
                     <div>
-                      <div className="font-medium">{classroom.class_teacher_name}</div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-sm sm:font-medium">{classroom.class_teacher_name}</div>
+                      <div className="text-[10px] sm:text-xs text-gray-500">
                         {classroom.class_teacher_code}
                       </div>
                     </div>
@@ -357,9 +404,9 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                 <TableCell>
                   {classroom.assigned_by_name ? (
                     <div>
-                      <div className="text-sm">{classroom.assigned_by_name}</div>
+                      <div className="text-xs sm:text-sm">{classroom.assigned_by_name}</div>
                       {classroom.assigned_at && (
-                        <div className="text-xs text-gray-500 flex items-center gap-1">
+                        <div className="text-[10px] sm:text-xs text-gray-500 flex items-center gap-1">
                           <Clock className="h-3 w-3" />
                           {new Date(classroom.assigned_at).toLocaleDateString()}
                         </div>
@@ -401,6 +448,8 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
             ))}
           </TableBody>
         </Table>
+        </div>
+        </>
       )}
 
       {/* Create/Edit Classroom Dialog */}

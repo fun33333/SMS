@@ -145,7 +145,6 @@ class LevelViewSet(viewsets.ModelViewSet):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# Fallback function-based endpoint to ensure unassign works even if router/viewset caching interferes
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def unassign_classroom_teacher(request, pk: int):

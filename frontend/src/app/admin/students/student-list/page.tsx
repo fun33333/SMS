@@ -532,7 +532,7 @@ export default function StudentListPage() {
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4 mb-3 sm:mb-4">
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4 mb-3 sm:mb-4">
           {/* Search */}
           <div>
             <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
@@ -589,8 +589,27 @@ export default function StudentListPage() {
                  </select>
                </div>
                
-          {/* Status Filter */}
+          {/* Section Filter */}
                <div>
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
+              Section
+            </label>
+                 <select
+              value={filters.section}
+              onChange={(e) => handleFilterChange('section', e.target.value)}
+              className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
+              style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
+            >
+              <option value="">All Sections</option>
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+              <option value="D">D</option>
+            </select>
+               </div>
+               
+          {/* Status Filter */}
+               {/* <div>
             <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
               Status
             </label>
@@ -605,7 +624,7 @@ export default function StudentListPage() {
               <option value="inactive">Inactive</option>
               <option value="terminated">Terminated</option>
                  </select>
-               </div>
+               </div> */}
                
           {/* Shift Filter */}
                <div>

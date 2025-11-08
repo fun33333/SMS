@@ -28,6 +28,8 @@ urlpatterns = [
     path("api/", include("students.urls")),
     path("api/", include("campus.urls")),
     path("api/", include("teachers.urls")),
+    path("api/", include("notifications.urls")),
+    path("api/", include("notifications.urls")),
     path("api/", include("coordinator.urls")),
     path("api/", include("principals.urls")),
     path("api/attendance/", include("attendance.urls")),
@@ -36,6 +38,7 @@ urlpatterns = [
     path('api/', include('classes.urls')),
     path("api/transfers/", include("transfers.urls")),
     path("api/behaviour/", include("behaviour.urls")),
+    path("api/", include("notifications.urls")),
     # GraphQL endpoint (enable GraphiQL only in DEBUG)
     path("graphql/", csrf_exempt(GraphQLView.as_view(graphiql=settings.DEBUG))),
     # Removed services.urls - not needed for utility apps

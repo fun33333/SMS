@@ -38,7 +38,7 @@ export function ProgressBar({ steps, currentStep, onStepClick, showClickable = f
               >
                 {currentStep > step.id ? <CheckCircle className="h-5 w-5" /> : step.id}
               </div>
-              <span className="mt-2 text-sm text-gray-600">{step.title}</span>
+              <span className="mt-2 text-sm text-gray-600 hidden sm:block">{step.title}</span>
             </div>
             {index < steps.length - 1 && (
               <div className="flex-1 h-1 mx-2 bg-gray-200">
