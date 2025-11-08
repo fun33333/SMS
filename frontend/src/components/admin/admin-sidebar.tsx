@@ -43,7 +43,7 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
 
     // Add event listener
     window.addEventListener('resize', handleResize);
-    
+
     // Cleanup
     return () => window.removeEventListener('resize', handleResize);
   }, [setSidebarOpen]);
@@ -89,12 +89,12 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
           const normalized = roleNorm.includes("coord")
             ? "coordinator"
             : roleNorm.includes("teach")
-            ? "teacher"
-            : roleNorm.includes("admin")
-            ? "superadmin"
-            : roleNorm.includes("princ")
-            ? "principal"
-            : roleNorm;
+              ? "teacher"
+              : roleNorm.includes("admin")
+                ? "superadmin"
+                : roleNorm.includes("princ")
+                  ? "principal"
+                  : roleNorm;
           setUserRole(normalized);
         } catch {
           setUserRole(null);
@@ -111,12 +111,12 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
         const normalized = roleNorm.includes("coord")
           ? "coordinator"
           : roleNorm.includes("teach")
-          ? "teacher"
-          : roleNorm.includes("admin")
-          ? "superadmin"
-          : roleNorm.includes("princ")
-          ? "principal"
-          : roleNorm;
+            ? "teacher"
+            : roleNorm.includes("admin")
+              ? "superadmin"
+              : roleNorm.includes("princ")
+                ? "principal"
+                : roleNorm;
         setUserRole(normalized);
       } else {
         setUserRole(null);
@@ -448,55 +448,55 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
           )}
         </div>
 
-        <nav className="space-y-2 flex-1 overflow-y-auto hide-scrollbar pr-1">
-          {menuItems.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
-            const hasSubItems = item.subItems.length > 0
+            <nav className="space-y-2 flex-1 overflow-y-auto hide-scrollbar pr-1">
+              {menuItems.map((item) => {
+                const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
+                const hasSubItems = item.subItems.length > 0
 
-            return (
-              <div key={item.key}>
-                <Link
-                    href={item.href}
-                    onClick={autoCloseSidebar}
-                    className={`w-full flex ${sidebarOpen ? "items-center gap-3 px-4 py-3" : "justify-center items-center p-0"} rounded-xl font-semibold shadow-lg transition-all duration-500 ${isActive ? "bg-[#6096ba] text-[#e7ecef] shadow-xl" : "text-[#274c77] hover:bg-[#a3cef1]"}`}
-                    style={{
-                      backdropFilter: "blur(4px)",
-                      border: isActive ? "2px solid #6096ba" : "1.5px solid #8b8c89",
-                    }}
-                  >
-                    <span className={`${sidebarOpen ? "flex items-center justify-center" : "flex items-center justify-center w-12 h-12"} transition-all duration-500`}>
-                      <item.icon
-                        className={`h-6 w-6 transition-transform duration-500 group-hover:scale-110 ${isActive ? "text-[#e7ecef]" : "text-[#6096ba]"}`}
-                      />
-                    </span>
-                    <span
-                      className={`sidebar-label inline-block whitespace-nowrap overflow-hidden transition-all duration-500 ${sidebarOpen && showText ? 'opacity-100 max-w-xs ml-2' : 'opacity-0 max-w-0 ml-0'}`}
-                      style={{
-                        transition: 'opacity 0.5s, max-width 0.5s, margin-left 0.5s',
-                      }}
-                    >
-                      {showText ? item.title : ''}
-                    </span>
-                    <span
-                      className={`sidebar-label ml-auto transition-all duration-500 ${sidebarOpen && showText && hasSubItems ? 'opacity-100 max-w-xs' : 'opacity-0 max-w-0'}`}
-                      style={{
-                        transition: 'opacity 0.5s, max-width 0.5s',
-                        display: hasSubItems ? 'inline-block' : 'none',
-                      }}
-                    >
-                      {showText && hasSubItems ? (
-                        <svg
-                          className={`h-4 w-4 transition-transform duration-500 ${isActive ? "rotate-90 text-[#e7ecef]" : "text-[#6096ba]"}`}
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                          viewBox="0 0 24 24"
+                return (
+                  <div key={item.key}>
+                    <Link href={item.href}>
+                      <button
+                        className={`w-full flex ${sidebarOpen ? "items-center gap-3 px-4 py-3" : "justify-center items-center p-0"} rounded-xl font-semibold shadow-lg transition-all duration-500 ${isActive ? "bg-[#6096ba] text-[#e7ecef] shadow-xl" : "text-[#274c77] hover:bg-[#a3cef1]"}`}
+                        style={{
+                          backdropFilter: "blur(4px)",
+                          border: isActive ? "2px solid #6096ba" : "1.5px solid #8b8c89",
+                        }}
+                      >
+                        <span className={`${sidebarOpen ? "flex items-center justify-center" : "flex items-center justify-center w-12 h-12"} transition-all duration-500`}>
+                          <item.icon
+                            className={`h-6 w-6 transition-transform duration-500 group-hover:scale-110 ${isActive ? "text-[#e7ecef]" : "text-[#6096ba]"}`}
+                          />
+                        </span>
+                        <span
+                          className={`sidebar-label inline-block whitespace-nowrap overflow-hidden transition-all duration-500 ${sidebarOpen && showText ? 'opacity-100 max-w-xs ml-2' : 'opacity-0 max-w-0 ml-0'}`}
+                          style={{
+                            transition: 'opacity 0.5s, max-width 0.5s, margin-left 0.5s',
+                          }}
                         >
-                          <path d="M9 5l7 7-7 7" />
-                        </svg>
-                      ) : null}
-                    </span>
-                  </Link>
+                          {showText ? item.title : ''}
+                        </span>
+                        <span
+                          className={`sidebar-label ml-auto transition-all duration-500 ${sidebarOpen && showText && hasSubItems ? 'opacity-100 max-w-xs' : 'opacity-0 max-w-0'}`}
+                          style={{
+                            transition: 'opacity 0.5s, max-width 0.5s',
+                            display: hasSubItems ? 'inline-block' : 'none',
+                          }}
+                        >
+                          {showText && hasSubItems ? (
+                            <svg
+                              className={`h-4 w-4 transition-transform duration-500 ${isActive ? "rotate-90 text-[#e7ecef]" : "text-[#6096ba]"}`}
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth={2}
+                              viewBox="0 0 24 24"
+                            >
+                              <path d="M9 5l7 7-7 7" />
+                            </svg>
+                          ) : null}
+                        </span>
+                      </button>
+                    </Link>
 
                 {sidebarOpen && hasSubItems && (
                   <div
