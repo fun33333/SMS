@@ -12,16 +12,15 @@ class StudentAdmin(admin.ModelAdmin):
         "get_campus_name", 
         "current_grade",
         "section",
+        "display_shift",
         "classroom", 
         "get_class_teacher",
         "is_deleted",
         "terminated_on", 
-        "created_at"
     )
     list_filter = ("campus", "classroom", "is_deleted")
     search_fields = ("name", "student_code", "gr_no")
     readonly_fields = ("student_code", "student_id", "gr_no", "created_at", "updated_at", "deleted_at")
-    # Hide deprecated/internal fields from the admin form
     exclude = (
         "old_gr_number",          # removed per new requirements
         "transfer_reason",        # removed from UI flow
@@ -50,6 +49,11 @@ class StudentAdmin(admin.ModelAdmin):
     
     get_class_teacher.short_description = "Class Teacher"
     get_class_teacher.admin_order_field = "classroom__class_teacher__name"
+    
+    def display_shift(self, obj):
+        return obj.get_shift_display() if obj.shift else "-"
+    display_shift.short_description = "Shift"
+    display_shift.admin_order_field = "shift"
 
     # --- Custom Actions ---
     def mark_as_terminated(self, request, queryset):

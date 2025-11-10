@@ -161,5 +161,35 @@ class Coordinator(models.Model):
                 shift=self.shift
             ).select_related('grade', 'class_teacher')
 
+    @classmethod
+    def get_for_user(cls, user):
+        """
+        Robust lookup: try employee_code == user.username, then email == user.email.
+        Returns a Coordinator instance or None. This avoids raising DoesNotExist
+        when data isn't perfectly aligned and centralizes the lookup logic.
+        """
+        if not user:
+            return None
+
+        # Try employee_code first (legacy behaviour)
+        try:
+            obj = cls.objects.filter(employee_code=user.username).first()
+            if obj:
+                return obj
+        except Exception:
+            # Swallow unexpected DB issues here - caller will handle None
+            pass
+
+        # Fallback to email if available
+        try:
+            if getattr(user, 'email', None):
+                obj = cls.objects.filter(email=user.email).first()
+                if obj:
+                    return obj
+        except Exception:
+            pass
+
+        return None
+
     def __str__(self):
         return f"{self.full_name} ({self.employee_code})"

@@ -432,16 +432,28 @@ def edit_attendance(request, attendance_id):
         
         # Check coordinator permissions (unlimited time for their level)
         elif user.is_coordinator():
-            try:
-                # Find coordinator by username (employee_code) since there's no direct relationship
-                from coordinator.models import Coordinator
-                coordinator = Coordinator.objects.get(employee_code=user.username)
-                if (coordinator and coordinator.is_currently_active and 
-                    coordinator.level == attendance.classroom.grade.level):
-                    can_edit = True
-                    edit_reason = "Coordinator edit"
-            except Coordinator.DoesNotExist:
-                pass
+            # Coordinator can edit attendance for their managed levels (no 7-day limit)
+            from coordinator.models import Coordinator
+            coordinator = Coordinator.get_for_user(user)
+            if not coordinator or not coordinator.is_currently_active:
+                return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            # Support coordinators with multiple assigned levels and 'both' shifts
+            allowed = False
+            if coordinator.shift == 'both':
+                if hasattr(coordinator, 'assigned_levels') and coordinator.assigned_levels.exists():
+                    if attendance.classroom.grade.level in coordinator.assigned_levels.all():
+                        allowed = True
+                elif coordinator.level:
+                    if attendance.classroom.grade.level == coordinator.level:
+                        allowed = True
+            else:
+                if coordinator.level and attendance.classroom.grade.level == coordinator.level:
+                    allowed = True
+
+            if allowed:
+                can_edit = True
+                edit_reason = "Coordinator edit"
         
         # Check principal permissions
         elif user.is_principal():
@@ -554,38 +566,30 @@ def get_attendance_for_date(request, classroom_id, date):
             except Teacher.DoesNotExist:
                 return Response({'error': 'Teacher profile not found'}, status=status.HTTP_404_NOT_FOUND)
         elif user.is_coordinator():
-            print(f"🔍 DEBUG: User is coordinator, checking permissions")
             # Coordinator can access attendance for classrooms in their managed levels
-            try:
-                from coordinator.models import Coordinator
-                coordinator = Coordinator.objects.get(employee_code=user.username)
-                print(f"   - coordinator: {coordinator.full_name}")
-                print(f"   - coordinator shift: {coordinator.shift}")
-                print(f"   - coordinator level: {coordinator.level}")
-                print(f"   - coordinator assigned_levels: {list(coordinator.assigned_levels.all())}")
-                
-                # Check if classroom is in coordinator's managed levels
-                allowed = False
-                if coordinator.shift == 'both' and coordinator.assigned_levels.exists():
-                    print(f"   - checking 'both' shift with assigned_levels")
-                    # Check if classroom's level is in coordinator's assigned levels
+            from coordinator.models import Coordinator
+            coordinator = Coordinator.get_for_user(user)
+            if not coordinator:
+                return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            # Check if classroom is in coordinator's managed levels
+            allowed = False
+            # Build managed levels: if 'both' shift and assigned_levels provided, use them.
+            # Fallback to single 'level' if assigned_levels empty (some coordinators may still use level field).
+            if coordinator.shift == 'both':
+                if coordinator.assigned_levels.exists():
                     if classroom.grade.level in coordinator.assigned_levels.all():
                         allowed = True
-                        print(f"   - ✅ Classroom level {classroom.grade.level} found in assigned_levels")
-                    else:
-                        print(f"   - ❌ Classroom level {classroom.grade.level} NOT found in assigned_levels")
-                elif coordinator.level and classroom.grade.level == coordinator.level:
+                elif coordinator.level:
+                    # fallback: coordinator.level used even when shift is 'both'
+                    if classroom.grade.level == coordinator.level:
+                        allowed = True
+            else:
+                if coordinator.level and classroom.grade.level == coordinator.level:
                     allowed = True
-                    print(f"   - ✅ Classroom level {classroom.grade.level} matches coordinator level")
-                else:
-                    print(f"   - ❌ No matching level found")
-                
-                print(f"   - allowed: {allowed}")
-                if not allowed:
-                    return Response({'error': 'Access denied - Classroom not in your managed levels'}, status=status.HTTP_403_FORBIDDEN)
-            except Coordinator.DoesNotExist:
-                print(f"   - ❌ Coordinator profile not found")
-                return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            if not allowed:
+                return Response({'error': 'Access denied - Classroom not in your managed levels'}, status=status.HTTP_403_FORBIDDEN)
         
         # Auto-create weekend entry for Sundays (no attendance records should be created)
         try:
@@ -602,24 +606,11 @@ def get_attendance_for_date(request, classroom_id, date):
 
         # Get attendance for the date
         try:
-            print(f"🔍 DEBUG: Looking for attendance data")
-            print(f"   - classroom: {classroom}")
-            print(f"   - date: {date}")
-            print(f"   - is_deleted: False")
-            
             attendance = Attendance.objects.get(
                 classroom=classroom,
                 date=date,
                 is_deleted=False
             )
-            
-            print(f"🔍 DEBUG: Attendance found!")
-            print(f"   - attendance.id: {attendance.id}")
-            print(f"   - attendance.status: {attendance.status}")
-            print(f"   - attendance.total_students: {attendance.total_students}")
-            print(f"   - attendance.present_count: {attendance.present_count}")
-            print(f"   - attendance.absent_count: {attendance.absent_count}")
-            print(f"   - attendance.leave_count: {attendance.leave_count}")
             
             # Get student attendance records
             student_attendances = attendance.student_attendances.all()
@@ -658,9 +649,6 @@ def get_attendance_for_date(request, classroom_id, date):
             return Response(attendance_data)
             
         except Attendance.DoesNotExist:
-            print(f"🔍 DEBUG: No attendance found for this date")
-            print(f"   - classroom: {classroom}")
-            print(f"   - date: {date}")
             # Also tell client if the date is a weekend
             from datetime import datetime as _dt
             is_weekend = False
@@ -692,14 +680,11 @@ def get_coordinator_classes(request):
         if not user.is_coordinator():
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
-        # Find coordinator by username (employee_code) since there's no direct relationship
+        # Find coordinator by user (robust lookup)
         from coordinator.models import Coordinator
-        try:
-            coordinator = Coordinator.objects.get(employee_code=user.username)
-            if not coordinator or not coordinator.is_currently_active:
-                return Response({'error': 'Coordinator profile not found or inactive'}, status=status.HTTP_404_NOT_FOUND)
-        except Coordinator.DoesNotExist:
-            return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        coordinator = Coordinator.get_for_user(user)
+        if not coordinator or not coordinator.is_currently_active:
+            return Response({'error': 'Coordinator profile not found or inactive'}, status=status.HTTP_404_NOT_FOUND)
         
         # Get all classes in coordinator's level(s)
         managed_levels = []
@@ -717,6 +702,14 @@ def get_coordinator_classes(request):
         
         class_data = []
         for classroom in classrooms:
+            # Include level information so frontend can build a level selection dropdown
+            level_info = None
+            try:
+                lvl = classroom.grade.level
+                level_info = {'id': lvl.id, 'name': lvl.name}
+            except Exception:
+                level_info = None
+
             class_data.append({
                 'id': classroom.id,
                 'name': str(classroom),  # This uses the __str__ method
@@ -724,6 +717,7 @@ def get_coordinator_classes(request):
                 'grade': classroom.grade.name,
                 'section': classroom.section,
                 'shift': classroom.shift,
+                'level': level_info,
                 'campus': classroom.grade.level.campus.campus_name if classroom.grade.level.campus else None,
                 'class_teacher': {
                     'id': classroom.class_teacher.id if classroom.class_teacher else None,
@@ -750,14 +744,11 @@ def get_level_attendance_summary(request, level_id):
         
         # Check permissions
         if user.is_coordinator():
-            try:
-                # Find coordinator by username (employee_code) since there's no direct relationship
-                from coordinator.models import Coordinator
-                coordinator = Coordinator.objects.get(employee_code=user.username)
-                if not coordinator or coordinator.level.id != level_id:
-                    return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
-            except Coordinator.DoesNotExist:
-                return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+            # Find coordinator via robust lookup
+            from coordinator.models import Coordinator
+            coordinator = Coordinator.get_for_user(user)
+            if not coordinator or not coordinator.level or coordinator.level.id != level_id:
+                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         elif user.is_principal():
             try:
                 # Find principal by email since there's no direct relationship
@@ -920,8 +911,24 @@ def review_attendance(request, attendance_id):
         
         # Verify coordinator has access
         from coordinator.models import Coordinator
-        coordinator = Coordinator.objects.get(employee_code=request.user.username)
-        if coordinator.level != attendance.classroom.grade.level:
+        coordinator = Coordinator.get_for_user(request.user)
+        if not coordinator or not coordinator.is_currently_active:
+            return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Support coordinators with multiple assigned levels and 'both' shifts
+        allowed = False
+        if coordinator.shift == 'both':
+            if hasattr(coordinator, 'assigned_levels') and coordinator.assigned_levels.exists():
+                if attendance.classroom.grade.level in coordinator.assigned_levels.all():
+                    allowed = True
+            elif coordinator.level:
+                if attendance.classroom.grade.level == coordinator.level:
+                    allowed = True
+        else:
+            if coordinator.level and attendance.classroom.grade.level == coordinator.level:
+                allowed = True
+
+        if not allowed:
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
         with transaction.atomic():
@@ -958,18 +965,34 @@ def finalize_attendance(request, attendance_id):
             return Response({'error': 'Can only finalize draft, submitted, or under_review attendance'}, status=status.HTTP_400_BAD_REQUEST)
         
         from coordinator.models import Coordinator
-        coordinator = Coordinator.objects.get(employee_code=request.user.username)
-        if coordinator.level != attendance.classroom.grade.level:
+        coordinator = Coordinator.get_for_user(request.user)
+        if not coordinator or not coordinator.is_currently_active:
+            return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Support coordinators with multiple assigned levels and 'both' shifts
+        allowed = False
+        if coordinator.shift == 'both':
+            if hasattr(coordinator, 'assigned_levels') and coordinator.assigned_levels.exists():
+                if attendance.classroom.grade.level in coordinator.assigned_levels.all():
+                    allowed = True
+            elif coordinator.level:
+                if attendance.classroom.grade.level == coordinator.level:
+                    allowed = True
+        else:
+            if coordinator.level and attendance.classroom.grade.level == coordinator.level:
+                allowed = True
+
+        if not allowed:
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
         with transaction.atomic():
-            attendance.status = 'final'
+            attendance.status = 'approved'
             attendance.is_final = True
             attendance.finalized_at = timezone.now()
             attendance.finalized_by = request.user
             attendance.add_edit_history(request.user, 'finalize', 'Finalized by coordinator')
             attendance.save()
-            
+
             from .models import AuditLog
             AuditLog.objects.create(
                 feature='attendance',
@@ -978,7 +1001,7 @@ def finalize_attendance(request, attendance_id):
                 entity_id=attendance.id,
                 user=request.user,
                 ip_address=request.META.get('REMOTE_ADDR'),
-                changes={'status': 'final'}
+                changes={'status': 'approved'}
             )
         
         return Response({'message': 'Attendance finalized successfully'})
@@ -993,25 +1016,41 @@ def coordinator_approve_attendance(request, attendance_id):
     try:
         attendance = get_object_or_404(Attendance, id=attendance_id, is_deleted=False)
         
-        # Only allow draft or submitted status
-        if attendance.status not in ['draft', 'submitted']:
-            return Response({'error': 'Can only approve draft or submitted attendance'}, status=status.HTTP_400_BAD_REQUEST)
+        # Check if attendance can be approved (draft, submitted, or under_review)
+        if attendance.status not in ['draft', 'submitted', 'under_review']:
+            return Response({'error': 'Can only approve draft, submitted or under review attendance'}, status=status.HTTP_400_BAD_REQUEST)
         
         # Verify coordinator has access
         from coordinator.models import Coordinator
-        coordinator = Coordinator.objects.get(employee_code=request.user.username)
-        if coordinator.level != attendance.classroom.grade.level:
+        coordinator = Coordinator.get_for_user(request.user)
+        if not coordinator:
+            return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Check membership (support assigned_levels for 'both' shifts)
+        allowed = False
+        if coordinator.shift == 'both':
+            if coordinator.assigned_levels.exists():
+                if attendance.classroom.grade.level in coordinator.assigned_levels.all():
+                    allowed = True
+            elif coordinator.level:
+                if coordinator.level == attendance.classroom.grade.level:
+                    allowed = True
+        else:
+            if coordinator.level == attendance.classroom.grade.level:
+                allowed = True
+
+        if not allowed:
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
         with transaction.atomic():
-            # Move directly to final status
-            attendance.status = 'final'
+            # Move directly to approved status
+            attendance.status = 'approved'
             attendance.is_final = True
             attendance.finalized_at = timezone.now()
             attendance.finalized_by = request.user
             attendance.add_edit_history(request.user, 'coordinator_approve', 'Directly approved by coordinator')
             attendance.save()
-            
+
             from .models import AuditLog
             AuditLog.objects.create(
                 feature='attendance',
@@ -1020,7 +1059,7 @@ def coordinator_approve_attendance(request, attendance_id):
                 entity_id=attendance.id,
                 user=request.user,
                 ip_address=request.META.get('REMOTE_ADDR'),
-                changes={'status': 'final'}
+                changes={'status': 'approved'}
             )
         
         return Response({'message': 'Attendance approved successfully by coordinator'})
@@ -1039,12 +1078,28 @@ def reopen_attendance(request, attendance_id):
         if not reason:
             return Response({'error': 'Reason is required'}, status=status.HTTP_400_BAD_REQUEST)
         
-        if attendance.status != 'final':
-            return Response({'error': 'Can only reopen final attendance'}, status=status.HTTP_400_BAD_REQUEST)
+        if attendance.status != 'approved':
+            return Response({'error': 'Can only reopen approved attendance'}, status=status.HTTP_400_BAD_REQUEST)
         
         from coordinator.models import Coordinator
-        coordinator = Coordinator.objects.get(employee_code=request.user.username)
-        if coordinator.level != attendance.classroom.grade.level:
+        coordinator = Coordinator.get_for_user(request.user)
+        if not coordinator:
+            return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Check membership (support assigned_levels for 'both' shifts)
+        allowed = False
+        if coordinator.shift == 'both':
+            if coordinator.assigned_levels.exists():
+                if attendance.classroom.grade.level in coordinator.assigned_levels.all():
+                    allowed = True
+            elif coordinator.level:
+                if coordinator.level == attendance.classroom.grade.level:
+                    allowed = True
+        else:
+            if coordinator.level == attendance.classroom.grade.level:
+                allowed = True
+
+        if not allowed:
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
         with transaction.atomic():
@@ -1093,8 +1148,22 @@ def grant_backfill_permission(request):
         deadline = datetime.strptime(deadline_str, '%Y-%m-%dT%H:%M:%S')
         
         from coordinator.models import Coordinator
-        coordinator = Coordinator.objects.get(employee_code=request.user.username)
-        if coordinator.level != classroom.grade.level:
+        coordinator = Coordinator.get_for_user(request.user)
+        if not coordinator:
+            return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Check membership for backfill permission
+        allowed = False
+        if coordinator.shift == 'both':
+            if coordinator.assigned_levels.exists() and classroom.grade.level in coordinator.assigned_levels.all():
+                allowed = True
+            elif coordinator.level and coordinator.level == classroom.grade.level:
+                allowed = True
+        else:
+            if coordinator.level and coordinator.level == classroom.grade.level:
+                allowed = True
+
+        if not allowed:
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
         from .models import AttendanceBackfillPermission, AuditLog
@@ -1161,7 +1230,10 @@ def create_holiday(request):
             return Response({'error': 'Date and reason required'}, status=status.HTTP_400_BAD_REQUEST)
         
         from coordinator.models import Coordinator
-        coordinator = Coordinator.objects.get(employee_code=request.user.username)
+        coordinator = Coordinator.get_for_user(request.user)
+        if not coordinator:
+            return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
         date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
         
         from .models import Holiday, AuditLog
@@ -1278,8 +1350,16 @@ def get_realtime_attendance_metrics(request):
             classrooms = [teacher.assigned_classroom] if teacher.assigned_classroom else []
         elif user.is_coordinator():
             from coordinator.models import Coordinator
-            coordinator = Coordinator.objects.get(employee_code=user.username)
-            classrooms = ClassRoom.objects.filter(grade__level=coordinator.level)
+            coordinator = Coordinator.get_for_user(user)
+            if coordinator:
+                if coordinator.shift == 'both' and coordinator.assigned_levels.exists():
+                    classrooms = ClassRoom.objects.filter(grade__level__in=coordinator.assigned_levels.all())
+                elif coordinator.level:
+                    classrooms = ClassRoom.objects.filter(grade__level=coordinator.level)
+                else:
+                    classrooms = []
+            else:
+                classrooms = []
         elif user.is_principal():
             from principals.models import Principal
             principal = Principal.objects.get(email=user.email)
@@ -1301,7 +1381,7 @@ def get_realtime_attendance_metrics(request):
                     status_color = 'blue'
                 elif attendance.status == 'under_review':
                     status_color = 'orange'
-                elif attendance.status == 'final':
+                elif attendance.status == 'approved':
                     status_color = 'green'
             
             metrics['classrooms'].append({

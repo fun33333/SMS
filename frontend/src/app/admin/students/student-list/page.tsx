@@ -11,6 +11,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Calendar } from "@/components/ui/calender";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getApiBaseUrl } from "@/lib/api";
 
@@ -75,6 +78,7 @@ export default function StudentListPage() {
   const [editFormData, setEditFormData] = useState<any>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [showDobPicker, setShowDobPicker] = useState(false);
   
   // Debounced search
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
@@ -317,38 +321,41 @@ export default function StudentListPage() {
       if (response.ok) {
         const studentData = await response.json();
         // Load full data; UI will hide specific fields (grade/section/GR/shift/is_draft)
-        setEditFormData({
-          name: studentData.name || '',
-          gender: studentData.gender || '',
-          dob: studentData.dob || '',
-          place_of_birth: studentData.place_of_birth || '',
-          religion: studentData.religion || '',
-          mother_tongue: studentData.mother_tongue || '',
-          emergency_contact: studentData.emergency_contact || '',
-          father_name: studentData.father_name || '',
-          father_cnic: studentData.father_cnic || '',
-          father_contact: studentData.father_contact || '',
-          father_profession: studentData.father_profession || '',
-          guardian_name: studentData.guardian_name || '',
-          guardian_cnic: studentData.guardian_cnic || '',
-          guardian_contact: studentData.guardian_contact || '',
-          guardian_relation: studentData.guardian_relation || '',
-          current_grade: studentData.current_grade || '',
-          section: studentData.section || '',
-          last_class_passed: studentData.last_class_passed || '',
-          last_school_name: studentData.last_school_name || '',
-          last_class_result: studentData.last_class_result || '',
-          from_year: studentData.from_year || '',
-          to_year: studentData.to_year || '',
-          siblings_count: studentData.siblings_count || '',
-          father_status: studentData.father_status || '',
-          sibling_in_alkhair: studentData.sibling_in_alkhair || '',
-          gr_no: studentData.gr_no || '',
-          enrollment_year: studentData.enrollment_year || '',
-          shift: studentData.shift || '',
-          is_draft: studentData.is_draft ? 'true' : 'false'
-        });
-        setShowEditDialog(true);
+            const formData = {
+            name: studentData.name || '',
+            gender: studentData.gender || '',
+            dob: studentData.dob || '',
+            place_of_birth: studentData.place_of_birth || '',
+            religion: studentData.religion || '',
+            mother_tongue: studentData.mother_tongue || '',
+            emergency_contact: studentData.emergency_contact || '',
+            father_name: studentData.father_name || '',
+            father_cnic: studentData.father_cnic || '',
+            father_contact: studentData.father_contact || '',
+            father_profession: studentData.father_profession || '',
+            guardian_name: studentData.guardian_name || '',
+            guardian_cnic: studentData.guardian_cnic || '',
+            guardian_contact: studentData.guardian_contact || '',
+            guardian_relation: studentData.guardian_relation || '',
+            current_grade: studentData.current_grade || '',
+            section: studentData.section || '',
+            last_class_passed: studentData.last_class_passed || '',
+            last_school_name: studentData.last_school_name || '',
+            last_class_result: studentData.last_class_result || '',
+            from_year: studentData.from_year || '',
+            to_year: studentData.to_year || '',
+            siblings_count: studentData.siblings_count || '',
+            father_status: studentData.father_status || '',
+            sibling_in_alkhair: studentData.sibling_in_alkhair || '',
+            gr_no: studentData.gr_no || '',
+            enrollment_year: studentData.enrollment_year || '',
+            shift: studentData.shift || '',
+            is_draft: studentData.is_draft ? 'true' : 'false',
+            photo: studentData.photo || null,
+                  };
+
+                  setEditFormData(formData);
+                  setShowEditDialog(true);
       } else {
         console.error('Error fetching student data:', response.statusText);
         alert('Error loading student data');
@@ -356,6 +363,41 @@ export default function StudentListPage() {
     } catch (error) {
       console.error('Error fetching student data:', error);
       alert('Error loading student data');
+    }
+  };
+
+  const handleDeletePhoto = async () => {
+    if (!editingStudent) return;
+
+    // If the photo in state is a File object (not uploaded yet), just clear it locally
+    if (editFormData.photo && editFormData.photo instanceof File) {
+      setEditFormData((prev: any) => ({ ...prev, photo: null }));
+      return;
+    }
+
+    // Otherwise request backend to delete stored photo
+    try {
+      const baseForUpdate = getApiBaseUrl();
+      const cleanBaseForUpdate = baseForUpdate.endsWith('/') ? baseForUpdate.slice(0, -1) : baseForUpdate;
+      const resp = await fetch(`${cleanBaseForUpdate}/api/students/${editingStudent.id}/delete-photo/`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('sis_access_token')}`,
+        },
+      });
+
+      if (resp.ok) {
+        // clear preview
+        setEditFormData((prev: any) => ({ ...prev, photo: null }));
+        alert('✅ Photo deleted');
+      } else {
+        const text = await resp.text();
+        console.error('Failed to delete photo:', resp.status, text);
+        alert(`Error deleting photo: ${resp.status} - ${text}`);
+      }
+    } catch (err) {
+      console.error('Error deleting photo:', err);
+      alert('Error deleting photo');
     }
   };
 
@@ -370,8 +412,37 @@ export default function StudentListPage() {
     
     setIsSubmitting(true);
     try {
+      // Handle photo upload first if there's a new photo
+      let photoUrl = editFormData.photo;
+      if (editFormData.photo && editFormData.photo instanceof File) {
+        const formData = new FormData();
+        formData.append('photo', editFormData.photo);
+        
+        const baseForUpdate = getApiBaseUrl();
+        const cleanBaseForUpdate = baseForUpdate.endsWith('/') ? baseForUpdate.slice(0, -1) : baseForUpdate;
+        
+        try {
+          const photoResponse = await fetch(`${cleanBaseForUpdate}/api/students/${editingStudent.id}/upload-photo/`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('sis_access_token')}`,
+            },
+            body: formData,
+          });
+          
+          if (photoResponse.ok) {
+            const photoData = await photoResponse.json();
+            photoUrl = photoData.photo_url; // Get the URL of the uploaded photo
+            // update local form preview to use server URL (but do NOT send this URL again in the PATCH body)
+            setEditFormData((prev: any) => ({ ...prev, photo: photoUrl }));
+          }
+        } catch (error) {
+          console.error('Error uploading photo:', error);
+        }
+      }
+
       // Prepare update data - send all provided values EXCEPT excluded fields
-      const excludeKeys = new Set(['current_grade','section','gr_no','shift','is_draft']);
+      const excludeKeys = new Set(['current_grade', 'section', 'gr_no', 'shift', 'is_draft', 'photo']);
       const updateData: any = {};
       Object.keys(editFormData).forEach(key => {
         if (excludeKeys.has(key)) return;
@@ -380,13 +451,13 @@ export default function StudentListPage() {
         }
       });
       
+    
+      
       // Convert numeric fields
       if (updateData.from_year) updateData.from_year = parseInt(updateData.from_year);
       if (updateData.to_year) updateData.to_year = parseInt(updateData.to_year);
       if (updateData.enrollment_year) updateData.enrollment_year = parseInt(updateData.enrollment_year);
       if (updateData.siblings_count) updateData.siblings_count = parseInt(updateData.siblings_count);
-
-      console.log('Updating student with data:', updateData);
 
       const baseForUpdate = getApiBaseUrl();
       const cleanBaseForUpdate = baseForUpdate.endsWith('/') ? baseForUpdate.slice(0, -1) : baseForUpdate;
@@ -417,6 +488,14 @@ export default function StudentListPage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleDobSelect = (date: Date | undefined) => {
+    if (date) {
+      const iso = date.toISOString().slice(0, 10);
+      setEditFormData((prev: any) => ({ ...prev, dob: iso }));
+    }
+    setShowDobPicker(false);
   };
 
   // Define table columns
@@ -686,6 +765,59 @@ export default function StudentListPage() {
             {/* Personal Information */}
             <div className="bg-gray-50 p-4 rounded-lg">
               <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Personal Information</h3>
+              
+              {/* Photo Upload */}
+              <div className="mb-6">
+                <Label htmlFor="photo">Profile Photo</Label>
+                <div className="flex items-start space-x-4">
+                  {editFormData.photo ? (
+                    <div className="relative">
+                      <img 
+                        src={typeof editFormData.photo === 'string' ? editFormData.photo : URL.createObjectURL(editFormData.photo)}
+                        alt="Student photo"
+                        className="w-24 h-24 object-cover rounded-lg border-2 border-gray-200"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
+                        onClick={async () => {
+                          // If the photo is a File (not uploaded yet), just clear it locally.
+                          if (editFormData.photo && editFormData.photo instanceof File) {
+                            setEditFormData((prev: any) => ({ ...prev, photo: null }));
+                            return;
+                          }
+                          // Otherwise ask backend to delete stored photo
+                          await handleDeletePhoto();
+                        }}
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="w-24 h-24 flex items-center justify-center rounded-lg border-2 border-dashed border-gray-200">
+                      <User className="h-8 w-8 text-gray-400" />
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <Input
+                      id="photo"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setEditFormData({...editFormData, photo: file});
+                        }
+                      }}
+                      className="mt-1"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Upload a profile photo (JPG, PNG)</p>
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="name">Full Name</Label>
@@ -710,12 +842,26 @@ export default function StudentListPage() {
                 </div>
                 <div>
                   <Label htmlFor="dob">Date of Birth</Label>
-                  <Input
-                    id="dob"
-                    type="date"
-                    value={editFormData.dob || ''}
-                    onChange={(e) => setEditFormData({...editFormData, dob: e.target.value})}
-                  />
+                  <Popover open={showDobPicker} onOpenChange={setShowDobPicker}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={`w-full h-10 justify-start text-left font-normal ${!editFormData.dob ? 'text-muted-foreground' : ''}`}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {editFormData.dob ? new Date(editFormData.dob).toLocaleDateString() : 'Select date'}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={editFormData.dob ? new Date(editFormData.dob) : undefined}
+                        onSelect={handleDobSelect}
+                        disabled={(date) => date > new Date() || date < new Date('1900-01-01')}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div>
                   <Label htmlFor="place_of_birth">Place of Birth</Label>

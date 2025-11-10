@@ -59,7 +59,7 @@ class Attendance(models.Model):
         ('draft', 'Draft'),
         ('submitted', 'Submitted'),
         ('under_review', 'Under Review'),
-        ('final', 'Final'),
+        ('approved', 'Approved'),
     ]
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     submitted_at = models.DateTimeField(null=True, blank=True)
@@ -99,7 +99,7 @@ class Attendance(models.Model):
     @property
     def is_editable(self):
         """Check if attendance can be edited based on status"""
-        if self.status == 'final':
+        if self.status == 'approved':
             return False
         if self.status == 'draft':
             return (timezone.now().date() - self.date).days <= 7

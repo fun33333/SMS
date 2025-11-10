@@ -1527,17 +1527,14 @@ export async function createResult(data: ResultData) {
   }
 }
 
-// Coordinator Result Functions
 export async function getCoordinatorResults() {
   try {
     const response = await apiGet('/api/result/coordinator/results/');
     
-    // Handle paginated response
     if (response && typeof response === 'object' && 'results' in response) {
       return response.results;
     }
     
-    // Handle direct array response
     if (Array.isArray(response)) {
       return response;
     }
@@ -1545,7 +1542,6 @@ export async function getCoordinatorResults() {
     return [];
     
   } catch (error: any) {
-    // If it's an authentication error, clear tokens and redirect
     if (error?.status === 401) {
       localStorage.removeItem('sis_access_token');
       localStorage.removeItem('sis_refresh_token');
@@ -1682,7 +1678,6 @@ export async function addRequestComment(requestId: number, comment: string) {
   }
 }
 
-// Teacher Statistics API functions
 export async function getTeacherAttendanceSummary(classroomId: number, startDate?: string, endDate?: string) {
   try {
     let url = `/api/attendance/class/${classroomId}/summary/`;
@@ -1720,7 +1715,7 @@ export async function getTeacherWeeklyAttendance(classroomId: number) {
 export async function getTeacherMonthlyTrend(classroomId: number) {
   try {
     const today = new Date();
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth() - 5, 1); // Last 6 months
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth() - 5, 1);
     const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
     
     const startDate = startOfMonth.toISOString().split('T')[0];
@@ -1766,14 +1761,14 @@ export async function finalizeAttendance(attendanceId: number) {
   try {
     return await apiPost(`/api/attendance/finalize/${attendanceId}/`, {});
   } catch (error) {
-    console.error('Failed to finalize attendance:', error);
+    console.error('Failed to approve attendance:', error);
     throw error;
   }
 }
 
-export async function coordinatorApproveAttendance(attendanceId: number) {
+export async function coordinatorApproveAttendance(attendanceId: number, comment?: string) {
   try {
-    return await apiPost(`/api/attendance/coordinator-approve/${attendanceId}/`, {});
+    return await apiPost(`/api/attendance/coordinator-approve/${attendanceId}/`, { comment });
   } catch (error) {
     console.error('Failed to approve attendance:', error);
     throw error;

@@ -10,7 +10,7 @@ class CoordinatorAdmin(admin.ModelAdmin):
     list_display = (
         "full_name",
         "email",
-        "contact_number",  # Changed from "phone"
+        "contact_number", 
         "gender",
         "display_levels",
         "campus",

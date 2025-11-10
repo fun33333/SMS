@@ -77,8 +77,8 @@ def get_request_detail(request, request_id):
                 return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         elif user.is_coordinator():
             from coordinator.models import Coordinator
-            coordinator = Coordinator.objects.get(email=user.email)
-            if request_obj.coordinator != coordinator:
+            coordinator = Coordinator.get_for_user(user)
+            if not coordinator or request_obj.coordinator != coordinator:
                 return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         elif not user.is_superuser:
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
@@ -98,7 +98,9 @@ def get_coordinator_requests(request):
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
         from coordinator.models import Coordinator
-        coordinator = Coordinator.objects.get(email=user.email)
+        coordinator = Coordinator.get_for_user(user)
+        if not coordinator:
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         requests = RequestComplaint.objects.filter(coordinator=coordinator)
         
         # Get filter parameters
@@ -128,7 +130,9 @@ def update_request_status(request, request_id):
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
         from coordinator.models import Coordinator
-        coordinator = Coordinator.objects.get(email=user.email)
+        coordinator = Coordinator.get_for_user(user)
+        if not coordinator:
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         request_obj = get_object_or_404(RequestComplaint, id=request_id, coordinator=coordinator)
         
         serializer = RequestComplaintUpdateSerializer(request_obj, data=request.data, partial=True)
@@ -156,8 +160,8 @@ def add_comment(request, request_id):
                 return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         elif user.is_coordinator():
             from coordinator.models import Coordinator
-            coordinator = Coordinator.objects.get(email=user.email)
-            if request_obj.coordinator != coordinator:
+            coordinator = Coordinator.get_for_user(user)
+            if not coordinator or request_obj.coordinator != coordinator:
                 return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         elif not user.is_superuser:
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
@@ -187,8 +191,10 @@ def get_coordinator_dashboard_stats(request):
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
         from coordinator.models import Coordinator
-        coordinator = Coordinator.objects.get(email=user.email)
-        
+        coordinator = Coordinator.get_for_user(user)
+        if not coordinator:
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+
         requests = RequestComplaint.objects.filter(coordinator=coordinator)
         
         stats = {

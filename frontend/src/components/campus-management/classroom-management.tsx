@@ -4,13 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import {Select,SelectContent,SelectItem,SelectTrigger,SelectValue,} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -30,6 +24,7 @@ import {
 import { Plus, Edit, Trash2, Users, UserPlus, Clock } from "lucide-react"
 import { 
   getClassrooms, 
+  getClassroomStudents,
   createClassroom, 
   updateClassroom, 
   deleteClassroom,
@@ -48,6 +43,7 @@ interface ClassroomManagementProps {
 
 export default function ClassroomManagement({ campusId }: ClassroomManagementProps) {
   const [classrooms, setClassrooms] = useState<any[]>([])
+  const [studentCounts, setStudentCounts] = useState<{ [key: string]: number }>({})
   const [grades, setGrades] = useState<any[]>([])
   const [levels, setLevels] = useState<any[]>([])
   const [availableTeachers, setAvailableTeachers] = useState<any[]>([])
@@ -66,6 +62,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
   const [selectedTeacher, setSelectedTeacher] = useState('')
   const [saving, setSaving] = useState(false)
   const [selectedGrade, setSelectedGrade] = useState<string>('all')
+  const [selectedShift, setSelectedShift] = useState<string>('all')
   const [mobileOpen, setMobileOpen] = useState(false)
   
   // Get campus ID from localStorage if not provided
@@ -73,12 +70,14 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
 
   useEffect(() => {
     fetchData()
-  }, [userCampusId, selectedGrade])
+  }, [userCampusId, selectedGrade, selectedShift])
 
   async function fetchData() {
     setLoading(true)
     try {
       const gradeId = selectedGrade !== 'all' ? parseInt(selectedGrade) : undefined
+      // Filter classrooms by shift if selected
+      const shift = selectedShift !== 'all' ? selectedShift : undefined
       
       const [classroomsData, gradesData, levelsData, teachersData] = await Promise.all([
         getClassrooms(
@@ -97,6 +96,38 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
       const teachersArray = (teachersData as any)?.results || (Array.isArray(teachersData) ? teachersData : [])
       
       setClassrooms(classroomsArray)
+      // Fetch student counts for each classroom
+      const counts: { [key: string]: number } = {}
+      await Promise.all(
+        classroomsArray.map(async (c: any) => {
+            try {
+            // API responses vary: some return { results: [...] }, some return { students: [...] },
+            // or a numeric total_students. Treat the response as `any` to avoid TS errors and
+            // handle the different shapes.
+            const res: any = await getClassroomStudents(c.id)
+
+            // API may return several shapes:
+            // - an array of student objects => res is Array
+            // - { results: [...] } (paginated)
+            // - { students: [...] }
+            // - { total_students: number }
+            // Normalize these and store the numeric count.
+            const key = String(c.id)
+            if (Array.isArray(res)) {
+              counts[key] = res.length
+            } else if (Array.isArray(res?.results)) {
+              counts[key] = res.results.length
+            } else if (Array.isArray(res?.students)) {
+              counts[key] = res.students.length
+            } else {
+              counts[key] = Number(res?.total_students) || 0
+            }
+          } catch (e) {
+            counts[String(c.id)] = 0
+          }
+        })
+      )
+      setStudentCounts(counts)
       setGrades(gradesArray)
       setLevels(levelsArray)
       setAvailableTeachers(teachersArray)
@@ -278,22 +309,50 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
         </Button>
       </div>
 
-      {/* Grade Filter */}
+      {/* Filters */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 bg-gray-50 p-3 sm:p-4 rounded-lg">
-        <Label className="font-semibold text-sm">Filter by Grade:</Label>
-        <Select value={selectedGrade} onValueChange={setSelectedGrade}>
-          <SelectTrigger className="w-full sm:w-[200px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Grades</SelectItem>
-            {grades.map((grade) => (
-              <SelectItem key={grade.id} value={grade.id.toString()}>
-                {grade.name} ({classrooms.filter(c => String(c.grade) === String(grade.id)).length})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Shift Filter */}
+        <div className="flex items-center gap-2">
+          <Label className="font-semibold text-sm">Shift:</Label>
+          <Select value={selectedShift} onValueChange={setSelectedShift}>
+            <SelectTrigger className="w-full sm:w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Shifts</SelectItem>
+              <SelectItem value="morning">Morning</SelectItem>
+              <SelectItem value="afternoon">Afternoon</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Grade Filter */}
+        <div className="flex items-center gap-2">
+          <Label className="font-semibold text-sm">Grade:</Label>
+          <Select value={selectedGrade} onValueChange={setSelectedGrade}>
+            <SelectTrigger className="w-full sm:w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Grades</SelectItem>
+              {grades
+                .filter(grade => {
+                  if (selectedShift === 'all') return true;
+                  // Find the level for this grade
+                  const level = levels.find(l => String(l.id) === String(grade.level));
+                  // Only show grades whose level matches the selected shift
+                  return level?.shift === selectedShift;
+                })
+                .map((grade) => (
+                  <SelectItem key={grade.id} value={grade.id.toString()}>
+                    {grade.name} ({classrooms.filter(c => String(c.grade) === String(grade.id)).length})
+                  </SelectItem>
+                ))
+              }
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="sm:ml-2 inline-flex items-center">
           <span className="px-3 py-1 rounded-full text-xs sm:text-sm font-medium" style={{ backgroundColor: '#E3F2FD', color: '#1976D2' }}>
             Total: {classrooms.length}
@@ -331,7 +390,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
               <div className="flex items-start justify-between">
                 <div>
                   <div className="text-base font-semibold">{classroom.grade_name} - {classroom.section}</div>
-                  <div className="text-xs text-gray-500">Capacity: {classroom.capacity}</div>
+                  
                 </div>
                 <span className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">{classroom.code}</span>
               </div>
@@ -369,7 +428,8 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
               <TableHead className="text-white font-semibold">Code</TableHead>
               <TableHead className="text-white font-semibold">Grade</TableHead>
               <TableHead className="text-white font-semibold">Section</TableHead>
-              <TableHead className="text-white font-semibold">Capacity</TableHead>
+              <TableHead className="text-white font-semibold">Shift</TableHead>
+              <TableHead className="text-white font-semibold">Students</TableHead>
               <TableHead className="text-white font-semibold">Class Teacher</TableHead>
               <TableHead className="text-white font-semibold">Assigned By</TableHead>
               <TableHead className="text-right text-white font-semibold">Actions</TableHead>
@@ -388,7 +448,21 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                 </TableCell>
                 <TableCell>{classroom.grade_name}</TableCell>
                 <TableCell>{classroom.section}</TableCell>
-                <TableCell>{classroom.capacity}</TableCell>
+                <TableCell>
+                  {classroom.shift ? (classroom.shift.charAt(0).toUpperCase() + classroom.shift.slice(1)) : '-'}
+                </TableCell>
+                <TableCell>
+                  {(() => {
+                    const key = String(classroom.id)
+                    // Prefer the fetched count map, fall back to classroom fields commonly used by API
+                    const countFromMap = studentCounts[key]
+                    const countFromClassroomArray = Array.isArray(classroom.students) ? classroom.students.length : undefined
+                    const countFromClassroomTotal = typeof classroom.total_students === 'number' ? classroom.total_students : undefined
+                    const countFromPossibleField = classroom.student_count ?? classroom.students_count ?? undefined
+                    const finalCount = countFromMap ?? countFromClassroomArray ?? countFromClassroomTotal ?? countFromPossibleField
+                    return finalCount !== undefined ? `${finalCount} students` : <span className="text-gray-400">-</span>
+                  })()}
+                </TableCell>
                 <TableCell>
                   {classroom.class_teacher_name ? (
                     <div>

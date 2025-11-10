@@ -73,19 +73,32 @@ class StudentViewSet(viewsets.ModelViewSet):
                 # Coordinator: Show students from classrooms under their assigned level
                 from coordinator.models import Coordinator
                 try:
-                    coordinator_obj = Coordinator.objects.get(employee_code=user.username)
-                    
-                    # Get all classrooms under this coordinator's level
-                    from classes.models import ClassRoom
-                    coordinator_classrooms = ClassRoom.objects.filter(
-                        grade__level=coordinator_obj.level,
-                        grade__level__campus=coordinator_obj.campus
-                    ).values_list('id', flat=True)
-                    
-                    # Filter students from these classrooms
-                    queryset = queryset.filter(classroom__in=coordinator_classrooms)
-                except Coordinator.DoesNotExist:
-                    # If coordinator object doesn't exist, return empty queryset
+                    coordinator_obj = Coordinator.get_for_user(user)
+                    if not coordinator_obj:
+                        queryset = queryset.none()
+                    else:
+                        # Determine which levels this coordinator manages (single level or multiple assigned_levels)
+                        managed_levels = []
+                        if coordinator_obj.shift == 'both' and coordinator_obj.assigned_levels.exists():
+                            managed_levels = list(coordinator_obj.assigned_levels.all())
+                        elif coordinator_obj.level:
+                            managed_levels = [coordinator_obj.level]
+
+                        # If no managed levels, return empty queryset
+                        if not managed_levels:
+                            queryset = queryset.none()
+                        else:
+                            # Get all classrooms under these managed levels and the coordinator's campus
+                            from classes.models import ClassRoom
+                            coordinator_classrooms = ClassRoom.objects.filter(
+                                grade__level__in=managed_levels,
+                                grade__level__campus=coordinator_obj.campus
+                            ).values_list('id', flat=True)
+
+                            # Filter students from these classrooms
+                            queryset = queryset.filter(classroom__in=coordinator_classrooms)
+                except Exception:
+                    # If coordinator resolution fails, return empty queryset
                     queryset = queryset.none()
             
             # Handle shift filtering
@@ -146,11 +159,27 @@ class StudentViewSet(viewsets.ModelViewSet):
             # Coordinator: Check if student is from their assigned level
             from coordinator.models import Coordinator
             try:
-                coordinator_obj = Coordinator.objects.get(employee_code=user.username)
-                if obj.classroom and obj.classroom.grade.level != coordinator_obj.level:
+                coordinator_obj = Coordinator.get_for_user(user)
+                if not coordinator_obj:
                     from rest_framework.exceptions import PermissionDenied
-                    raise PermissionDenied("You don't have permission to view this student.")
-            except Coordinator.DoesNotExist:
+                    raise PermissionDenied("Coordinator profile not found.")
+
+                # Build managed levels similar to get_queryset
+                managed_levels = []
+                if coordinator_obj.shift == 'both' and coordinator_obj.assigned_levels.exists():
+                    managed_levels = list(coordinator_obj.assigned_levels.all())
+                elif coordinator_obj.level:
+                    managed_levels = [coordinator_obj.level]
+
+                # If student has a classroom, ensure its grade's level is among managed levels
+                if obj.classroom:
+                    student_level = obj.classroom.grade.level
+                    if not managed_levels or student_level not in managed_levels:
+                        from rest_framework.exceptions import PermissionDenied
+                        raise PermissionDenied("You don't have permission to view this student.")
+            except PermissionDenied:
+                raise
+            except Exception:
                 from rest_framework.exceptions import PermissionDenied
                 raise PermissionDenied("Coordinator profile not found.")
         
@@ -579,3 +608,48 @@ class StudentViewSet(viewsets.ModelViewSet):
             })
         
         return Response(data)
+
+    @action(detail=True, methods=['post'], url_path='upload-photo')
+    def upload_photo(self, request, pk=None):
+        """Upload or replace a student's profile photo.
+
+        Expects a multipart/form-data POST with a file field named 'photo'.
+        Saves the file to the Student.photo ImageField and returns the photo URL.
+        """
+        student = self.get_object()
+        photo_file = request.FILES.get('photo')
+        if not photo_file:
+            return Response({'detail': 'No photo file provided.'}, status=400)
+
+        # Assign and save
+        try:
+            student.photo = photo_file
+            student.save()
+        except Exception as e:
+            return Response({'detail': f'Error saving photo: {str(e)}'}, status=500)
+
+        # Build absolute URL if possible
+        try:
+            photo_url = request.build_absolute_uri(student.photo.url) if student.photo else ''
+        except Exception:
+            photo_url = student.photo.url if student.photo else ''
+
+        return Response({'photo_url': photo_url})
+
+    @action(detail=True, methods=['delete'], url_path='delete-photo')
+    def delete_photo(self, request, pk=None):
+        """Delete a student's profile photo from storage and clear the field."""
+        student = self.get_object()
+        if not student.photo:
+            return Response({'detail': 'No photo found to delete.'}, status=400)
+
+        try:
+            # remove file from storage
+            student.photo.delete(save=False)
+            # clear field and save
+            student.photo = None
+            student.save()
+        except Exception as e:
+            return Response({'detail': f'Error deleting photo: {str(e)}'}, status=500)
+
+        return Response({'detail': 'Photo deleted'})
