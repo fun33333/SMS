@@ -1,21 +1,8 @@
 import { CacheManager } from './cache';
 
 export function getApiBaseUrl(): string {
-  const isBrowser = typeof window !== "undefined";
-  const isProd = process.env.NODE_ENV === 'production';
-
   // Prefer envs; provide sensible fallbacks per environment
-  const baseUrl = isBrowser
-    ? (
-        process.env.NEXT_PUBLIC_API_BASE_URL 
-        || (isProd ? 'https://sms.idaraalkhair.sbs:8002' : 'http://127.0.0.1:8000')
-      )
-    : (
-        process.env.API_BASE_URL 
-        || process.env.NEXT_PUBLIC_API_BASE_URL 
-        || (isProd ? 'https://sms.idaraalkhair.sbs:8002' : 'http://backend:8000')
-      );
-
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL  || 'https://sms.idaraalkhair.sbs/be';
   return baseUrl;
 }
 
