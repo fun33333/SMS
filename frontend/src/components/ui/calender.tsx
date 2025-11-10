@@ -15,7 +15,8 @@ function Calendar({
   className,
   classNames,
   showOutsideDays = true,
-  captionLayout = "label",
+  // Use dropdown caption by default so users can quickly jump months/years
+  captionLayout = "dropdown",
   buttonVariant = "ghost",
   formatters,
   components,

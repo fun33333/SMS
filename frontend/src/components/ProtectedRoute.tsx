@@ -15,6 +15,8 @@ const DEVELOPMENT_PHASE_ROUTES: Record<string, string> = {
   '/admin/coordinator/subject-assign': 'Subject Assignment',
   '/admin/principals/transfers': 'Transfer Management',
   '/admin/principals/transfers/create': 'Create Transfer',
+  '/admin/coordinator/requests' : 'Requests Management',
+
 };
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {

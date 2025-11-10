@@ -34,13 +34,15 @@ class TeacherViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(current_campus=user.campus)
         elif user.is_coordinator():
             # Coordinator: Only show teachers assigned to them (using ManyToMany)
-            # Find coordinator object by email
             from coordinator.models import Coordinator
             try:
-                coordinator_obj = Coordinator.objects.get(email=user.email)
-                queryset = queryset.filter(assigned_coordinators=coordinator_obj)
-            except Coordinator.DoesNotExist:
-                # If coordinator object doesn't exist, return empty queryset
+                coordinator_obj = Coordinator.get_for_user(user)
+                if coordinator_obj:
+                    queryset = queryset.filter(assigned_coordinators=coordinator_obj)
+                else:
+                    queryset = queryset.none()
+            except Exception:
+                # If coordinator resolution fails, return empty queryset
                 queryset = queryset.none()
         
         # Handle shift filtering

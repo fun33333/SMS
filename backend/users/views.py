@@ -129,19 +129,21 @@ class UserLoginView(generics.GenericAPIView):
         elif user.role == 'coordinator':
             try:
                 from coordinator.models import Coordinator
-                coordinator = Coordinator.objects.get(employee_code=user.username)
-                profile_data.update({
-                    'coordinator_id': coordinator.id,
-                    'campus_id': coordinator.campus.id if coordinator.campus else None,
-                    'campus_name': coordinator.campus.campus_name if coordinator.campus else None,
-                    'campus_code': coordinator.campus.campus_code if coordinator.campus else None,
-                    'level_id': coordinator.level.id if coordinator.level else None,
-                    'level_name': coordinator.level.name if coordinator.level else None,
-                    'full_name': coordinator.full_name,
-                    'contact_number': coordinator.contact_number,
-                    'employee_code': coordinator.employee_code,
-                })
-            except Coordinator.DoesNotExist:
+                coordinator = Coordinator.get_for_user(user)
+                if coordinator:
+                    profile_data.update({
+                        'coordinator_id': coordinator.id,
+                        'campus_id': coordinator.campus.id if coordinator.campus else None,
+                        'campus_name': coordinator.campus.campus_name if coordinator.campus else None,
+                        'campus_code': coordinator.campus.campus_code if coordinator.campus else None,
+                        'level_id': coordinator.level.id if coordinator.level else None,
+                        'level_name': coordinator.level.name if coordinator.level else None,
+                        'full_name': coordinator.full_name,
+                        'contact_number': coordinator.contact_number,
+                        'employee_code': coordinator.employee_code,
+                    })
+            except Exception:
+                # Swallow errors and return base profile_data
                 pass
                 
         elif user.role == 'teacher':
@@ -313,38 +315,39 @@ def current_user_profile(request):
     elif user.role == 'coordinator':
         try:
             from coordinator.models import Coordinator
-            coordinator = Coordinator.objects.get(employee_code=user.username)
-            user_data.update({
-                'coordinator_id': coordinator.id,
-                'full_name': coordinator.full_name,
-                'dob': coordinator.dob,
-                'gender': coordinator.gender,
-                'contact_number': coordinator.contact_number,
-                'email': coordinator.email,
-                'cnic': coordinator.cnic,
-                'permanent_address': coordinator.permanent_address,
-                'education_level': coordinator.education_level,
-                'institution_name': coordinator.institution_name,
-                'year_of_passing': coordinator.year_of_passing,
-                'total_experience_years': coordinator.total_experience_years,
-                'employee_code': coordinator.employee_code,
-                'joining_date': coordinator.joining_date,
-                'is_currently_active': coordinator.is_currently_active,
-                'can_assign_class_teachers': coordinator.can_assign_class_teachers,
-                'level': {
-                    'id': coordinator.level.id,
-                    'name': coordinator.level.name,
-                    'code': coordinator.level.code,
-                } if coordinator.level else None,
-                'campus': {
-                    'id': coordinator.campus.id,
-                    'campus_name': coordinator.campus.campus_name,
-                    'campus_code': coordinator.campus.campus_code,
-                } if coordinator.campus else None,
-                'created_at': coordinator.created_at,
-                'updated_at': coordinator.updated_at,
-            })
-        except Coordinator.DoesNotExist:
+            coordinator = Coordinator.get_for_user(user)
+            if coordinator:
+                user_data.update({
+                    'coordinator_id': coordinator.id,
+                    'full_name': coordinator.full_name,
+                    'dob': coordinator.dob,
+                    'gender': coordinator.gender,
+                    'contact_number': coordinator.contact_number,
+                    'email': coordinator.email,
+                    'cnic': coordinator.cnic,
+                    'permanent_address': coordinator.permanent_address,
+                    'education_level': coordinator.education_level,
+                    'institution_name': coordinator.institution_name,
+                    'year_of_passing': coordinator.year_of_passing,
+                    'total_experience_years': coordinator.total_experience_years,
+                    'employee_code': coordinator.employee_code,
+                    'joining_date': coordinator.joining_date,
+                    'is_currently_active': coordinator.is_currently_active,
+                    'can_assign_class_teachers': coordinator.can_assign_class_teachers,
+                    'level': {
+                        'id': coordinator.level.id,
+                        'name': coordinator.level.name,
+                        'code': coordinator.level.code,
+                    } if coordinator.level else None,
+                    'campus': {
+                        'id': coordinator.campus.id,
+                        'campus_name': coordinator.campus.campus_name,
+                        'campus_code': coordinator.campus.campus_code,
+                    } if coordinator.campus else None,
+                    'created_at': coordinator.created_at,
+                    'updated_at': coordinator.updated_at,
+                })
+        except Exception:
             pass
     elif user.role == 'principal':
         try:

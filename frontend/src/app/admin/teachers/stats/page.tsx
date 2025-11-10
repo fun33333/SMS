@@ -466,7 +466,7 @@ export default function TeacherClassDashboard() {
                 <Link key={idx} href={`/admin/teachers/attendance?date=${encodeURIComponent(dateStr)}`} className="p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                     <p className="text-sm font-semibold text-gray-900 truncate">{dateObj.toLocaleDateString?.() || String(r.date)}</p>
-                    <span className={`shrink-0 text-xs px-2 py-1 rounded-full border ${r.status === 'final' ? 'bg-green-50 text-green-700 border-green-200' : r.status === 'submitted' ? 'bg-blue-50 text-blue-700 border-blue-200' : r.status === 'under_review' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>{(r.status || 'draft').replace('_',' ')}</span>
+                    <span className={`shrink-0 text-xs px-2 py-1 rounded-full border ${r.status === 'approved' ? 'bg-green-50 text-green-700 border-green-200' : r.status === 'submitted' ? 'bg-blue-50 text-blue-700 border-blue-200' : r.status === 'under_review' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>{(r.status || 'draft').replace('_',' ')}</span>
                   </div>
                   <div className="mt-2 text-xs text-gray-600 grid grid-cols-2 gap-2">
                     <span className="truncate">Present: {r.present_count || 0}</span>
@@ -565,46 +565,7 @@ export default function TeacherClassDashboard() {
               </div>
           </CardContent>
         </Card>
-
-        {/* Class Summary Card */}
-        {/* <Card className="border-2 bg-gradient-to-br from-[#e7ecef] to-[#a3cef1]/20">
-          <CardHeader>
-            <CardTitle className="text-[#274c77] flex items-center gap-2">
-              <Users className="h-5 w-5 text-[#6096ba]" />
-              Class Summary
-            </CardTitle>
-            <CardDescription>Quick overview of your class</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center p-3 bg-white/50 rounded-lg">
-                <span className="text-sm font-medium text-gray-600">Total Students</span>
-                <span className="text-2xl font-bold text-[#274c77]">{classInfo.totalStudents}</span>
-              </div>
-              <div className="flex justify-between items-center p-3 bg-white/50 rounded-lg">
-                <span className="text-sm font-medium text-gray-600">Boys</span>
-                <span className="text-xl font-bold text-blue-600">{classInfo.boys}</span>
-              </div>
-              <div className="flex justify-between items-center p-3 bg-white/50 rounded-lg">
-                <span className="text-sm font-medium text-gray-600">Girls</span>
-                <span className="text-xl font-bold text-pink-600">{classInfo.girls}</span>
-                </div>
-              <div className="flex justify-between items-center p-3 bg-white/50 rounded-lg">
-                <span className="text-sm font-medium text-gray-600">Attendance Today</span>
-                <span className="text-xl font-bold text-green-600">
-                  {classInfo.totalStudents > 0 ? Math.round((classInfo.attendanceToday.present / classInfo.totalStudents) * 100) : 0}%
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card> */}
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-      </div>
-
-      
     </div>
   )
 }

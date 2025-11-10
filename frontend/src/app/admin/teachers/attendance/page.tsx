@@ -108,7 +108,7 @@ function TeacherAttendanceContent() {
 
   // Check for approved attendance notifications
   useEffect(() => {
-    if (userRole === 'teacher' && attendanceHistory) {
+      if (userRole === 'teacher' && attendanceHistory) {
       checkForApprovedAttendance();
     }
   }, [attendanceHistory, userRole]);
@@ -119,7 +119,7 @@ function TeacherAttendanceContent() {
       const interval = setInterval(async () => {
         try {
           const attendanceData = await getAttendanceForDate(classInfo?.id || 0, selectedDate) as any;
-          if (attendanceData && attendanceData.status === 'final' && !showApprovalNotification) {
+          if (attendanceData && attendanceData.status === 'approved' && !showApprovalNotification) {
             console.log('Attendance approved detected!');
             setShowApprovalNotification(true);
             setApprovedDate(attendanceData.date);
@@ -600,11 +600,11 @@ function TeacherAttendanceContent() {
         else if (attendanceRecord.status === 'under_review') {
           console.log('Coordinator: Finalizing under review attendance...');
           await finalizeAttendance(attendanceId);
-          console.log('Attendance finalized successfully');
+          console.log('Attendance approved successfully');
           
           alert('Attendance approved successfully!');
         }
-        else if (attendanceRecord.status === 'final') {
+  else if (attendanceRecord.status === 'approved') {
           alert('Attendance is already approved!');
           return;
         }
@@ -657,7 +657,7 @@ function TeacherAttendanceContent() {
     
     try {
       const attendanceData = await getAttendanceForDate(classInfo.id, selectedDate) as any;
-      return attendanceData && attendanceData.status === 'final';
+  return attendanceData && attendanceData.status === 'approved';
     } catch (error) {
       console.error('Error checking approval status:', error);
       return false;
@@ -668,7 +668,7 @@ function TeacherAttendanceContent() {
   const checkForApprovedAttendance = () => {
     if (attendanceHistory && Array.isArray(attendanceHistory)) {
       const approvedAttendance = attendanceHistory.find((record: any) => 
-        record.status === 'final' && 
+  record.status === 'approved' && 
         record.finalized_at && 
         new Date(record.finalized_at) > new Date(Date.now() - 30000) // Last 30 seconds
       );
@@ -695,7 +695,7 @@ function TeacherAttendanceContent() {
       
       if (attendanceData && attendanceData.id) {
         // Check if attendance is approved - prevent editing
-        if (attendanceData.status === 'final') {
+  if (attendanceData.status === 'approved') {
           alert('❌ Cannot Edit Approved Attendance!\n\nThis attendance has been approved by the coordinator and cannot be modified.\n\nPlease contact the coordinator if changes are needed.');
           return;
         }
@@ -725,7 +725,7 @@ function TeacherAttendanceContent() {
       
       if (attendanceData && attendanceData.id) {
         // Check if attendance is approved - prevent editing
-        if (attendanceData.status === 'final') {
+  if (attendanceData.status === 'approved') {
           alert('❌ Cannot Edit Approved Attendance!\n\nThis attendance has been approved by the coordinator and cannot be modified.\n\nPlease contact the coordinator if changes are needed.');
           return;
         }
@@ -740,7 +740,7 @@ function TeacherAttendanceContent() {
         setAttendanceLoaded(true);
         
         // Check if attendance is approved and show notification
-        if (attendanceData.status === 'final') {
+  if (attendanceData.status === 'approved') {
           console.log('Attendance is approved for date:', attendanceData.date);
           setShowApprovalNotification(true);
           setApprovedDate(attendanceData.date);
@@ -897,7 +897,7 @@ function TeacherAttendanceContent() {
                             <Badge 
                               variant="outline"
                               className={`w-fit ${
-                                record.status === 'final' ? 'bg-green-50 text-green-700 border-green-200' :
+                                record.status === 'approved' ? 'bg-green-50 text-green-700 border-green-200' :
                                 record.status === 'submitted' ? 'bg-blue-50 text-blue-700 border-blue-200' :
                                 record.status === 'under_review' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
                                 'bg-gray-50 text-gray-700 border-gray-200'
@@ -970,7 +970,7 @@ function TeacherAttendanceContent() {
                           </Button>
                           
                           {/* Approved Button - Show only for non-final statuses */}
-                          {record.status !== 'final' && (
+                          {record.status !== 'approved' && (
                             <Button
                               onClick={() => handleApproveAttendance(record.id)}
                               size="sm"
@@ -982,7 +982,7 @@ function TeacherAttendanceContent() {
                           )}
                           
                           {/* Approved Badge - Show only for final status */}
-                          {record.status === 'final' && (
+                          {record.status === 'approved' && (
                             <Badge 
                               variant="outline"
                               className="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-1"
@@ -1649,7 +1649,7 @@ function TeacherAttendanceContent() {
             {attendanceHistoryData && attendanceHistoryData.length > 0 ? (
               attendanceHistoryData.slice(0, 6).map((record: any, index: number) => (
                 <div key={index} className={`p-3 sm:p-4 rounded-lg border ${
-                  record.status === 'final' ? 'bg-green-50 border-green-200' : 
+                  record.status === 'approved' ? 'bg-green-50 border-green-200' : 
                   record.status === 'submitted' ? 'bg-blue-50 border-blue-200' :
                   record.status === 'under_review' ? 'bg-yellow-50 border-yellow-200' :
                   'bg-gray-50 border-gray-200'
@@ -1657,13 +1657,13 @@ function TeacherAttendanceContent() {
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
                     <div className="flex items-center space-x-3 sm:space-x-4">
                       <div className={`h-8 w-8 sm:h-10 sm:w-10 rounded-full flex items-center justify-center ${
-                        record.status === 'final' ? 'bg-green-100' : 
+                        record.status === 'approved' ? 'bg-green-100' : 
                         record.status === 'submitted' ? 'bg-blue-100' :
                         record.status === 'under_review' ? 'bg-yellow-100' :
                         'bg-gray-100'
                       }`}>
                         <Calendar className={`h-4 w-4 sm:h-5 sm:w-5 ${
-                          record.status === 'final' ? 'text-green-600' : 
+                          record.status === 'approved' ? 'text-green-600' : 
                           record.status === 'submitted' ? 'text-blue-600' :
                           record.status === 'under_review' ? 'text-yellow-600' :
                           'text-gray-600'
@@ -1671,7 +1671,7 @@ function TeacherAttendanceContent() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className={`font-medium text-sm sm:text-base ${
-                          record.status === 'final' ? 'text-green-800' : 
+                          record.status === 'approved' ? 'text-green-800' : 
                           record.status === 'submitted' ? 'text-blue-800' :
                           record.status === 'under_review' ? 'text-yellow-800' :
                           'text-gray-800'
@@ -1702,19 +1702,19 @@ function TeacherAttendanceContent() {
                       <Badge 
                         variant="outline"
                         className={`text-xs ${
-                          record.status === 'final' ? 'bg-green-100 text-green-800 border-green-300' :
+                          record.status === 'approved' ? 'bg-green-100 text-green-800 border-green-300' :
                           record.status === 'submitted' ? 'bg-blue-100 text-blue-800 border-blue-300' :
                           record.status === 'under_review' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
                           'bg-gray-100 text-gray-800 border-gray-300'
                         }`}
                       >
-                        {record.status === 'final' ? '✅ Approved' : 
+                        {record.status === 'approved' ? '✅ Approved' : 
                          record.status === 'submitted' ? '📤 Submitted' : 
                          record.status === 'under_review' ? '⏳ Under Review' :
                          '📝 Draft'}
                       </Badge>
                       
-                      {record.status === 'final' && record.finalized_at && (
+                      {record.status === 'approved' && record.finalized_at && (
                         <span className="text-xs text-green-600">
                           <span className="hidden sm:inline">Approved on </span>{new Date(record.finalized_at).toLocaleDateString()}
                         </span>

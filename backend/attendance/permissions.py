@@ -36,7 +36,7 @@ class CanMarkAttendance(permissions.BasePermission):
         if request.user.is_coordinator():
             try:
                 from coordinator.models import Coordinator
-                coordinator = Coordinator.objects.get(email=request.user.email)
+                coordinator = Coordinator.get_for_user(request.user)
                 if coordinator and coordinator.is_currently_active:
                     return True
             except:
@@ -76,7 +76,7 @@ class CanMarkAttendance(permissions.BasePermission):
         if request.user.is_coordinator():
             try:
                 from coordinator.models import Coordinator
-                coordinator = Coordinator.objects.get(email=request.user.email)
+                coordinator = Coordinator.get_for_user(request.user)
                 if (coordinator and coordinator.is_currently_active and 
                     coordinator.level == obj.classroom.grade.level):
                     return True
@@ -133,7 +133,7 @@ class CanEditAttendance(permissions.BasePermission):
                 if request.user.is_coordinator():
                     try:
                         from coordinator.models import Coordinator
-                        coordinator = Coordinator.objects.get(email=request.user.email)
+                        coordinator = Coordinator.get_for_user(request.user)
                         return (coordinator and coordinator.is_currently_active and 
                                coordinator.level == obj.classroom.grade.level)
                     except:
@@ -163,7 +163,7 @@ class CanEditAttendance(permissions.BasePermission):
         if request.user.is_coordinator():
             try:
                 from coordinator.models import Coordinator
-                coordinator = Coordinator.objects.get(email=request.user.email)
+                coordinator = Coordinator.get_for_user(request.user)
                 if (coordinator and coordinator.is_currently_active and 
                     coordinator.level == obj.classroom.grade.level):
                     return True
@@ -225,7 +225,7 @@ class CanViewAttendance(permissions.BasePermission):
         if request.user.is_coordinator():
             try:
                 from coordinator.models import Coordinator
-                coordinator = Coordinator.objects.get(email=request.user.email)
+                coordinator = Coordinator.get_for_user(request.user)
                 if (coordinator and coordinator.is_currently_active and 
                     coordinator.level == obj.classroom.grade.level):
                     return True
@@ -277,7 +277,7 @@ class CanDeleteAttendance(permissions.BasePermission):
         if request.user.is_coordinator():
             try:
                 from coordinator.models import Coordinator
-                coordinator = Coordinator.objects.get(email=request.user.email)
+                coordinator = Coordinator.get_for_user(request.user)
                 if (coordinator and coordinator.is_currently_active and 
                     coordinator.level == obj.classroom.grade.level):
                     return True
