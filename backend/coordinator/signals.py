@@ -1,34 +1,88 @@
-from django.db.models.signals import post_delete
+from django.db.models.signals import post_delete, post_save, m2m_changed
 from django.dispatch import receiver
 from .models import Coordinator
 from users.models import User
+from notifications.services import create_notification
 
+
+@receiver(post_save, sender=Coordinator)
+def notify_coordinator_on_update(sender, instance, created, **kwargs):
+    """Send notification to coordinator when their profile is updated"""
+    if not created:  # Only on updates, not creation
+        try:
+            # Get actor from instance (set by viewset before save)
+            actor = getattr(instance, '_actor', None)
+            
+            # Find the coordinator's user account
+            coordinator_user = None
+            if instance.email:
+                coordinator_user = User.objects.filter(email__iexact=instance.email).first()
+            elif instance.employee_code:
+                coordinator_user = User.objects.filter(username=instance.employee_code).first()
+            
+            if coordinator_user:
+                campus_name = instance.campus.campus_name if instance.campus else ''
+                verb = "Your Coordinator profile has been updated"
+                target_text = f"by {actor.get_full_name() if actor and hasattr(actor, 'get_full_name') else (str(actor) if actor else 'System')}" + (f" at {campus_name}" if campus_name else "")
+                create_notification(
+                    recipient=coordinator_user, 
+                    actor=actor, 
+                    verb=verb, 
+                    target_text=target_text, 
+                    data={"coordinator_id": instance.id}
+                )
+                print(f"[OK] Sent update notification to coordinator {instance.full_name}")
+        except Exception as e:
+            print(f"Error sending update notification to coordinator {instance.id}: {str(e)}")
 
 @receiver(post_delete, sender=Coordinator)
 def delete_user_when_coordinator_deleted(sender, instance: Coordinator, **kwargs):
-    """Ensure associated auth user is removed when a coordinator record is deleted.
-    We match by email first, then by username (employee_code) if present.
-    """
-    # Delete by email
-    if instance.email:
-        User.objects.filter(email__iexact=instance.email).delete()
-    # Delete by employee_code as username
-    if instance.employee_code:
-        User.objects.filter(username=instance.employee_code).delete()
+    """Send notification before deleting coordinator, then cleanup user"""
+    try:
+        # Get actor from instance (set by viewset before delete)
+        actor = getattr(instance, '_actor', None)
+        
+        # Find the coordinator's user account before deleting
+        coordinator_user = None
+        if instance.email:
+            coordinator_user = User.objects.filter(email__iexact=instance.email).first()
+        elif instance.employee_code:
+            coordinator_user = User.objects.filter(username=instance.employee_code).first()
+        
+        # Send notification before deletion
+        if coordinator_user:
+            campus_name = instance.campus.campus_name if instance.campus else ''
+            verb = "Your Coordinator profile has been deleted"
+            target_text = f"by {actor.get_full_name() if actor and hasattr(actor, 'get_full_name') else (str(actor) if actor else 'System')}" + (f" at {campus_name}" if campus_name else "")
+            create_notification(
+                recipient=coordinator_user, 
+                actor=actor, 
+                verb=verb, 
+                target_text=target_text, 
+                data={"coordinator_id": instance.id}
+            )
+            print(f"[OK] Sent deletion notification to coordinator {instance.full_name}")
+        
+        # Now cleanup user
+        if instance.email:
+            User.objects.filter(email__iexact=instance.email).delete()
+        if instance.employee_code:
+            User.objects.filter(username=instance.employee_code).delete()
+    except Exception as e:
+        print(f"Error in delete_user_when_coordinator_deleted: {str(e)}")
 
-from django.db.models.signals import post_save, m2m_changed
-from django.dispatch import receiver
-from coordinator.models import Coordinator
 from teachers.models import Teacher
 from classes.models import Grade
 from services.user_creation_service import UserCreationService
-from notifications.services import create_notification
 
 @receiver(post_save, sender=Coordinator)
 def create_coordinator_user(sender, instance, created, **kwargs):
     """Auto-create user when coordinator is created"""
     if created:
         try:
+            # Get actor from instance (set by viewset before save)
+            actor = getattr(instance, '_actor', None)
+            
             # If shift is both and no level(s) yet (M2M set after initial save),
             # defer user creation to the m2m_changed handler
             if getattr(instance, 'shift', None) == 'both':
@@ -48,7 +102,7 @@ def create_coordinator_user(sender, instance, created, **kwargs):
                     campus_name = instance.campus.campus_name if instance.campus else ''
                     verb = "You have been added as a Coordinator"
                     target_text = f"at {campus_name}" if campus_name else ""
-                    create_notification(recipient=existing_user, actor=None, verb=verb, target_text=target_text, data={"coordinator_id": instance.id})
+                    create_notification(recipient=existing_user, actor=actor, verb=verb, target_text=target_text, data={"coordinator_id": instance.id})
                 except Exception:
                     pass
                 return
@@ -57,12 +111,12 @@ def create_coordinator_user(sender, instance, created, **kwargs):
             if not user:
                 print(f"Failed to create user for coordinator {instance.id}: {message}")
             else:
-                print(f"✅ Created user for coordinator: {instance.full_name} ({instance.employee_code})")
+                print(f"[OK] Created user for coordinator: {instance.full_name} ({instance.employee_code})")
                 try:
                     campus_name = instance.campus.campus_name if instance.campus else ''
                     verb = "You have been added as a Coordinator"
                     target_text = f"at {campus_name}" if campus_name else ""
-                    create_notification(recipient=user, actor=None, verb=verb, target_text=target_text, data={"coordinator_id": instance.id})
+                    create_notification(recipient=user, actor=actor, verb=verb, target_text=target_text, data={"coordinator_id": instance.id})
                 except Exception:
                     pass
         except Exception as e:
@@ -173,7 +227,7 @@ def on_assigned_levels_changed(sender, instance, action, reverse, model, pk_set,
                 if not user:
                     print(f"Failed to create user after levels set for coordinator {instance.id}: {message}")
                 else:
-                    print(f"✅ Created user after levels set for coordinator: {instance.full_name} ({instance.employee_code})")
+                    print(f"[OK] Created user after levels set for coordinator: {instance.full_name} ({instance.employee_code})")
         except Exception as e:
             print(f"Error creating user after levels set for coordinator {instance.id}: {str(e)}")
 

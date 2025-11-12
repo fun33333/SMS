@@ -2,7 +2,7 @@
 "use client"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Users, Building2, GraduationCap, TrendingUp, LogOut, Award, Calendar, ArrowRightLeft } from "lucide-react"
+import { Users, Building2, GraduationCap, TrendingUp, LogOut, Award, Calendar, ArrowRightLeft, LayoutDashboard, Calendar1 } from "lucide-react"
 import { useState, useEffect } from "react"
 
 
@@ -167,20 +167,34 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
     ? [
       {
         key: "coordinator",
-        title: "Co-Ordinator",
-        icon: Award,
+        title: "Dashboard",
+        icon: LayoutDashboard,
         href: "/admin/coordinator",
+        subItems: [],
+      }, {
+        key: "students",
+        title: "Students",
+        icon: Users,
+        href: "/admin/coordinator/student-list",
+        subItems: [],
+      }, {
+        key: "attendance",
+        title: "Attendance",
+        icon: Calendar,
+        href: "/admin/coordinator/attendance-review",
+        subItems: [],
+      }, {
+        key: "teachers",
+        title: "Teachers",
+        icon: GraduationCap,
+        href: "/admin/coordinator/teacher-list",
         subItems: [
           { title: "Teacher List", href: "/admin/coordinator/teacher-list" },
-          { title: "Student List", href: "/admin/coordinator/student-list" },
-          { title: "Attendance Review", href: "/admin/coordinator/attendance-review" },
-          { title: "Request Management", href: "/admin/coordinator/requests" },
           { title: "Result Approval", href: "/admin/coordinator/result-approval" },
-          // { title: "Class Assign", href: "/admin/coordinator/class-assign" },
-          // { title: "Subject Assign", href: "/admin/coordinator/subject-assign" },
+          { title: "Request Management", href: "/admin/coordinator/requests" },
           { title: "Time Table", href: "/admin/coordinator/time-table" },
         ],
-      },
+      }
     ]
     : userRole === "principal"
     ? [
@@ -188,7 +202,7 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
       {
         key: "dashboard",
         title: "Dashboard",
-        icon: TrendingUp,
+        icon: LayoutDashboard,
         href: "/admin",
         subItems: [],
       },
@@ -241,7 +255,7 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
       },
       {
         key: "coordinator",
-        title: "Co-Ordinator",
+        title: "Coordinator",
         icon: Award,
         href: "/admin/coordinator/list",
         subItems: [
@@ -257,7 +271,7 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
       {
         key: "dashboard",
         title: "Dashboard",
-        icon: TrendingUp,
+        icon: LayoutDashboard,
         href: "/admin",
         subItems: [],
       },
@@ -312,7 +326,7 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
       {
         key: "dashboard",
         title: "Dashboard",
-        icon: TrendingUp,
+        icon: LayoutDashboard,
         href: "/admin",
         subItems: [],
       },
@@ -367,8 +381,8 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
       },
       {
         key: "coordinator",
-        title: "Co-Ordinator",
-        icon: Award,
+        title: "Coordinator",
+        icon: LayoutDashboard,
         href: "/admin/coordinator",
         subItems: [
           ...(userRole === "principal" ? [
@@ -442,9 +456,11 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
           </div>
           {sidebarOpen && (
             <span
-              className="text-2xl font-bold text-[#274c77] tracking-tight drop-shadow-lg"
+              className="text-4xl font-bold text-[#274c77] tracking-tight drop-shadow-lg whitespace-nowrap overflow-hidden transition-all duration-500"
               style={{ letterSpacing: "0.02em" }}
-            ></span>
+            >
+              IAK SMS
+            </span>
           )}
         </div>
 

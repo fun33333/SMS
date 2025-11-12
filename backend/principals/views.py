@@ -51,6 +51,8 @@ class PrincipalViewSet(viewsets.ModelViewSet):
                 })
         
         principal = serializer.save()
+        principal._actor = self.request.user
+        principal.save()
         
         # Use UserCreationService to ensure consistent user creation and notification
         try:
@@ -92,6 +94,8 @@ class PrincipalViewSet(viewsets.ModelViewSet):
         
         # Save the principal
         principal: Principal = serializer.save()
+        principal._actor = self.request.user
+        principal.save()
         
         # Check if any code-generating field changed
         new_campus = principal.campus

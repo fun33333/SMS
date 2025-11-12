@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Calendar, Users, CheckCircle, XCircle, AlertCircle, Save, RefreshCw, Edit3, History, Eraser, Clock3, Bell, Eye, EyeOff, X } from "lucide-react";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { getCurrentUserRole } from "@/lib/permissions";
-import { getCurrentUserProfile, getClassStudents, markBulkAttendance, getAttendanceHistory, getAttendanceForDate, editAttendance, submitAttendance, getBackfillPermissions, finalizeAttendance, coordinatorApproveAttendance, getApiBaseUrl } from "@/lib/api";
+import { getCurrentUserProfile, getClassStudents, markBulkAttendance, getAttendanceHistory, getAttendanceForDate, editAttendance, submitAttendance, getBackfillPermissions, finalizeAttendance, coordinatorApproveAttendance, getApiBaseUrl, ApiError } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
 
 
@@ -354,7 +354,15 @@ function TeacherAttendanceContent() {
       
     } catch (err: unknown) {
       console.error('Error marking attendance:', err);
-      alert(`❌ Failed to ${isEditMode ? 'Update' : 'Mark'} Attendance!\n\nPlease check your internet connection and try again.\n\nIf the problem persists, contact the administrator.`);
+      
+      // Handle ApiError with user-friendly messages
+      if (err instanceof ApiError) {
+        // Show the user-friendly error message from ApiError
+        alert(err.message);
+      } else {
+        // Generic error message for unexpected errors
+        alert(`❌ Failed to ${isEditMode ? 'Update' : 'Mark'} Attendance!\n\nPlease check your internet connection and try again.\n\nIf the problem persists, contact the administrator.`);
+      }
     } finally {
       setSaving(false);
     }

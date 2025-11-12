@@ -20,6 +20,7 @@ from .serializers import (
 from students.models import Student
 from classes.models import ClassRoom
 from teachers.models import Teacher
+from notifications.services import create_notification
 
 
 @api_view(['POST'])
@@ -70,6 +71,85 @@ def mark_attendance(request):
             
             # Update attendance summary
             attendance.update_counts()
+            
+            # Send notification to coordinator
+            try:
+                # Get coordinator for this classroom's level
+                coordinator = None
+                coordinator_user = None
+                
+                if classroom.grade and classroom.grade.level:
+                    from coordinator.models import Coordinator
+                    from django.contrib.auth import get_user_model
+                    User = get_user_model()
+                    
+                    # Find coordinator for this level (considering shift)
+                    coordinators = Coordinator.objects.filter(
+                        is_currently_active=True
+                    )
+                    
+                    # Check if coordinator manages this level
+                    for coord in coordinators:
+                        if coord.shift == 'both':
+                            if coord.assigned_levels.exists():
+                                if classroom.grade.level in coord.assigned_levels.all():
+                                    coordinator = coord
+                                    break
+                            elif coord.level == classroom.grade.level:
+                                coordinator = coord
+                                break
+                        else:
+                            if coord.level == classroom.grade.level:
+                                coordinator = coord
+                                break
+                    
+                    # If no coordinator found, try to get from teacher's assigned coordinators
+                    if not coordinator and teacher:
+                        assigned_coords = teacher.assigned_coordinators.filter(is_currently_active=True).first()
+                        if assigned_coords:
+                            coordinator = assigned_coords
+                    
+                    # Get user for coordinator (by email or employee_code)
+                    if coordinator:
+                        try:
+                            # Try by employee_code first
+                            if coordinator.employee_code:
+                                coordinator_user = User.objects.filter(username=coordinator.employee_code).first()
+                            # Fallback to email
+                            if not coordinator_user and coordinator.email:
+                                coordinator_user = User.objects.filter(email=coordinator.email).first()
+                        except Exception as user_error:
+                            print(f"[WARN] Error finding user for coordinator {coordinator.full_name}: {user_error}")
+                    
+                    if coordinator and coordinator_user:
+                        teacher_name = teacher.full_name if teacher else request.user.get_full_name() or request.user.username
+                        classroom_name = str(classroom)
+                        verb = f"Class teacher {teacher_name} has marked attendance"
+                        target_text = f"for {classroom_name}. Please review the attendance."
+                        
+                        create_notification(
+                            recipient=coordinator_user,
+                            actor=request.user,
+                            verb=verb,
+                            target_text=target_text,
+                            data={
+                                'attendance_id': attendance.id,
+                                'classroom_id': classroom.id,
+                                'classroom_name': classroom_name,
+                                'date': str(attendance.date),
+                                'teacher_name': teacher_name
+                            }
+                        )
+                        print(f"[OK] Sent attendance notification to coordinator {coordinator.full_name} (user: {coordinator_user.email})")
+                    elif coordinator:
+                        print(f"[WARN] Coordinator {coordinator.full_name} found but no user account exists (email: {coordinator.email}, employee_code: {coordinator.employee_code})")
+                    else:
+                        print(f"[WARN] No coordinator found for classroom {classroom_name} (level: {classroom.grade.level.name if classroom.grade and classroom.grade.level else 'N/A'})")
+            except Exception as notif_error:
+                print(f"[WARN] Failed to send attendance notification: {notif_error}")
+                import traceback
+                print(f"[WARN] Traceback: {traceback.format_exc()}")
+                # Don't fail the attendance marking if notification fails
             
         return Response({
             'message': 'Attendance marked successfully',
@@ -171,6 +251,92 @@ def mark_bulk_attendance(request):
             
             # Update attendance summary
             attendance.update_counts()
+            
+            # Send notification to coordinator
+            try:
+                # Get teacher from request user
+                teacher = None
+                try:
+                    teacher = Teacher.objects.get(employee_code=request.user.username)
+                except Teacher.DoesNotExist:
+                    pass
+                
+                # Get coordinator for this classroom's level
+                coordinator = None
+                coordinator_user = None
+                
+                if classroom.grade and classroom.grade.level:
+                    from coordinator.models import Coordinator
+                    from django.contrib.auth import get_user_model
+                    User = get_user_model()
+                    
+                    # Find coordinator for this level (considering shift)
+                    coordinators = Coordinator.objects.filter(
+                        is_currently_active=True
+                    )
+                    
+                    # Check if coordinator manages this level
+                    for coord in coordinators:
+                        if coord.shift == 'both':
+                            if coord.assigned_levels.exists():
+                                if classroom.grade.level in coord.assigned_levels.all():
+                                    coordinator = coord
+                                    break
+                            elif coord.level == classroom.grade.level:
+                                coordinator = coord
+                                break
+                        else:
+                            if coord.level == classroom.grade.level:
+                                coordinator = coord
+                                break
+                    
+                    # If no coordinator found, try to get from teacher's assigned coordinators
+                    if not coordinator and teacher:
+                        assigned_coords = teacher.assigned_coordinators.filter(is_currently_active=True).first()
+                        if assigned_coords:
+                            coordinator = assigned_coords
+                    
+                    # Get user for coordinator (by email or employee_code)
+                    if coordinator:
+                        try:
+                            # Try by employee_code first
+                            if coordinator.employee_code:
+                                coordinator_user = User.objects.filter(username=coordinator.employee_code).first()
+                            # Fallback to email
+                            if not coordinator_user and coordinator.email:
+                                coordinator_user = User.objects.filter(email=coordinator.email).first()
+                        except Exception as user_error:
+                            print(f"[WARN] Error finding user for coordinator {coordinator.full_name}: {user_error}")
+                    
+                    if coordinator and coordinator_user:
+                        teacher_name = teacher.full_name if teacher else request.user.get_full_name() or request.user.username
+                        classroom_name = str(classroom)
+                        verb = f"Class teacher {teacher_name} has marked attendance"
+                        target_text = f"for {classroom_name}. Please review the attendance."
+                        
+                        create_notification(
+                            recipient=coordinator_user,
+                            actor=request.user,
+                            verb=verb,
+                            target_text=target_text,
+                            data={
+                                'attendance_id': attendance.id,
+                                'classroom_id': classroom.id,
+                                'classroom_name': classroom_name,
+                                'date': str(attendance.date),
+                                'teacher_name': teacher_name
+                            }
+                        )
+                        print(f"[OK] Sent attendance notification to coordinator {coordinator.full_name} (user: {coordinator_user.email})")
+                    elif coordinator:
+                        print(f"[WARN] Coordinator {coordinator.full_name} found but no user account exists (email: {coordinator.email}, employee_code: {coordinator.employee_code})")
+                    else:
+                        print(f"[WARN] No coordinator found for classroom {classroom_name} (level: {classroom.grade.level.name if classroom.grade and classroom.grade.level else 'N/A'})")
+            except Exception as notif_error:
+                print(f"[WARN] Failed to send attendance notification: {notif_error}")
+                import traceback
+                print(f"[WARN] Traceback: {traceback.format_exc()}")
+                # Don't fail the attendance marking if notification fails
             
         return Response({
             'message': 'Bulk attendance marked successfully',
@@ -420,12 +586,27 @@ def edit_attendance(request, attendance_id):
                     is_allowed = True
 
                 if is_allowed:
-                    if attendance.is_editable:
-                        can_edit = True
-                        edit_reason = "Teacher edit within 7 days"
+                    # Teachers can only edit draft attendance within 7 days
+                    if attendance.status == 'draft':
+                        days_diff = (timezone.now().date() - attendance.date).days
+                        if days_diff <= 7:
+                            can_edit = True
+                            edit_reason = "Teacher edit within 7 days"
+                        else:
+                            return Response({
+                                'error': f'Cannot edit attendance older than 7 days. This attendance is {days_diff} days old.'
+                            }, status=status.HTTP_403_FORBIDDEN)
+                    elif attendance.status in ['submitted', 'under_review']:
+                        return Response({
+                            'error': 'Cannot edit attendance that has been submitted for review. Please contact your coordinator if changes are needed.'
+                        }, status=status.HTTP_403_FORBIDDEN)
+                    elif attendance.status == 'approved':
+                        return Response({
+                            'error': 'Cannot edit approved attendance. Please contact your coordinator if changes are needed.'
+                        }, status=status.HTTP_403_FORBIDDEN)
                     else:
                         return Response({
-                            'error': 'Cannot edit attendance older than 7 days'
+                            'error': 'Cannot edit this attendance. Please contact your coordinator if changes are needed.'
                         }, status=status.HTTP_403_FORBIDDEN)
             except Teacher.DoesNotExist:
                 pass
@@ -523,10 +704,108 @@ def edit_attendance(request, attendance_id):
             )
             
             # Update marked_by if it's a teacher
+            teacher = None
             if user.is_teacher():
                 attendance.marked_by = user
                 # Save only specific fields to avoid updating created_at
                 attendance.save(update_fields=['marked_by', 'updated_at'])
+                # Get teacher for notification
+                try:
+                    teacher = Teacher.objects.get(employee_code=user.username)
+                except Teacher.DoesNotExist:
+                    print(f"[WARN] Teacher not found for user {user.username}")
+                    pass
+            
+            # Send notification to coordinator when teacher updates attendance
+            # (Don't send if coordinator is editing their own attendance)
+            if user.is_teacher():
+                print(f"[DEBUG] Teacher updating attendance - user: {user.username}, is_teacher: {user.is_teacher()}, teacher: {teacher}")
+                try:
+                    # Get coordinator for this classroom's level
+                    coordinator = None
+                    coordinator_user = None
+                    classroom = attendance.classroom
+                    
+                    print(f"[DEBUG] Classroom: {classroom}, Grade: {classroom.grade if classroom.grade else 'None'}, Level: {classroom.grade.level if classroom.grade and classroom.grade.level else 'None'}")
+                    
+                    if classroom.grade and classroom.grade.level:
+                        from coordinator.models import Coordinator
+                        from django.contrib.auth import get_user_model
+                        User = get_user_model()
+                        
+                        # Find coordinator for this level (considering shift)
+                        coordinators = Coordinator.objects.filter(
+                            is_currently_active=True
+                        )
+                        
+                        print(f"[DEBUG] Found {coordinators.count()} active coordinators")
+                        
+                        # Check if coordinator manages this level
+                        for coord in coordinators:
+                            print(f"[DEBUG] Checking coordinator {coord.full_name} - shift: {coord.shift}, level: {coord.level}, assigned_levels: {list(coord.assigned_levels.all()) if coord.assigned_levels.exists() else 'None'}")
+                            if coord.shift == 'both':
+                                if coord.assigned_levels.exists():
+                                    if classroom.grade.level in coord.assigned_levels.all():
+                                        coordinator = coord
+                                        break
+                                elif coord.level == classroom.grade.level:
+                                    coordinator = coord
+                                    break
+                            else:
+                                if coord.level == classroom.grade.level:
+                                    coordinator = coord
+                                    break
+                        
+                        # If no coordinator found, try to get from teacher's assigned coordinators
+                        if not coordinator and teacher:
+                            print(f"[DEBUG] No coordinator found by level, trying teacher's assigned coordinators")
+                            assigned_coords = teacher.assigned_coordinators.filter(is_currently_active=True).first()
+                            if assigned_coords:
+                                coordinator = assigned_coords
+                                print(f"[DEBUG] Found coordinator from teacher's assigned coordinators: {coordinator.full_name}")
+                        
+                        # Get user for coordinator (by email or employee_code)
+                        if coordinator:
+                            try:
+                                # Try by employee_code first
+                                if coordinator.employee_code:
+                                    coordinator_user = User.objects.filter(username=coordinator.employee_code).first()
+                                # Fallback to email
+                                if not coordinator_user and coordinator.email:
+                                    coordinator_user = User.objects.filter(email=coordinator.email).first()
+                            except Exception as user_error:
+                                print(f"[WARN] Error finding user for coordinator {coordinator.full_name}: {user_error}")
+                        
+                        if coordinator and coordinator_user:
+                            teacher_name = teacher.full_name if teacher else user.get_full_name() or user.username
+                            classroom_name = str(classroom)
+                            verb = f"Class teacher {teacher_name} has updated attendance"
+                            target_text = f"for {classroom_name}. Please review the attendance."
+                            
+                            create_notification(
+                                recipient=coordinator_user,
+                                actor=user,
+                                verb=verb,
+                                target_text=target_text,
+                                data={
+                                    'attendance_id': attendance.id,
+                                    'classroom_id': classroom.id,
+                                    'classroom_name': classroom_name,
+                                    'date': str(attendance.date),
+                                    'teacher_name': teacher_name,
+                                    'action': 'updated'
+                                }
+                            )
+                            print(f"[OK] Sent attendance update notification to coordinator {coordinator.full_name} (user: {coordinator_user.email})")
+                        elif coordinator:
+                            print(f"[WARN] Coordinator {coordinator.full_name} found but no user account exists (email: {coordinator.email}, employee_code: {coordinator.employee_code})")
+                        else:
+                            print(f"[WARN] No coordinator found for classroom {classroom_name} (level: {classroom.grade.level.name if classroom.grade and classroom.grade.level else 'N/A'})")
+                except Exception as notif_error:
+                    print(f"[WARN] Failed to send attendance update notification: {notif_error}")
+                    import traceback
+                    print(f"[WARN] Traceback: {traceback.format_exc()}")
+                    # Don't fail the attendance update if notification fails
         
         # Return updated attendance data
         serializer = AttendanceSerializer(attendance)

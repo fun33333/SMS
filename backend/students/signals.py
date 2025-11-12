@@ -1,20 +1,106 @@
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_save, pre_save, post_delete
+from django.db.models import Q
 from django.dispatch import receiver
 from .models import Student
 from classes.models import ClassRoom
 from teachers.models import Teacher
 from coordinator.models import Coordinator
+from notifications.services import create_notification
+from users.models import User
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender=Student)
-def update_student_assignments(sender, instance, created, **kwargs):
+def notify_student_operations(sender, instance, created, **kwargs):
     """
-    Automatically update student's teacher and coordinator assignments
-    when academic details change
+    Send notifications for student create/update operations
     """
+    try:
+        # Get actor from instance (set by viewset before save)
+        actor = getattr(instance, '_actor', None)
+        
+        if created:
+            # New student created - notify teacher and coordinator
+            verb = f"New student {instance.name} has been added"
+            target_text = f"to your class" if instance.classroom else ""
+            
+            # Notify class teacher
+            if instance.classroom and instance.classroom.class_teacher:
+                teacher = instance.classroom.class_teacher
+                if teacher.user:
+                    create_notification(
+                        recipient=teacher.user,
+                        actor=actor,
+                        verb=verb,
+                        target_text=target_text,
+                        data={"student_id": instance.id, "student_name": instance.name}
+                    )
+                    logger.info(f"[OK] Sent create notification to teacher {teacher.full_name} for student {instance.name}")
+            
+            # Notify coordinator
+            if instance.classroom and instance.classroom.grade and instance.classroom.grade.level:
+                level = instance.classroom.grade.level
+                coordinators = Coordinator.objects.filter(
+                    Q(level=level) | Q(assigned_levels=level),
+                    is_currently_active=True
+                ).distinct()
+                
+                for coordinator in coordinators:
+                    if coordinator.email:
+                        coordinator_user = User.objects.filter(email__iexact=coordinator.email).first()
+                        if coordinator_user:
+                            create_notification(
+                                recipient=coordinator_user,
+                                actor=actor,
+                                verb=verb,
+                                target_text=target_text,
+                                data={"student_id": instance.id, "student_name": instance.name}
+                            )
+                            logger.info(f"[OK] Sent create notification to coordinator {coordinator.full_name} for student {instance.name}")
+        else:
+            # Student updated - notify teacher and coordinator
+            verb = f"Student {instance.name}'s profile has been updated"
+            target_text = f"by {actor.get_full_name() if actor and hasattr(actor, 'get_full_name') else (str(actor) if actor else 'System')}"
+            
+            # Notify class teacher
+            if instance.classroom and instance.classroom.class_teacher:
+                teacher = instance.classroom.class_teacher
+                if teacher.user:
+                    create_notification(
+                        recipient=teacher.user,
+                        actor=actor,
+                        verb=verb,
+                        target_text=target_text,
+                        data={"student_id": instance.id, "student_name": instance.name}
+                    )
+                    logger.info(f"[OK] Sent update notification to teacher {teacher.full_name} for student {instance.name}")
+            
+            # Notify coordinator
+            if instance.classroom and instance.classroom.grade and instance.classroom.grade.level:
+                level = instance.classroom.grade.level
+                coordinators = Coordinator.objects.filter(
+                    Q(level=level) | Q(assigned_levels=level),
+                    is_currently_active=True
+                ).distinct()
+                
+                for coordinator in coordinators:
+                    if coordinator.email:
+                        coordinator_user = User.objects.filter(email__iexact=coordinator.email).first()
+                        if coordinator_user:
+                            create_notification(
+                                recipient=coordinator_user,
+                                actor=actor,
+                                verb=verb,
+                                target_text=target_text,
+                                data={"student_id": instance.id, "student_name": instance.name}
+                            )
+                            logger.info(f"[OK] Sent update notification to coordinator {coordinator.full_name} for student {instance.name}")
+    except Exception as e:
+        logger.error(f"Error sending student notification: {str(e)}")
+    
+    # Continue with existing assignment logic
     if created:
         # New student - assign teacher and coordinator
         assign_student_to_teacher_and_coordinator(instance)
@@ -23,6 +109,54 @@ def update_student_assignments(sender, instance, created, **kwargs):
         if hasattr(instance, '_previous_classroom') and instance._previous_classroom != instance.classroom:
             logger.info(f"Student {instance.name} classroom changed from {instance._previous_classroom} to {instance.classroom}")
             assign_student_to_teacher_and_coordinator(instance)
+
+@receiver(post_delete, sender=Student)
+def notify_student_deletion(sender, instance, **kwargs):
+    """
+    Send notification when student is deleted
+    """
+    try:
+        # Get actor from instance (set by viewset before delete)
+        actor = getattr(instance, '_actor', None)
+        
+        verb = f"Student {instance.name} has been deleted"
+        target_text = f"by {actor.get_full_name() if actor and hasattr(actor, 'get_full_name') else (str(actor) if actor else 'System')}"
+        
+        # Notify class teacher (if classroom still exists in memory)
+        if hasattr(instance, 'classroom') and instance.classroom and instance.classroom.class_teacher:
+            teacher = instance.classroom.class_teacher
+            if teacher.user:
+                create_notification(
+                    recipient=teacher.user,
+                    actor=actor,
+                    verb=verb,
+                    target_text=target_text,
+                    data={"student_id": instance.id, "student_name": instance.name}
+                )
+                logger.info(f"[OK] Sent deletion notification to teacher {teacher.full_name} for student {instance.name}")
+        
+        # Notify coordinator (if classroom still exists in memory)
+        if hasattr(instance, 'classroom') and instance.classroom and instance.classroom.grade and instance.classroom.grade.level:
+            level = instance.classroom.grade.level
+            coordinators = Coordinator.objects.filter(
+                Q(level=level) | Q(assigned_levels=level),
+                is_currently_active=True
+            ).distinct()
+            
+            for coordinator in coordinators:
+                if coordinator.email:
+                    coordinator_user = User.objects.filter(email__iexact=coordinator.email).first()
+                    if coordinator_user:
+                        create_notification(
+                            recipient=coordinator_user,
+                            actor=actor,
+                            verb=verb,
+                            target_text=target_text,
+                            data={"student_id": instance.id, "student_name": instance.name}
+                        )
+                        logger.info(f"[OK] Sent deletion notification to coordinator {coordinator.full_name} for student {instance.name}")
+    except Exception as e:
+        logger.error(f"Error sending student deletion notification: {str(e)}")
 
 
 @receiver(pre_save, sender=Student)

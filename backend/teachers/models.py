@@ -249,9 +249,9 @@ class Teacher(models.Model):
                     # Add coordinator (not replace)
                     if coordinator not in self.assigned_coordinators.all():
                         self.assigned_coordinators.add(coordinator)
-                        print(f"✅ Added coordinator {coordinator.full_name} for level {level.name}")
+                        print(f"[OK] Added coordinator {coordinator.full_name} for level {level.name}")
                 else:
-                    print(f"❌ No coordinator for level {level.name}")
+                    print(f"[WARN] No coordinator for level {level.name}")
         except Exception as e:
             print(f"Error: {str(e)}")
 
@@ -275,9 +275,9 @@ class Teacher(models.Model):
                     
                     if coordinator and coordinator not in self.assigned_coordinators.all():
                         self.assigned_coordinators.add(coordinator)
-                        print(f"✅ Added coordinator {coordinator.full_name} for level {level.name}")
+                        print(f"[OK] Added coordinator {coordinator.full_name} for level {level.name}")
             
-            print(f"✅ Assigned {self.assigned_coordinators.count()} coordinators to {self.full_name}")
+            print(f"[OK] Assigned {self.assigned_coordinators.count()} coordinators to {self.full_name}")
             
         except Exception as e:
             print(f"Error: {str(e)}")
@@ -333,9 +333,9 @@ class Teacher(models.Model):
                 
                 if coordinator:
                     self.assigned_coordinators.add(coordinator)
-                    print(f"✅ Added coordinator {coordinator.full_name} for level {level.name}")
+                    print(f"[OK] Added coordinator {coordinator.full_name} for level {level.name}")
             
-            print(f"✅ Assigned {self.assigned_coordinators.count()} coordinators to {self.full_name}")
+            print(f"[OK] Assigned {self.assigned_coordinators.count()} coordinators to {self.full_name}")
             
         except Exception as e:
             print(f"Error: {str(e)}")

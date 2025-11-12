@@ -299,7 +299,7 @@ class Student(models.Model):
             )
             
             if not matching_grades.exists():
-                print(f"❌ No matching grade found for '{self.current_grade}' in campus '{self.campus.campus_name}'")
+                print(f"[ERROR] No matching grade found for '{self.current_grade}' in campus '{self.campus.campus_name}'")
                 return
             
             # Find classroom with matching grade, section, and shift
@@ -311,19 +311,23 @@ class Student(models.Model):
             
             if classroom:
                 self.classroom = classroom
-                print(f"✅ Auto-assigned student '{self.name}' to classroom '{classroom.grade.name}-{classroom.section}' ({classroom.shift})")
+                print(f"[OK] Auto-assigned student '{self.name}' to classroom '{classroom.grade.name}-{classroom.section}' ({classroom.shift})")
                 
                 # If classroom has a teacher, student is automatically connected to that teacher
                 if classroom.class_teacher:
-                    print(f"✅ Student '{self.name}' is now connected to teacher '{classroom.class_teacher.full_name}'")
+                    print(f"[OK] Student '{self.name}' is now connected to teacher '{classroom.class_teacher.full_name}'")
             else:
-                print(f"❌ No classroom found for Grade: {self.current_grade}, Section: {self.section}, Shift: {self.shift} in campus '{self.campus.campus_name}'")
-                print(f"💡 Please create a classroom first for this combination")
+                print(f"[ERROR] No classroom found for Grade: {self.current_grade}, Section: {self.section}, Shift: {self.shift} in campus '{self.campus.campus_name}'")
+                print(f"[INFO] Please create a classroom first for this combination")
                 
         except Exception as e:
-            print(f"❌ Error in auto-assignment: {str(e)}")
+            error_msg = str(e).encode('ascii', 'replace').decode('ascii') if isinstance(str(e), str) else repr(e)
+            print(f"[ERROR] Error in auto-assignment: {error_msg}")
             import traceback
-            traceback.print_exc()
+            try:
+                traceback.print_exc()
+            except UnicodeEncodeError:
+                print("[ERROR] Could not print traceback due to encoding error")
 
     def save(self, *args, **kwargs):
         # Set termination date automatically

@@ -503,10 +503,19 @@ export default function AttendanceReviewPage() {
       }
     } catch (error: any) {
       console.error('Error saving attendance:', error);
-      if (error instanceof ApiError && error.status === 403) {
-        setCanEditAttendance(false);
-        alert(error.message || 'You do not have permission to edit this attendance');
+      
+      // Handle ApiError with user-friendly messages
+      if (error instanceof ApiError) {
+        if (error.status === 403) {
+          setCanEditAttendance(false);
+          // Show the user-friendly error message from ApiError
+          alert(error.message || 'You do not have permission to edit this attendance');
+        } else {
+          // Show error message for other status codes
+          alert(error.message || 'Error saving attendance. Please try again.');
+        }
       } else {
+        // Generic error message for unexpected errors
         alert('Error saving attendance. Please try again.');
       }
     } finally {
