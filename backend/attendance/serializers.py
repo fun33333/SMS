@@ -32,6 +32,7 @@ class AttendanceSerializer(serializers.ModelSerializer):
     student_attendance = StudentAttendanceSerializer(source='student_attendances', many=True, read_only=True)
     is_weekend = serializers.SerializerMethodField()
     is_holiday = serializers.SerializerMethodField()
+    display_status = serializers.SerializerMethodField()
     
     class Meta:
         model = Attendance
@@ -39,7 +40,7 @@ class AttendanceSerializer(serializers.ModelSerializer):
             'id', 'classroom', 'classroom_name', 'classroom_code',
             'date', 'marked_by', 'marked_by_name',
             'total_students', 'present_count', 'absent_count', 'late_count', 'leave_count',
-            'student_attendance', 'created_at', 'updated_at', 'status',
+            'student_attendance', 'created_at', 'updated_at', 'status', 'display_status',
             'is_weekend', 'is_holiday'
         ]
         read_only_fields = [
@@ -67,6 +68,37 @@ class AttendanceSerializer(serializers.ModelSerializer):
             ).exists()
         except:
             return False
+    
+    def get_display_status(self, obj):
+        """Return display status based on user role"""
+        request = self.context.get('request')
+        if not request or not hasattr(request, 'user'):
+            # Default to showing actual status if no user context
+            return obj.status
+        
+        user = request.user
+        
+        # Map status to display labels based on user role
+        if obj.status == 'approved':
+            return 'Approved'
+        elif obj.status == 'under_review':
+            if user.is_teacher():
+                return 'Marked (Under Review)'
+            elif user.is_coordinator() or user.is_principal() or user.is_superadmin():
+                return 'Marked'
+            else:
+                return 'Under Review'
+        elif obj.status == 'submitted':
+            # Legacy support
+            if user.is_teacher():
+                return 'Submitted'
+            else:
+                return 'Marked'
+        elif obj.status == 'draft':
+            # Legacy support
+            return 'Draft'
+        else:
+            return obj.status
     
     def to_representation(self, instance):
         data = super().to_representation(instance)

@@ -19,6 +19,10 @@ media/*
 .venv/
 venv/
 ENV/
+.env.local
+settings.py
+credentials.json
+postgresql/
 
 # Frontend / Next.js
 frontend/node_modules/

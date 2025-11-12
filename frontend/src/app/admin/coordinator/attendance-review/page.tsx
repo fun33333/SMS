@@ -13,6 +13,8 @@ import { getCurrentUserProfile, getCoordinatorClasses, getAttendanceForDate, edi
 import { useRouter } from "next/navigation"
 import HolidayManagement from "@/components/attendance/holiday-management"
 import BackfillPermission from "@/components/attendance/backfill-permission"
+import HolidayAssignmentModal from "@/components/attendance/holiday-assignment-modal"
+import CoordinatorHolidayManagement from "@/components/attendance/coordinator-holiday-management"
 
 
 
@@ -78,6 +80,7 @@ export default function AttendanceReviewPage() {
   const [selectedShift, setSelectedShift] = useState<string | null>('all');
   const [availableGrades, setAvailableGrades] = useState<string[]>([]);
   const [selectedGrade, setSelectedGrade] = useState<string | 'all' | null>('all');
+  const [showHolidayModal, setShowHolidayModal] = useState(false);
   const ALLOWED_APPROVE_STATUSES = ['draft', 'submitted', 'under_review'];
   const currentAttendanceStatus = (attendanceData && attendanceData.length > 0) ? (attendanceData[0].status || 'not_marked') : 'not_marked';
   const dialogHasCounts = (attendanceData && attendanceData.length > 0)
@@ -152,20 +155,22 @@ export default function AttendanceReviewPage() {
             const absentCount = d.absent_count ?? d.absent ?? d.absent_count_total ?? 0;
             const leaveCount = d.leave_count ?? d.on_leave_count ?? d.leaves_count ?? d.leaves ?? d.leave ?? 0;
 
-            let statusCandidate = d.status ?? d.attendance_status ?? d.state ?? d.review_status ?? d.status_display ?? null;
+            // Use display_status first, then check actual status
+            let statusCandidate = d.display_status ?? d.status ?? d.attendance_status ?? d.state ?? d.review_status ?? d.status_display ?? null;
             if (!statusCandidate) {
               if (d.approved === true || d.coordinator_approved === true || d.finalized === true) {
                 statusCandidate = 'approved';
               } else if (d.finalized_at || d.approved_at) {
                 statusCandidate = 'approved';
               } else if (presentCount + absentCount + leaveCount > 0) {
-                statusCandidate = d.under_review ? 'under_review' : 'submitted';
+                // New flow: default to under_review when attendance is marked
+                statusCandidate = (d.status === 'under_review' || d.under_review === true) ? 'under_review' : 'under_review';
               }
             }
 
-            // If counts exist but no status found, consider it submitted
+            // If counts exist but no status found, consider it under_review (new flow)
             if (!statusCandidate && (presentCount + absentCount + leaveCount > 0)) {
-              statusCandidate = 'submitted';
+              statusCandidate = 'under_review';
             }
 
             summary.push({
@@ -177,8 +182,10 @@ export default function AttendanceReviewPage() {
               absent_count: absentCount,
               leave_count: leaveCount,
               status: statusCandidate || 'not_marked',
+              display_status: d.display_status || null,
               marked_by: d.marked_by || d.marked_by_name || 'Not Marked',
-              attendance_percentage: d.attendance_percentage ?? d.present_pct ?? 0
+              attendance_percentage: d.attendance_percentage ?? d.present_pct ?? 0,
+              is_holiday: d.is_holiday || false
             });
           } else {
             console.log(`   - No attendance data found for ${classroom.name}, using default values`);
@@ -311,20 +318,25 @@ export default function AttendanceReviewPage() {
         const absentCount = d.absent_count ?? d.absent ?? d.absent_count_total ?? 0;
         const leaveCount = d.leave_count ?? d.on_leave_count ?? d.leaves_count ?? d.leaves ?? d.leave ?? 0;
         
-        // Normalize status using same logic as summary
-        let statusCandidate = d.status ?? d.attendance_status ?? d.state ?? d.review_status ?? d.status_display ?? null;
+        // Normalize status using same logic as summary - use display_status first
+        let statusCandidate = d.display_status ?? d.status ?? d.attendance_status ?? d.state ?? d.review_status ?? d.status_display ?? null;
         if (!statusCandidate) {
           if (d.approved === true || d.coordinator_approved === true || d.finalized === true) {
             statusCandidate = 'approved';
           } else if (d.finalized_at || d.approved_at) {
             statusCandidate = 'approved';
           } else if (presentCount + absentCount + leaveCount > 0) {
-            statusCandidate = d.under_review ? 'under_review' : 'submitted';
+            // New flow: default to under_review when attendance is marked
+            statusCandidate = (d.status === 'under_review' || d.under_review === true) ? 'under_review' : 'under_review';
           }
         }
 
-        // Update the status before setting
-        d.status = statusCandidate || (presentCount + absentCount + leaveCount > 0 ? 'submitted' : 'not_marked');
+        // Update the status before setting - new flow uses under_review
+        d.status = statusCandidate || (presentCount + absentCount + leaveCount > 0 ? 'under_review' : 'not_marked');
+        // Preserve display_status if available
+        if (d.display_status) {
+          d.display_status = d.display_status;
+        }
         setAttendanceData([d]);
       } else {
         console.log('No attendance data found for date:', date);
@@ -402,9 +414,11 @@ export default function AttendanceReviewPage() {
       updatedAttendance[0] = { ...(updatedAttendance[0] || {}), status: 'approved' };
       setAttendanceData(updatedAttendance);
 
-      // Update the classroom summary optimistically as well - try multiple matching keys
+      // Update the classroom summary optimistically - remove approved attendance from list
+      // (Approved attendance should not show in coordinator dashboard)
       setClassroomAttendanceSummary(prev => {
-        try {
+        // Filter out the approved attendance card
+        return prev.filter(item => {
           const candidates: Array<number | string | null> = [];
           if (activeClassroomId) candidates.push(activeClassroomId);
           if (expandedClassroom) candidates.push(expandedClassroom);
@@ -412,19 +426,17 @@ export default function AttendanceReviewPage() {
           if (att.classroom_id) candidates.push(att.classroom_id);
           if ((att as any).classroom && typeof (att as any).classroom === 'number') candidates.push((att as any).classroom);
           if ((att as any).classroom && typeof (att as any).classroom === 'object' && (att as any).classroom.id) candidates.push((att as any).classroom.id);
-
+          
           // If we have a classroom name, try matching by name as a fallback
           const classroomName = (att && (att.classroom_name || att.classroom_name_text || att.classroom)) || activeClassroomName;
-
-          return prev.map(item => {
-            const idMatch = candidates.some(c => c !== null && String(item.classroom_id) === String(c));
-            const nameMatch = classroomName && String(item.classroom_name) === String(classroomName);
-            if (idMatch || nameMatch) return { ...item, status: 'approved' };
-            return item;
-          });
-        } catch (e) {
-          return prev;
-        }
+          
+          // Check if this item matches the approved attendance
+          const idMatch = candidates.some(c => c !== null && String(item.classroom_id) === String(c));
+          const nameMatch = classroomName && String(item.classroom_name) === String(classroomName);
+          
+          // Remove this item if it matches (it's now approved)
+          return !(idMatch || nameMatch);
+        });
       });
 
       // Refresh summary from server to get accurate counts, then close dialog
@@ -641,15 +653,25 @@ export default function AttendanceReviewPage() {
           </div>
         </div>
 
-        {/* Refresh Button Right Side */}
-        <Button
-          onClick={() => fetchAttendanceSummary(selectedDate)}
-          className="bg-[#6096ba] hover:bg-[#274c77] text-white flex items-center self-end sm:self-center"
-          disabled={loadingSummary}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${loadingSummary ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        {/* Action Buttons Right Side */}
+        <div className="flex items-center gap-2 self-end sm:self-center">
+          <Button
+            onClick={() => setShowHolidayModal(true)}
+            className="bg-green-600 hover:bg-green-700 text-white flex items-center"
+            variant="default"
+          >
+            <Calendar className="h-4 w-4 mr-2" />
+            Manage Holidays
+          </Button>
+          <Button
+            onClick={() => fetchAttendanceSummary(selectedDate)}
+            className="bg-[#6096ba] hover:bg-[#274c77] text-white flex items-center"
+            disabled={loadingSummary}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${loadingSummary ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
 
@@ -754,10 +776,16 @@ export default function AttendanceReviewPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-            {classroomAttendanceSummary.map((summary) => {
+            {classroomAttendanceSummary
+              .filter((summary) => {
+                // Hide approved attendance cards from coordinator dashboard
+                const st = summary.status;
+                return st !== 'approved' && st !== 'Approved';
+              })
+              .map((summary) => {
               const hasCounts = (summary.present_count || 0) + (summary.absent_count || 0) + (summary.leave_count || 0) > 0;
               const st = summary.status;
-              const badgeLabel = (st && st !== 'not_marked') ? (st.charAt(0).toUpperCase() + st.slice(1)) : (hasCounts ? 'Marked' : 'Not Marked');
+              const badgeLabel = summary.display_status || ((st && st !== 'not_marked') ? (st.charAt(0).toUpperCase() + st.slice(1)) : (hasCounts ? 'Marked' : 'Not Marked'));
               const badgeClass = st === 'approved' ? 'bg-green-100 text-green-800 border-green-300' :
                 st === 'submitted' ? 'bg-blue-100 text-blue-800 border-blue-300' :
                 st === 'under_review' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
@@ -780,12 +808,20 @@ export default function AttendanceReviewPage() {
               >
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-semibold text-gray-900 text-base">{summary.classroom_name}</h3>
-                  <Badge
-                    variant="outline"
-                    className={badgeClass}
-                  >
-                    {badgeLabel}
-                  </Badge>
+                  <div className="flex items-center gap-1">
+                    {summary.is_holiday && (
+                      <Badge className="bg-yellow-500 text-white border-yellow-600 text-xs">
+                        <Calendar className="h-3 w-3 mr-1" />
+                        Holiday
+                      </Badge>
+                    )}
+                    <Badge
+                      variant="outline"
+                      className={badgeClass}
+                    >
+                      {badgeLabel}
+                    </Badge>
+                  </div>
                 </div>
                 <div className="text-sm text-gray-600 mb-3">
                   <div>Teacher: {summary.teacher_name}</div>
@@ -841,7 +877,7 @@ export default function AttendanceReviewPage() {
             {/* current status is shown below; isApprovable is derived above and used for the Approve button */}
             {attendanceData && attendanceData.length > 0 ? (
               <div className="space-y-4">
-                <div className="text-sm text-gray-700">Status: <strong>{attendanceData[0].status || 'Not Marked'}</strong></div>
+                <div className="text-sm text-gray-700">Status: <strong>{attendanceData[0].display_status || attendanceData[0].status || 'Not Marked'}</strong></div>
                 <div className="space-y-2">
                   <label className="text-sm text-gray-700 font-medium">Coordinator's Comment:</label>
                   <Input 
@@ -921,8 +957,30 @@ export default function AttendanceReviewPage() {
 
       {/* tablist wala kam yaha tha  */}
 
-
-
+      {/* Holiday Assignment Modal */}
+      {/* Holiday Management Modal - Full CRUD */}
+      <Dialog open={showHolidayModal} onOpenChange={setShowHolidayModal}>
+        <DialogContent className="max-w-6xl w-[95vw] max-h-[95vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <Calendar className="h-5 w-5" />
+              Manage Holidays
+            </DialogTitle>
+            <DialogDescription>
+              View, create, update, and delete holidays for your assigned levels
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-hidden min-h-0">
+            <CoordinatorHolidayManagement
+              levels={availableLevels.length > 0 ? availableLevels : (coordinatorProfile?.assigned_levels || [])}
+              onSuccess={() => {
+                fetchAttendanceSummary(selectedDate)
+              }}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   )

@@ -44,6 +44,8 @@ urlpatterns = [
     # Holiday management
     path('holidays/create/', views.create_holiday, name='create_holiday'),
     path('holidays/', views.get_holidays, name='get_holidays'),
+    path('holidays/<int:holiday_id>/', views.update_holiday, name='update_holiday'),
+    path('holidays/<int:holiday_id>/delete/', views.delete_holiday, name='delete_holiday'),
     
     # Real-time metrics
     path('metrics/realtime/', views.get_realtime_attendance_metrics, name='realtime_metrics'),

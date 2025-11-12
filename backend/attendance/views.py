@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.utils import timezone
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from datetime import date, timedelta, datetime
 
 User = get_user_model()
@@ -41,6 +42,18 @@ def mark_attendance(request):
         
         classroom = get_object_or_404(ClassRoom, id=classroom_id)
         
+        # Check if date is a holiday
+        from .models import Holiday
+        level = classroom.grade.level if classroom.grade else None
+        if level:
+            holiday = Holiday.objects.filter(date=date, level=level).first()
+            if holiday:
+                return Response({
+                    'error': f'This date is a holiday: {holiday.reason}. Attendance marking is disabled.',
+                    'is_holiday': True,
+                    'holiday_reason': holiday.reason
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
         # Get teacher from request user
         try:
             # Find teacher by employee code (username) since there's no direct relationship
@@ -51,11 +64,28 @@ def mark_attendance(request):
         
         with transaction.atomic():
             # Create or get attendance record
+            # marked_by must be a User instance, not Teacher
+            if teacher and hasattr(teacher, 'user') and teacher.user is not None:
+                marked_by_user = teacher.user
+            else:
+                marked_by_user = request.user
             attendance, created = Attendance.objects.get_or_create(
                 classroom=classroom,
                 date=date,
-                defaults={'marked_by': teacher}
+                defaults={
+                    'marked_by': marked_by_user,
+                    'status': 'under_review',
+                    'submitted_at': timezone.now(),
+                    'submitted_by': request.user
+                }
             )
+            
+            # If attendance already exists, update status to under_review
+            if not created:
+                attendance.status = 'under_review'
+                attendance.submitted_at = timezone.now()
+                attendance.submitted_by = request.user
+                attendance.marked_by = marked_by_user
             
             # Clear existing student attendance records
             attendance.student_attendances.all().delete()
@@ -71,6 +101,12 @@ def mark_attendance(request):
             
             # Update attendance summary
             attendance.update_counts()
+            
+            # Save attendance with updated status
+            attendance.save()
+            
+            # Add edit history after saving
+            attendance.add_edit_history(request.user, 'marked', 'Attendance marked and submitted for review')
             
             # Send notification to coordinator
             try:
@@ -192,6 +228,23 @@ def mark_bulk_attendance(request):
         
         classroom = get_object_or_404(ClassRoom, id=classroom_id)
         
+        # Check if date is a holiday
+        from .models import Holiday
+        level = classroom.grade.level if classroom.grade else None
+        if level:
+            holiday = Holiday.objects.filter(date=date_obj, level=level).first()
+            if holiday:
+                try:
+                    is_teacher = request.user.is_teacher()
+                except Exception:
+                    is_teacher = False
+                if is_teacher and not request.user.is_superuser:
+                    return Response({
+                        'error': f'This date is a holiday: {holiday.reason}. Attendance marking is disabled.',
+                        'is_holiday': True,
+                        'holiday_reason': holiday.reason
+                    }, status=status.HTTP_400_BAD_REQUEST)
+        
         # Check if it's a Sunday and auto-create weekend entry, and block teacher marking
         if date_obj.weekday() == 6:  # Sunday is 6 in Python's weekday()
             level = classroom.grade.level
@@ -216,12 +269,36 @@ def mark_bulk_attendance(request):
         all_student_ids = list(all_students.values_list('id', flat=True))
         
         with transaction.atomic():
+            # Get teacher from request user
+            teacher = None
+            try:
+                teacher = Teacher.objects.get(employee_code=request.user.username)
+            except Teacher.DoesNotExist:
+                pass
+            
             # Create or get attendance record
+            # marked_by must be a User instance, not Teacher
+            if teacher and hasattr(teacher, 'user') and teacher.user is not None:
+                marked_by_user = teacher.user
+            else:
+                marked_by_user = request.user
             attendance, created = Attendance.objects.get_or_create(
                 classroom=classroom,
                 date=date_obj,
-                defaults={'marked_by': request.user}
+                defaults={
+                    'marked_by': marked_by_user,
+                    'status': 'under_review',
+                    'submitted_at': timezone.now(),
+                    'submitted_by': request.user
+                }
             )
+            
+            # If attendance already exists, update status to under_review
+            if not created:
+                attendance.status = 'under_review'
+                attendance.submitted_at = timezone.now()
+                attendance.submitted_by = request.user
+                attendance.marked_by = marked_by_user
             
             # Clear existing student attendance records
             attendance.student_attendances.all().delete()
@@ -252,14 +329,15 @@ def mark_bulk_attendance(request):
             # Update attendance summary
             attendance.update_counts()
             
+            # Save attendance with updated status
+            attendance.save()
+            
+            # Add edit history after saving
+            attendance.add_edit_history(request.user, 'marked', 'Attendance marked and submitted for review')
+            
             # Send notification to coordinator
             try:
-                # Get teacher from request user
-                teacher = None
-                try:
-                    teacher = Teacher.objects.get(employee_code=request.user.username)
-                except Teacher.DoesNotExist:
-                    pass
+                # Teacher already retrieved above
                 
                 # Get coordinator for this classroom's level
                 coordinator = None
@@ -372,7 +450,7 @@ def get_class_attendance(request, classroom_id):
             date=date_param
         ).prefetch_related('student_attendances__student').first()
         if attendance:
-            serializer = AttendanceSerializer(attendance)
+            serializer = AttendanceSerializer(attendance, context={'request': request})
             return Response(serializer.data)
         else:
             return Response({'message': 'No attendance found for this date'})
@@ -388,14 +466,14 @@ def get_class_attendance(request, classroom_id):
             attendance_records = attendance_records.filter(date__lte=end_date)
             
         attendance_records = attendance_records.order_by('-date')
-        serializer = AttendanceSerializer(attendance_records, many=True)
+        serializer = AttendanceSerializer(attendance_records, many=True, context={'request': request})
         return Response(serializer.data)
     else:
         # Get all attendance records for the class
         attendance_records = Attendance.objects.filter(
             classroom=classroom
         ).prefetch_related('student_attendances__student').order_by('-date')
-        serializer = AttendanceSerializer(attendance_records, many=True)
+        serializer = AttendanceSerializer(attendance_records, many=True, context={'request': request})
         return Response(serializer.data)
 
 
@@ -586,8 +664,8 @@ def edit_attendance(request, attendance_id):
                     is_allowed = True
 
                 if is_allowed:
-                    # Teachers can only edit draft attendance within 7 days
-                    if attendance.status == 'draft':
+                    # Teachers can edit under_review attendance within 7 days
+                    if attendance.status == 'under_review':
                         days_diff = (timezone.now().date() - attendance.date).days
                         if days_diff <= 7:
                             can_edit = True
@@ -596,18 +674,20 @@ def edit_attendance(request, attendance_id):
                             return Response({
                                 'error': f'Cannot edit attendance older than 7 days. This attendance is {days_diff} days old.'
                             }, status=status.HTTP_403_FORBIDDEN)
-                    elif attendance.status in ['submitted', 'under_review']:
-                        return Response({
-                            'error': 'Cannot edit attendance that has been submitted for review. Please contact your coordinator if changes are needed.'
-                        }, status=status.HTTP_403_FORBIDDEN)
                     elif attendance.status == 'approved':
                         return Response({
                             'error': 'Cannot edit approved attendance. Please contact your coordinator if changes are needed.'
                         }, status=status.HTTP_403_FORBIDDEN)
                     else:
-                        return Response({
-                            'error': 'Cannot edit this attendance. Please contact your coordinator if changes are needed.'
-                        }, status=status.HTTP_403_FORBIDDEN)
+                        # For draft or submitted (legacy), allow edit but convert to under_review
+                        days_diff = (timezone.now().date() - attendance.date).days
+                        if days_diff <= 7:
+                            can_edit = True
+                            edit_reason = "Teacher edit within 7 days"
+                        else:
+                            return Response({
+                                'error': f'Cannot edit attendance older than 7 days. This attendance is {days_diff} days old.'
+                            }, status=status.HTTP_403_FORBIDDEN)
             except Teacher.DoesNotExist:
                 pass
         
@@ -703,18 +783,31 @@ def edit_attendance(request, attendance_id):
                 }
             )
             
-            # Update marked_by if it's a teacher
+            # Update status and marked_by if it's a teacher
             teacher = None
             if user.is_teacher():
-                attendance.marked_by = user
-                # Save only specific fields to avoid updating created_at
-                attendance.save(update_fields=['marked_by', 'updated_at'])
+                # Keep status as under_review if not approved
+                if attendance.status != 'approved':
+                    attendance.status = 'under_review'
+                    attendance.submitted_at = timezone.now()
+                    attendance.submitted_by = user
+                
                 # Get teacher for notification
+                # marked_by must be a User instance, not Teacher
                 try:
                     teacher = Teacher.objects.get(employee_code=user.username)
+                    # Use teacher.user if available, otherwise use user
+                    if hasattr(teacher, 'user') and teacher.user is not None:
+                        attendance.marked_by = teacher.user
+                    else:
+                        attendance.marked_by = user
                 except Teacher.DoesNotExist:
                     print(f"[WARN] Teacher not found for user {user.username}")
+                    attendance.marked_by = user
                     pass
+                
+                # Save only specific fields to avoid updating created_at
+                attendance.save(update_fields=['marked_by', 'status', 'submitted_at', 'submitted_by', 'updated_at'])
             
             # Send notification to coordinator when teacher updates attendance
             # (Don't send if coordinator is editing their own attendance)
@@ -808,7 +901,7 @@ def edit_attendance(request, attendance_id):
                     # Don't fail the attendance update if notification fails
         
         # Return updated attendance data
-        serializer = AttendanceSerializer(attendance)
+        serializer = AttendanceSerializer(attendance, context={'request': request})
         return Response({
             'message': 'Attendance updated successfully',
             'attendance': serializer.data
@@ -894,6 +987,10 @@ def get_attendance_for_date(request, classroom_id, date):
             # Get student attendance records
             student_attendances = attendance.student_attendances.all()
             
+            # Use serializer to get display_status
+            serializer = AttendanceSerializer(attendance, context={'request': request})
+            serializer_data = serializer.data
+            
             attendance_data = {
                 'id': attendance.id,
                 'date': attendance.date.isoformat(),
@@ -911,6 +1008,8 @@ def get_attendance_for_date(request, classroom_id, date):
                 'is_editable': attendance.is_editable,
                 'marked_at': attendance.marked_at.isoformat(),
                 'marked_by': attendance.marked_by.get_full_name() if attendance.marked_by else None,
+                'status': attendance.status,
+                'display_status': serializer_data.get('display_status', attendance.status),
                 'student_attendance': [
                     {
                         'student_id': sa.student.id,
@@ -1340,6 +1439,57 @@ def coordinator_approve_attendance(request, attendance_id):
                 ip_address=request.META.get('REMOTE_ADDR'),
                 changes={'status': 'approved'}
             )
+            
+            # Send notification to teacher
+            try:
+                teacher_user = None
+                teacher = None
+                
+                # Get teacher from marked_by or from classroom
+                if attendance.marked_by:
+                    teacher_user = attendance.marked_by
+                    # Try to find teacher profile
+                    try:
+                        teacher = Teacher.objects.get(user=teacher_user)
+                    except Teacher.DoesNotExist:
+                        # Try by employee_code
+                        try:
+                            teacher = Teacher.objects.get(employee_code=teacher_user.username)
+                        except Teacher.DoesNotExist:
+                            pass
+                elif attendance.classroom and attendance.classroom.class_teacher:
+                    teacher = attendance.classroom.class_teacher
+                    if teacher and teacher.user:
+                        teacher_user = teacher.user
+                
+                if teacher_user:
+                    coordinator_name = coordinator.full_name if coordinator else request.user.get_full_name() or request.user.username
+                    classroom_name = str(attendance.classroom)
+                    verb = "Your attendance has been approved"
+                    target_text = f"by {coordinator_name} for {classroom_name} on {attendance.date.strftime('%B %d, %Y')}."
+                    
+                    create_notification(
+                        recipient=teacher_user,
+                        actor=request.user,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            'attendance_id': attendance.id,
+                            'classroom_id': attendance.classroom.id,
+                            'classroom_name': classroom_name,
+                            'date': str(attendance.date),
+                            'coordinator_name': coordinator_name,
+                            'action': 'approved'
+                        }
+                    )
+                    print(f"[OK] Sent approval notification to teacher {teacher.full_name if teacher else teacher_user.get_full_name()} (user: {teacher_user.email})")
+                else:
+                    print(f"[WARN] No teacher user found for attendance {attendance.id} (marked_by: {attendance.marked_by}, classroom: {attendance.classroom})")
+            except Exception as notif_error:
+                print(f"[WARN] Failed to send approval notification: {notif_error}")
+                import traceback
+                print(f"[WARN] Traceback: {traceback.format_exc()}")
+                # Don't fail the approval if notification fails
         
         return Response({'message': 'Attendance approved successfully by coordinator'})
     except Exception as e:
@@ -1504,14 +1654,43 @@ def create_holiday(request):
     try:
         date_str = request.data.get('date')
         reason = request.data.get('reason')
+        level_id = request.data.get('level_id')  # Support for multi-level coordinators
         
         if not all([date_str, reason]):
             return Response({'error': 'Date and reason required'}, status=status.HTTP_400_BAD_REQUEST)
         
         from coordinator.models import Coordinator
+        from classes.models import Level
         coordinator = Coordinator.get_for_user(request.user)
         if not coordinator:
             return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Determine which level to use
+        target_level = None
+        if level_id:
+            # Coordinator selected a specific level
+            target_level = get_object_or_404(Level, id=level_id)
+            # Verify coordinator has access to this level
+            allowed = False
+            if coordinator.shift == 'both':
+                if coordinator.assigned_levels.exists():
+                    if target_level in coordinator.assigned_levels.all():
+                        allowed = True
+                elif coordinator.level == target_level:
+                    allowed = True
+            else:
+                if coordinator.level == target_level:
+                    allowed = True
+            
+            if not allowed and not request.user.is_superuser:
+                return Response({'error': 'Access denied to this level'}, status=status.HTTP_403_FORBIDDEN)
+        else:
+            # Use coordinator's default level
+            if coordinator.shift == 'both' and coordinator.assigned_levels.exists():
+                return Response({'error': 'level_id is required for coordinators with multiple levels'}, status=status.HTTP_400_BAD_REQUEST)
+            target_level = coordinator.level
+            if not target_level:
+                return Response({'error': 'No level assigned to coordinator'}, status=status.HTTP_400_BAD_REQUEST)
 
         date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
         
@@ -1522,7 +1701,7 @@ def create_holiday(request):
         # Check if date is in the past and archive existing attendance
         if date_obj < timezone.now().date():
             # Find all classrooms in this level
-            classrooms = ClassRoom.objects.filter(grade__level=coordinator.level)
+            classrooms = ClassRoom.objects.filter(grade__level=target_level)
             
             for classroom in classrooms:
                 # Find existing attendance for this date
@@ -1534,8 +1713,20 @@ def create_holiday(request):
                     )
                     
                     # Archive the attendance data
+                    # Convert student attendance to serializable format
+                    student_attendance_list = []
+                    for sa in existing_attendance.student_attendances.all():
+                        student_attendance_list.append({
+                            'id': sa.id,
+                            'student_id': sa.student_id,
+                            'status': sa.status,
+                            'remarks': sa.remarks or '',
+                            'created_at': sa.created_at.isoformat() if sa.created_at else None,
+                            'updated_at': sa.updated_at.isoformat() if sa.updated_at else None,
+                        })
+                    
                     archived_data = {
-                        'student_attendance': list(existing_attendance.student_attendances.values()),
+                        'student_attendance': student_attendance_list,
                         'marked_by': existing_attendance.marked_by.get_full_name() if existing_attendance.marked_by else None,
                         'marked_at': existing_attendance.marked_at.isoformat(),
                         'status': existing_attendance.status,
@@ -1558,7 +1749,7 @@ def create_holiday(request):
         
         holiday, created = Holiday.objects.get_or_create(
             date=date_obj,
-            level=coordinator.level,
+            level=target_level,
             defaults={'reason': reason, 'created_by': request.user}
         )
         
@@ -1575,6 +1766,202 @@ def create_holiday(request):
             ip_address=request.META.get('REMOTE_ADDR'),
             reason=reason
         )
+        
+        # Send notifications to all teachers and principals for this level
+        try:
+            from teachers.models import Teacher
+            from principals.models import Principal
+            from classes.models import ClassRoom
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            
+            # Get all classrooms for this level
+            classrooms = ClassRoom.objects.filter(grade__level=target_level).select_related('class_teacher', 'grade', 'grade__level')
+            print(f"[DEBUG] Found {classrooms.count()} classrooms for level {target_level.name}")
+            
+            # Get all unique teachers for this level
+            teacher_users = set()
+            
+            # Method 1: Get teachers from classrooms
+            for classroom in classrooms:
+                if classroom.class_teacher:
+                    teacher = classroom.class_teacher
+                    teacher_user = None
+                    
+                    # Try to find user: first check user field, then email, then employee_code
+                    if teacher.user:
+                        teacher_user = teacher.user
+                    elif teacher.email:
+                        teacher_user = User.objects.filter(email__iexact=teacher.email).first()
+                        if teacher_user:
+                            # Link the user to teacher if not already linked
+                            teacher.user = teacher_user
+                            teacher.save(update_fields=['user'])
+                            print(f"[OK] Linked user {teacher_user.email} to teacher {teacher.full_name}")
+                    elif teacher.employee_code:
+                        teacher_user = User.objects.filter(username=teacher.employee_code).first()
+                        if teacher_user:
+                            # Link the user to teacher if not already linked
+                            teacher.user = teacher_user
+                            teacher.save(update_fields=['user'])
+                            print(f"[OK] Linked user {teacher_user.username} to teacher {teacher.full_name}")
+                    
+                    if teacher_user:
+                        teacher_users.add(teacher_user)
+                        print(f"[DEBUG] Found teacher user: {teacher_user.email} from classroom {classroom.code}")
+                    else:
+                        print(f"[WARN] Teacher {teacher.full_name} (ID: {teacher.id}) has no user account (email: {teacher.email}, employee_code: {teacher.employee_code})")
+            
+            # Method 2: Get teachers directly assigned to classrooms in this level
+            teachers_from_classrooms = Teacher.objects.filter(
+                assigned_classrooms__grade__level=target_level,
+                is_currently_active=True
+            ).select_related('user').prefetch_related('assigned_classrooms', 'assigned_classrooms__grade', 'assigned_classrooms__grade__level').distinct()
+            print(f"[DEBUG] Found {teachers_from_classrooms.count()} teachers from assigned_classrooms")
+            for teacher in teachers_from_classrooms:
+                teacher_user = None
+                
+                # Try to find user: first check user field, then email, then employee_code
+                if teacher.user:
+                    teacher_user = teacher.user
+                elif teacher.email:
+                    teacher_user = User.objects.filter(email__iexact=teacher.email).first()
+                    if teacher_user:
+                        # Link the user to teacher if not already linked
+                        teacher.user = teacher_user
+                        teacher.save(update_fields=['user'])
+                        print(f"[OK] Linked user {teacher_user.email} to teacher {teacher.full_name}")
+                elif teacher.employee_code:
+                    teacher_user = User.objects.filter(username=teacher.employee_code).first()
+                    if teacher_user:
+                        # Link the user to teacher if not already linked
+                        teacher.user = teacher_user
+                        teacher.save(update_fields=['user'])
+                        print(f"[OK] Linked user {teacher_user.username} to teacher {teacher.full_name}")
+                
+                if teacher_user:
+                    teacher_users.add(teacher_user)
+                    print(f"[DEBUG] Found teacher user: {teacher_user.email} from assigned classrooms")
+                else:
+                    print(f"[WARN] Teacher {teacher.full_name} (ID: {teacher.id}) has no user account (email: {teacher.email}, employee_code: {teacher.employee_code})")
+            
+            # Method 3: Get teachers via coordinator's assigned_teachers (ManyToMany)
+            from coordinator.models import Coordinator
+            coordinators_for_level = Coordinator.objects.filter(
+                Q(level=target_level) | Q(assigned_levels=target_level),
+                is_currently_active=True
+            ).distinct()
+            print(f"[DEBUG] Found {coordinators_for_level.count()} coordinators for level {target_level.name}")
+            for coord in coordinators_for_level:
+                assigned_teachers = coord.assigned_teachers.filter(is_currently_active=True)
+                print(f"[DEBUG] Coordinator {coord.full_name} has {assigned_teachers.count()} assigned teachers")
+                for teacher in assigned_teachers:
+                    teacher_user = None
+                    
+                    # Try to find user: first check user field, then email, then employee_code
+                    if teacher.user:
+                        teacher_user = teacher.user
+                    elif teacher.email:
+                        teacher_user = User.objects.filter(email__iexact=teacher.email).first()
+                        if teacher_user:
+                            # Link the user to teacher if not already linked
+                            teacher.user = teacher_user
+                            teacher.save(update_fields=['user'])
+                            print(f"[OK] Linked user {teacher_user.email} to teacher {teacher.full_name}")
+                    elif teacher.employee_code:
+                        teacher_user = User.objects.filter(username=teacher.employee_code).first()
+                        if teacher_user:
+                            # Link the user to teacher if not already linked
+                            teacher.user = teacher_user
+                            teacher.save(update_fields=['user'])
+                            print(f"[OK] Linked user {teacher_user.username} to teacher {teacher.full_name}")
+                    
+                    if teacher_user:
+                        teacher_users.add(teacher_user)
+                        print(f"[DEBUG] Found teacher user: {teacher_user.email} from coordinator {coord.full_name}")
+                    else:
+                        print(f"[WARN] Teacher {teacher.full_name} (ID: {teacher.id}) assigned to coordinator {coord.full_name} has no user account (email: {teacher.email}, employee_code: {teacher.employee_code})")
+            
+            # Method 4: Get all active teachers in the campus of this level (fallback)
+            if target_level.campus:
+                campus_teachers = Teacher.objects.filter(
+                    current_campus=target_level.campus,
+                    is_currently_active=True
+                ).select_related('user')
+                print(f"[DEBUG] Found {campus_teachers.count()} active teachers in campus {target_level.campus.campus_name}")
+                # Only add if they teach grades in this level
+                for teacher in campus_teachers:
+                    # Check if teacher teaches any grade in this level
+                    teacher_grades = teacher.assigned_classrooms.filter(grade__level=target_level).values_list('grade', flat=True).distinct()
+                    if teacher_grades.exists() and teacher.user:
+                        teacher_users.add(teacher.user)
+                        print(f"[DEBUG] Found teacher user: {teacher.user.email} from campus (teaches grades in this level)")
+            
+            print(f"[DEBUG] Total unique teacher users found: {len(teacher_users)}")
+            if len(teacher_users) == 0:
+                print(f"[WARN] No teachers found for level {target_level.name}. Check if:")
+                print(f"  - Classrooms have class_teacher assigned")
+                print(f"  - Teachers have user accounts linked")
+                print(f"  - Teachers are assigned to coordinators for this level")
+            
+            # Get all principals for the campus of this level
+            principal_users = set()
+            if target_level.campus:
+                principals = Principal.objects.filter(
+                    campus=target_level.campus,
+                    is_currently_active=True
+                ).select_related('user')
+                for principal in principals:
+                    if principal.user:
+                        principal_users.add(principal.user)
+                        print(f"[DEBUG] Found principal user: {principal.user.email}")
+            
+            # Send notifications
+            coordinator_name = request.user.get_full_name() or request.user.username
+            action_text = 'created' if created else 'updated'
+            verb = f"Holiday {action_text}"
+            target_text = f"by {coordinator_name} for {target_level.name} on {date_obj.strftime('%B %d, %Y')}: {reason}"
+            
+            # Notify all teachers
+            for teacher_user in teacher_users:
+                create_notification(
+                    recipient=teacher_user,
+                    actor=request.user,
+                    verb=verb,
+                    target_text=target_text,
+                    data={
+                        'holiday_id': holiday.id,
+                        'date': str(date_obj),
+                        'reason': reason,
+                        'level_id': target_level.id,
+                        'level_name': str(target_level),
+                        'action': action_text
+                    }
+                )
+            
+            # Notify all principals
+            for principal_user in principal_users:
+                create_notification(
+                    recipient=principal_user,
+                    actor=request.user,
+                    verb=verb,
+                    target_text=target_text,
+                    data={
+                        'holiday_id': holiday.id,
+                        'date': str(date_obj),
+                        'reason': reason,
+                        'level_id': target_level.id,
+                        'level_name': str(target_level),
+                        'action': action_text
+                    }
+                )
+            
+            print(f"[OK] Sent holiday {action_text} notifications to {len(teacher_users)} teachers and {len(principal_users)} principals")
+        except Exception as notif_error:
+            print(f"[WARN] Failed to send holiday notifications: {notif_error}")
+            import traceback
+            print(f"[WARN] Traceback: {traceback.format_exc()}")
+            # Don't fail the holiday creation if notification fails
         
         return Response({'message': 'Holiday created', 'holiday_id': holiday.id})
     except Exception as e:
@@ -1600,12 +1987,407 @@ def get_holidays(request):
         
         data = [{
             'id': h.id,
-            'date': h.date,
+            'date': h.date.strftime('%Y-%m-%d'),  # Ensure date is in YYYY-MM-DD format
             'reason': h.reason,
+            'level_id': h.level.id,
+            'level_name': str(h.level),
             'created_by': h.created_by.get_full_name() if h.created_by else None
         } for h in holidays]
         
         return Response(data)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def update_holiday(request, holiday_id):
+    """Update existing holiday"""
+    try:
+        from .models import Holiday, AuditLog
+        from coordinator.models import Coordinator
+        from classes.models import ClassRoom
+        from django.utils import timezone
+        
+        holiday = get_object_or_404(Holiday, id=holiday_id)
+        
+        # Verify coordinator has access to this holiday's level
+        coordinator = Coordinator.get_for_user(request.user)
+        if not coordinator:
+            return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if coordinator manages this level
+        allowed = False
+        if coordinator.shift == 'both':
+            if coordinator.assigned_levels.exists():
+                if holiday.level in coordinator.assigned_levels.all():
+                    allowed = True
+            elif coordinator.level == holiday.level:
+                allowed = True
+        else:
+            if coordinator.level == holiday.level:
+                allowed = True
+        
+        if not allowed and not request.user.is_superuser:
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+        
+        date_str = request.data.get('date')
+        reason = request.data.get('reason')
+        level_id = request.data.get('level_id')
+        
+        if not all([date_str, reason]):
+            return Response({'error': 'Date and reason required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+        old_date = holiday.date
+        old_level = holiday.level
+        
+        # If date or level changed, handle existing attendance
+        if date_obj != old_date or (level_id and int(level_id) != old_level.id):
+            # Archive attendance for old date/level if in past
+            if old_date < timezone.now().date():
+                classrooms = ClassRoom.objects.filter(grade__level=old_level)
+                for classroom in classrooms:
+                    try:
+                        existing_attendance = Attendance.objects.get(
+                            classroom=classroom,
+                            date=old_date,
+                            is_deleted=False,
+                            replaced_by_holiday=True
+                        )
+                        # Restore archived attendance if it exists
+                        if existing_attendance.archived_data:
+                            # Optionally restore - for now just mark as not replaced
+                            existing_attendance.replaced_by_holiday = False
+                            existing_attendance.save()
+                    except Attendance.DoesNotExist:
+                        pass
+            
+            # Archive attendance for new date/level if in past
+            new_level = old_level
+            if level_id:
+                from classes.models import Level
+                new_level = get_object_or_404(Level, id=level_id)
+            
+            if date_obj < timezone.now().date():
+                classrooms = ClassRoom.objects.filter(grade__level=new_level)
+                for classroom in classrooms:
+                    try:
+                        existing_attendance = Attendance.objects.get(
+                            classroom=classroom,
+                            date=date_obj,
+                            is_deleted=False
+                        )
+                        # Archive the attendance data
+                        # Convert student attendance to serializable format
+                        student_attendance_list = []
+                        for sa in existing_attendance.student_attendances.all():
+                            student_attendance_list.append({
+                                'id': sa.id,
+                                'student_id': sa.student_id,
+                                'status': sa.status,
+                                'remarks': sa.remarks or '',
+                                'created_at': sa.created_at.isoformat() if sa.created_at else None,
+                                'updated_at': sa.updated_at.isoformat() if sa.updated_at else None,
+                            })
+                        
+                        archived_data = {
+                            'student_attendance': student_attendance_list,
+                            'marked_by': existing_attendance.marked_by.get_full_name() if existing_attendance.marked_by else None,
+                            'marked_at': existing_attendance.marked_at.isoformat(),
+                            'status': existing_attendance.status,
+                            'total_students': existing_attendance.total_students,
+                            'present_count': existing_attendance.present_count,
+                            'absent_count': existing_attendance.absent_count,
+                            'late_count': existing_attendance.late_count,
+                            'leave_count': existing_attendance.leave_count
+                        }
+                        existing_attendance.replaced_by_holiday = True
+                        existing_attendance.replaced_at = timezone.now()
+                        existing_attendance.archived_data = archived_data
+                        existing_attendance.save()
+                    except Attendance.DoesNotExist:
+                        pass
+            
+            # Update level if changed
+            if level_id:
+                from classes.models import Level
+                new_level = get_object_or_404(Level, id=level_id)
+                holiday.level = new_level
+        
+        holiday.date = date_obj
+        holiday.reason = reason
+        holiday.save()
+        
+        AuditLog.objects.create(
+            feature='attendance',
+            action='update',
+            entity_type='Holiday',
+            entity_id=holiday.id,
+            user=request.user,
+            ip_address=request.META.get('REMOTE_ADDR'),
+            reason=reason
+        )
+        
+        # Send notifications to all teachers and principals for this level
+        try:
+            from teachers.models import Teacher
+            from principals.models import Principal
+            from classes.models import ClassRoom
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            
+            # Get the level (might have changed)
+            holiday_level = holiday.level
+            
+            # Get all classrooms for this level
+            classrooms = ClassRoom.objects.filter(grade__level=holiday_level).select_related('class_teacher', 'grade', 'grade__level')
+            
+            # Get all unique teachers for this level
+            teacher_users = set()
+            for classroom in classrooms:
+                if classroom.class_teacher and classroom.class_teacher.user:
+                    teacher_users.add(classroom.class_teacher.user)
+            
+            # Also get teachers directly assigned to this level
+            teachers = Teacher.objects.filter(
+                assigned_classrooms__grade__level=holiday_level,
+                is_currently_active=True
+            ).select_related('user').prefetch_related('assigned_classrooms', 'assigned_classrooms__grade', 'assigned_classrooms__grade__level')
+            for teacher in teachers:
+                if teacher.user:
+                    teacher_users.add(teacher.user)
+            
+            # Also get teachers assigned via ManyToMany to coordinators for this level
+            from coordinator.models import Coordinator
+            coordinators_for_level = Coordinator.objects.filter(
+                level=holiday_level,
+                is_currently_active=True
+            ) | Coordinator.objects.filter(
+                assigned_levels=holiday_level,
+                is_currently_active=True
+            )
+            for coord in coordinators_for_level:
+                assigned_teachers = coord.assigned_teachers.all()
+                for teacher in assigned_teachers:
+                    if teacher.user:
+                        teacher_users.add(teacher.user)
+            
+            # Get all principals for the campus of this level
+            principal_users = set()
+            if holiday_level.campus:
+                principals = Principal.objects.filter(
+                    campus=holiday_level.campus,
+                    is_currently_active=True
+                ).select_related('user')
+                for principal in principals:
+                    if principal.user:
+                        principal_users.add(principal.user)
+            
+            # Send notifications
+            coordinator_name = request.user.get_full_name() or request.user.username
+            verb = "Holiday updated"
+            target_text = f"by {coordinator_name} for {holiday_level.name} on {date_obj.strftime('%B %d, %Y')}: {reason}"
+            
+            # Notify all teachers
+            for teacher_user in teacher_users:
+                create_notification(
+                    recipient=teacher_user,
+                    actor=request.user,
+                    verb=verb,
+                    target_text=target_text,
+                    data={
+                        'holiday_id': holiday.id,
+                        'date': str(date_obj),
+                        'reason': reason,
+                        'level_id': holiday_level.id,
+                        'level_name': str(holiday_level),
+                        'action': 'updated'
+                    }
+                )
+            
+            # Notify all principals
+            for principal_user in principal_users:
+                create_notification(
+                    recipient=principal_user,
+                    actor=request.user,
+                    verb=verb,
+                    target_text=target_text,
+                    data={
+                        'holiday_id': holiday.id,
+                        'date': str(date_obj),
+                        'reason': reason,
+                        'level_id': holiday_level.id,
+                        'level_name': str(holiday_level),
+                        'action': 'updated'
+                    }
+                )
+            
+            print(f"[OK] Sent holiday update notifications to {len(teacher_users)} teachers and {len(principal_users)} principals")
+        except Exception as notif_error:
+            print(f"[WARN] Failed to send holiday update notifications: {notif_error}")
+            import traceback
+            print(f"[WARN] Traceback: {traceback.format_exc()}")
+            # Don't fail the holiday update if notification fails
+        
+        return Response({'message': 'Holiday updated successfully', 'holiday_id': holiday.id})
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_holiday(request, holiday_id):
+    """Delete holiday and optionally restore archived attendance"""
+    try:
+        from .models import Holiday, AuditLog
+        from coordinator.models import Coordinator
+        from classes.models import ClassRoom
+        from django.utils import timezone
+        
+        holiday = get_object_or_404(Holiday, id=holiday_id)
+        
+        # Verify coordinator has access
+        coordinator = Coordinator.get_for_user(request.user)
+        if not coordinator:
+            return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if coordinator manages this level
+        allowed = False
+        if coordinator.shift == 'both':
+            if coordinator.assigned_levels.exists():
+                if holiday.level in coordinator.assigned_levels.all():
+                    allowed = True
+            elif coordinator.level == holiday.level:
+                allowed = True
+        else:
+            if coordinator.level == holiday.level:
+                allowed = True
+        
+        if not allowed and not request.user.is_superuser:
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+        
+        holiday_date = holiday.date
+        holiday_level = holiday.level
+        holiday_reason = holiday.reason
+        
+        # If past date, optionally restore archived attendance
+        restore_attendance = request.data.get('restore_attendance', False)
+        
+        if holiday_date < timezone.now().date() and restore_attendance:
+            classrooms = ClassRoom.objects.filter(grade__level=holiday_level)
+            for classroom in classrooms:
+                try:
+                    archived_attendance = Attendance.objects.get(
+                        classroom=classroom,
+                        date=holiday_date,
+                        is_deleted=False,
+                        replaced_by_holiday=True
+                    )
+                    # Restore attendance (mark as not replaced)
+                    archived_attendance.replaced_by_holiday = False
+                    archived_attendance.archived_data = None
+                    archived_attendance.save()
+                except Attendance.DoesNotExist:
+                    pass
+        
+        # Send notifications before deleting
+        try:
+            from teachers.models import Teacher
+            from principals.models import Principal
+            from classes.models import ClassRoom
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            
+            # Get all classrooms for this level
+            classrooms = ClassRoom.objects.filter(grade__level=holiday_level).select_related('class_teacher')
+            
+            # Get all unique teachers for this level
+            teacher_users = set()
+            for classroom in classrooms:
+                if classroom.class_teacher and classroom.class_teacher.user:
+                    teacher_users.add(classroom.class_teacher.user)
+            
+            # Also get teachers directly assigned to this level
+            teachers = Teacher.objects.filter(
+                assigned_classrooms__grade__level=holiday_level,
+                is_currently_active=True
+            ).select_related('user')
+            for teacher in teachers:
+                if teacher.user:
+                    teacher_users.add(teacher.user)
+            
+            # Get all principals for the campus of this level
+            principal_users = set()
+            if holiday_level.campus:
+                principals = Principal.objects.filter(
+                    campus=holiday_level.campus,
+                    is_currently_active=True
+                ).select_related('user')
+                for principal in principals:
+                    if principal.user:
+                        principal_users.add(principal.user)
+            
+            # Send notifications
+            coordinator_name = request.user.get_full_name() or request.user.username
+            verb = "Holiday deleted"
+            target_text = f"by {coordinator_name} for {holiday_level.name} on {holiday_date.strftime('%B %d, %Y')}: {holiday_reason}"
+            
+            # Notify all teachers
+            for teacher_user in teacher_users:
+                create_notification(
+                    recipient=teacher_user,
+                    actor=request.user,
+                    verb=verb,
+                    target_text=target_text,
+                    data={
+                        'holiday_id': holiday_id,
+                        'date': str(holiday_date),
+                        'reason': holiday_reason,
+                        'level_id': holiday_level.id,
+                        'level_name': str(holiday_level),
+                        'action': 'deleted'
+                    }
+                )
+            
+            # Notify all principals
+            for principal_user in principal_users:
+                create_notification(
+                    recipient=principal_user,
+                    actor=request.user,
+                    verb=verb,
+                    target_text=target_text,
+                    data={
+                        'holiday_id': holiday_id,
+                        'date': str(holiday_date),
+                        'reason': holiday_reason,
+                        'level_id': holiday_level.id,
+                        'level_name': str(holiday_level),
+                        'action': 'deleted'
+                    }
+                )
+            
+            print(f"[OK] Sent holiday delete notifications to {len(teacher_users)} teachers and {len(principal_users)} principals")
+        except Exception as notif_error:
+            print(f"[WARN] Failed to send holiday delete notifications: {notif_error}")
+            import traceback
+            print(f"[WARN] Traceback: {traceback.format_exc()}")
+            # Don't fail the holiday deletion if notification fails
+        
+        # Delete holiday
+        holiday.delete()
+        
+        AuditLog.objects.create(
+            feature='attendance',
+            action='delete',
+            entity_type='Holiday',
+            entity_id=holiday_id,
+            user=request.user,
+            ip_address=request.META.get('REMOTE_ADDR'),
+            reason=f'Deleted holiday: {holiday_reason}'
+        )
+        
+        return Response({'message': 'Holiday deleted successfully'})
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1695,7 +2477,7 @@ def get_attendance_list(request):
         ).select_related('classroom').order_by('-date')
         
         # Serialize the data
-        serializer = AttendanceSerializer(attendances, many=True)
+        serializer = AttendanceSerializer(attendances, many=True, context={'request': request})
         
         return Response(serializer.data, status=status.HTTP_200_OK)
         

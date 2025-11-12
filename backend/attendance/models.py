@@ -101,9 +101,14 @@ class Attendance(models.Model):
         """Check if attendance can be edited based on status"""
         if self.status == 'approved':
             return False
-        if self.status == 'draft':
+        if self.status == 'under_review':
+            # Teachers can edit within 7 days, coordinators can always edit
             return (timezone.now().date() - self.date).days <= 7
-        if self.status in ['submitted', 'under_review']:
+        if self.status == 'draft':
+            # Legacy support for draft status
+            return (timezone.now().date() - self.date).days <= 7
+        if self.status == 'submitted':
+            # Legacy support for submitted status
             return True  # Coordinator can edit
         return False
     

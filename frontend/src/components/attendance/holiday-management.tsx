@@ -11,7 +11,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { 
   createHoliday, 
-  getHolidays 
+  getHolidays,
+  updateHoliday,
+  deleteHoliday
 } from '@/lib/api'
 import { 
   Calendar, 
@@ -41,6 +43,9 @@ export default function HolidayManagement({ levelId, levelName }: HolidayManagem
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showPastDateWarning, setShowPastDateWarning] = useState(false)
   const [confirmText, setConfirmText] = useState('')
+  const [editingHoliday, setEditingHoliday] = useState<Holiday | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deletingHolidayId, setDeletingHolidayId] = useState<number | null>(null)
   const [formData, setFormData] = useState({
     date: '',
     reason: ''
@@ -71,14 +76,16 @@ export default function HolidayManagement({ levelId, levelName }: HolidayManagem
       return
     }
 
-    // Check if date is in the past
-    const selectedDate = new Date(formData.date)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0) // Reset time to start of day
-    
-    if (selectedDate < today) {
-      setShowPastDateWarning(true)
-      return
+    // Check if date is in the past (only for new holidays)
+    if (!editingHoliday) {
+      const selectedDate = new Date(formData.date)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0) // Reset time to start of day
+      
+      if (selectedDate < today) {
+        setShowPastDateWarning(true)
+        return
+      }
     }
 
     await createHolidayDirect()
@@ -87,15 +94,46 @@ export default function HolidayManagement({ levelId, levelName }: HolidayManagem
   const createHolidayDirect = async () => {
     setIsLoading(true)
     try {
-      await createHoliday(formData)
-      toast.success('Holiday created successfully')
+      if (editingHoliday) {
+        await updateHoliday(editingHoliday.id, {
+          date: formData.date,
+          reason: formData.reason.trim(),
+          level_id: levelId
+        })
+        toast.success('Holiday updated successfully')
+      } else {
+        await createHoliday({
+          date: formData.date,
+          reason: formData.reason.trim(),
+          level_id: levelId
+        })
+        toast.success('Holiday created successfully')
+      }
       setFormData({ date: '', reason: '' })
+      setEditingHoliday(null)
       setShowCreateDialog(false)
       setShowPastDateWarning(false)
       setConfirmText('')
       fetchHolidays()
     } catch (error: any) {
-      toast.error(error.message || 'Failed to create holiday')
+      toast.error(error.message || `Failed to ${editingHoliday ? 'update' : 'create'} holiday`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleDeleteHoliday = async () => {
+    if (!deletingHolidayId) return
+    
+    setIsLoading(true)
+    try {
+      await deleteHoliday(deletingHolidayId, false)
+      toast.success('Holiday deleted successfully')
+      setShowDeleteConfirm(false)
+      setDeletingHolidayId(null)
+      fetchHolidays()
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete holiday')
     } finally {
       setIsLoading(false)
     }
@@ -142,7 +180,13 @@ export default function HolidayManagement({ levelId, levelName }: HolidayManagem
             <Calendar className="w-4 h-4" />
             Holidays - {levelName}
           </div>
-          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+          <Dialog open={showCreateDialog} onOpenChange={(open) => {
+            setShowCreateDialog(open)
+            if (!open) {
+              setEditingHoliday(null)
+              setFormData({ date: '', reason: '' })
+            }
+          }}>
             <DialogTrigger asChild>
               <Button size="sm" className="flex items-center gap-2">
                 <Plus className="w-4 h-4" />
@@ -153,7 +197,7 @@ export default function HolidayManagement({ levelId, levelName }: HolidayManagem
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <Calendar className="w-5 h-5" />
-                  Create New Holiday
+                  {editingHoliday ? 'Edit Holiday' : 'Create New Holiday'}
                 </DialogTitle>
               </DialogHeader>
               <form onSubmit={handleCreateHoliday} className="space-y-4">
@@ -187,7 +231,7 @@ export default function HolidayManagement({ levelId, levelName }: HolidayManagem
                     Cancel
                   </Button>
                   <Button type="submit" disabled={isLoading}>
-                    {isLoading ? 'Creating...' : 'Create Holiday'}
+                    {isLoading ? (editingHoliday ? 'Updating...' : 'Creating...') : (editingHoliday ? 'Update Holiday' : 'Create Holiday')}
                   </Button>
                 </div>
               </form>
@@ -242,6 +286,44 @@ export default function HolidayManagement({ levelId, levelName }: HolidayManagem
                     className="bg-red-600 hover:bg-red-700"
                   >
                     Confirm & Create Holiday
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Delete Confirmation Dialog */}
+          <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-red-600">
+                  <AlertCircle className="w-5 h-5" />
+                  Confirm Delete
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-gray-700">
+                  Are you sure you want to delete this holiday? This action cannot be undone.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => {
+                      setShowDeleteConfirm(false)
+                      setDeletingHolidayId(null)
+                    }}
+                    disabled={isLoading}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    type="button"
+                    onClick={handleDeleteHoliday}
+                    disabled={isLoading}
+                    className="bg-red-600 hover:bg-red-700"
+                  >
+                    {isLoading ? 'Deleting...' : 'Delete Holiday'}
                   </Button>
                 </div>
               </div>
@@ -327,7 +409,26 @@ export default function HolidayManagement({ levelId, levelName }: HolidayManagem
                             <Button
                               variant="ghost"
                               size="sm"
+                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                              onClick={() => {
+                                setEditingHoliday(holiday)
+                                setFormData({
+                                  date: holiday.date,
+                                  reason: holiday.reason
+                                })
+                                setShowCreateDialog(true)
+                              }}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => {
+                                setDeletingHolidayId(holiday.id)
+                                setShowDeleteConfirm(true)
+                              }}
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>

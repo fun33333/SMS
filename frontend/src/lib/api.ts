@@ -1837,6 +1837,7 @@ export async function getBackfillPermissions() {
 export async function createHoliday(data: {
   date: string;
   reason: string;
+  level_id?: number;
 }) {
   try {
     return await apiPost('/api/attendance/holidays/create/', data);
@@ -1863,6 +1864,37 @@ export async function getHolidays(levelId?: number, startDate?: string, endDate?
   } catch (error) {
     console.error('Failed to fetch holidays:', error);
     return [];
+  }
+}
+
+export async function updateHoliday(holidayId: number, data: {
+  date: string;
+  reason: string;
+  level_id?: number;
+}) {
+  try {
+    return await apiPut(`/api/attendance/holidays/${holidayId}/`, data);
+  } catch (error) {
+    console.error('Failed to update holiday:', error);
+    throw error;
+  }
+}
+
+export async function deleteHoliday(holidayId: number, restoreAttendance: boolean = false) {
+  try {
+    const res = await authorizedFetch(`/api/attendance/holidays/${holidayId}/delete/`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ restore_attendance: restoreAttendance })
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      handleApiError(res, text);
+    }
+    return await res.json();
+  } catch (error) {
+    console.error('Failed to delete holiday:', error);
+    throw error;
   }
 }
 

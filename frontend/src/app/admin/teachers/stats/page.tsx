@@ -466,7 +466,7 @@ export default function TeacherClassDashboard() {
                 <Link key={idx} href={`/admin/teachers/attendance?date=${encodeURIComponent(dateStr)}`} className="p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                     <p className="text-sm font-semibold text-gray-900 truncate">{dateObj.toLocaleDateString?.() || String(r.date)}</p>
-                    <span className={`shrink-0 text-xs px-2 py-1 rounded-full border ${r.status === 'approved' ? 'bg-green-50 text-green-700 border-green-200' : r.status === 'submitted' ? 'bg-blue-50 text-blue-700 border-blue-200' : r.status === 'under_review' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>{(r.status || 'draft').replace('_',' ')}</span>
+                    <span className={`shrink-0 text-xs px-2 py-1 rounded-full border ${r.status === 'approved' ? 'bg-green-50 text-green-700 border-green-200' : r.status === 'submitted' ? 'bg-blue-50 text-blue-700 border-blue-200' : r.status === 'under_review' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>{r.display_status || (r.status || 'draft').replace('_',' ')}</span>
                   </div>
                   <div className="mt-2 text-xs text-gray-600 grid grid-cols-2 gap-2">
                     <span className="truncate">Present: {r.present_count || 0}</span>
