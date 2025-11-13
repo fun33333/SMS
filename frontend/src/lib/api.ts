@@ -1324,6 +1324,30 @@ export async function editAttendance(attendanceId: number, data: {
   try {
     return await apiPut(`/api/attendance/edit/${attendanceId}/`, data);
   } catch (error) {
+    // Re-throw ApiError with proper message for user-friendly display
+    if (error instanceof ApiError) {
+      // Extract user-friendly message from error
+      let userMessage = error.message;
+      
+      // Handle specific error cases
+      if (error.status === 403) {
+        if (error.message.includes('7 days') || error.message.includes('older than')) {
+          userMessage = '⚠️ Cannot Edit Old Attendance\n\nYou cannot edit attendance that is older than 7 days. Please contact your coordinator if you need to make changes to older attendance records.';
+        } else if (error.message.includes('permission')) {
+          userMessage = '⚠️ Permission Denied\n\nYou do not have permission to edit this attendance.';
+        } else {
+          userMessage = error.message || 'You do not have permission to perform this action.';
+        }
+      } else if (error.status === 400) {
+        userMessage = error.message || 'Invalid request. Please check your data and try again.';
+      } else if (error.status === 404) {
+        userMessage = 'Attendance record not found.';
+      }
+      
+      // Create new error with user-friendly message
+      throw new ApiError(userMessage, error.status, error.statusText, error.response);
+    }
+    
     console.error('Failed to edit attendance:', error);
     throw error;
   }
@@ -1813,6 +1837,7 @@ export async function getBackfillPermissions() {
 export async function createHoliday(data: {
   date: string;
   reason: string;
+  level_id?: number;
 }) {
   try {
     return await apiPost('/api/attendance/holidays/create/', data);
@@ -1839,6 +1864,37 @@ export async function getHolidays(levelId?: number, startDate?: string, endDate?
   } catch (error) {
     console.error('Failed to fetch holidays:', error);
     return [];
+  }
+}
+
+export async function updateHoliday(holidayId: number, data: {
+  date: string;
+  reason: string;
+  level_id?: number;
+}) {
+  try {
+    return await apiPut(`/api/attendance/holidays/${holidayId}/`, data);
+  } catch (error) {
+    console.error('Failed to update holiday:', error);
+    throw error;
+  }
+}
+
+export async function deleteHoliday(holidayId: number, restoreAttendance: boolean = false) {
+  try {
+    const res = await authorizedFetch(`/api/attendance/holidays/${holidayId}/delete/`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ restore_attendance: restoreAttendance })
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      handleApiError(res, text);
+    }
+    return await res.json();
+  } catch (error) {
+    console.error('Failed to delete holiday:', error);
+    throw error;
   }
 }
 

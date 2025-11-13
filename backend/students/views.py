@@ -184,6 +184,25 @@ class StudentViewSet(viewsets.ModelViewSet):
                 raise PermissionDenied("Coordinator profile not found.")
         
         return obj
+    
+    def perform_create(self, serializer):
+        """Set actor before creating student"""
+        instance = serializer.save()
+        instance._actor = self.request.user
+        # Save again to trigger signals with actor
+        instance.save()
+    
+    def perform_update(self, serializer):
+        """Set actor before updating student"""
+        instance = serializer.save()
+        instance._actor = self.request.user
+        # Save again to trigger signals with actor
+        instance.save()
+    
+    def perform_destroy(self, instance):
+        """Set actor before deleting student"""
+        instance._actor = self.request.user
+        super().perform_destroy(instance)
 
     @action(detail=False, methods=["get"])
     def total(self, request):

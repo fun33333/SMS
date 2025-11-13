@@ -683,88 +683,86 @@ function StudentProfileContent() {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
-      <div className="container mx-auto px-4 py-6">
+    <div className="min-h-screen bg-gray-50 pb-6 md:pb-8 overflow-x-hidden">
+      <div className="max-w-7xl mx-auto px-2 sm:px-3 md:px-4 py-3 sm:py-4 md:py-6 w-full">
         {/* Header (themed) */}
-        <div className="rounded-xl shadow-lg p-6 mb-6 border" style={{ backgroundColor: themeColors.primary, borderColor: themeColors.primary }}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-5">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: themeColors.skyblue }}>
-                  <User className="w-8 h-8 text-white" />
+        <div className="rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 mb-4 sm:mb-5 md:mb-6 border" style={{ backgroundColor: themeColors.primary, borderColor: themeColors.primary }}>
+          <div className="flex flex-col md:flex-row items-start md:items-center md:space-x-5 gap-3 sm:gap-4">
+            <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: themeColors.skyblue }}>
+                  <User className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
                 </div>
-              <div className="text-white">
-                <h1 className="text-3xl font-bold">{student?.name || 'Student Profile'}</h1>
-                <p className="text-white/80 text-lg">Student ID: {(student as any)?.student_id || studentId}</p>
-                <div className="flex items-center space-x-3 mt-2">
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
-                      <GraduationCap className="w-3 h-3 mr-1" />
+              <div className="text-white min-w-0 flex-1">
+                <h1 className="text-xl sm:text-2xl md:text-3xl font-bold break-words">{student?.name || 'Student Profile'}</h1>
+                <p className="text-white/80 text-xs sm:text-sm md:text-base">Student ID: {(student as any)?.student_id || studentId}</p>
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-2">
+                  <span className="inline-flex items-center px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
+                      <GraduationCap className="w-3 h-3 mr-1 flex-shrink-0" />
                       {student?.current_grade || 'N/A'}
                   </span>
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
-                      <Users className="w-3 h-3 mr-1" />
-                      Section {student?.section || 'N/A'}
+                  <span className="inline-flex items-center px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
+                      <Users className="w-3 h-3 mr-1 flex-shrink-0" />
+                      Sec {student?.section || 'N/A'}
                   </span>
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
-                      <MapPin className="w-3 h-3 mr-1" />
+                  <span className="inline-flex items-center px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap truncate" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
+                      <MapPin className="w-3 h-3 mr-1 flex-shrink-0" />
                       {student?.campus_name || student?.campus?.campus_name || 'N/A'}
                   </span>
                   </div>
                 </div>
-              </div>
               {overallCombined < 70 && (
-                <div className="text-sm px-3 py-2 rounded-md border max-w-[520px] text-right" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
-                  Overall score is below 70%. Please focus on This Student, 
+                <div className="text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 rounded-md border w-full md:w-auto text-left md:text-right" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
+                  Overall score is below 70%. Please focus on This Student. 
                 </div>
               )}
 
                     </div>
-                          </div>
+        </div>
 
         {/* KPI Cards Only */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 md:gap-6 mb-6 md:mb-8">
           <Card className="text-white border-0 shadow-lg" style={{ backgroundColor: themeColors.primary }}>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                  <div>
-                  <p className="text-blue-100 text-sm font-medium">Overall Score</p>
-                  <p className="text-3xl font-bold">{overallCombined}%</p>
-                </div>
-                <Award className="w-8 h-8 text-blue-200" />
+            <CardContent className="p-2.5 sm:p-3 md:p-6">
+              <div className="flex flex-col items-start gap-1 sm:gap-2">
+                  <p className="text-blue-100 text-xs md:text-sm font-medium">Overall Score</p>
+                  <div className="flex items-center justify-between w-full gap-2">
+                    <p className="text-xl sm:text-2xl md:text-3xl font-bold">{overallCombined}%</p>
+                    <Award className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 text-blue-200 flex-shrink-0" />
                   </div>
+                </div>
             </CardContent>
           </Card>
 
           <Card className="text-white border-0 shadow-lg" style={{ backgroundColor: themeColors.info }}>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                  <div>
-                  <p className="text-sm font-medium">Attendance</p>
-                  <p className="text-3xl font-bold">{cwPct}%</p>
-                </div>
-                <Calendar className="w-8 h-8" />
+            <CardContent className="p-2.5 sm:p-3 md:p-6">
+              <div className="flex flex-col items-start gap-1 sm:gap-2">
+                  <p className="text-xs md:text-sm font-medium">Attendance</p>
+                  <div className="flex items-center justify-between w-full gap-2">
+                    <p className="text-xl sm:text-2xl md:text-3xl font-bold">{cwPct}%</p>
+                    <Calendar className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 flex-shrink-0" />
+                  </div>
               </div>
             </CardContent>
           </Card>
 
           <Card className="text-white border-0 shadow-lg" style={{ backgroundColor: themeColors.skyblue }}>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-purple-100 text-sm font-medium">Profile Status</p>
-                  <p className="text-3xl font-bold">{profileStatusAvg}%</p>
+            <CardContent className="p-2.5 sm:p-3 md:p-6">
+              <div className="flex flex-col items-start gap-1 sm:gap-2">
+                <p className="text-purple-100 text-xs md:text-sm font-medium">Profile Status</p>
+                <div className="flex items-center justify-between w-full gap-2">
+                  <p className="text-xl sm:text-2xl md:text-3xl font-bold">{profileStatusAvg}%</p>
+                  <User className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 text-purple-200 flex-shrink-0" />
                 </div>
-                <User className="w-8 h-8 text-purple-200" />
               </div>
             </CardContent>
           </Card>
 
           <Card className="text-white border-0 shadow-lg" style={{ backgroundColor: themeColors.light }}>
-            <CardContent className="p-6">
+            <CardContent className="p-2.5 sm:p-3 md:p-6">
                 <div>
-                <p className="text-sm font-medium">Performance / Behaviour</p>
-                <div className="mt-1 flex items-baseline gap-3">
-                  <span className="text-3xl font-extrabold leading-none">{behaviourAvg}%</span>
-                  <span className="text-sm font-semibold">{getBehaviourWord(behaviourAvg)}</span>
+                <p className="text-xs md:text-sm font-medium">Performance / Behaviour</p>
+                <div className="mt-1 flex items-baseline gap-1 sm:gap-2">
+                  <span className="text-xl sm:text-2xl md:text-3xl font-extrabold leading-none">{behaviourAvg}%</span>
+                  <span className="text-xs md:text-sm font-semibold">{getBehaviourWord(behaviourAvg)}</span>
                 </div>
               </div>
             </CardContent>
@@ -775,101 +773,102 @@ function StudentProfileContent() {
 
 
 
+        
         {/* Responsive two-card section: first normal, second double width */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 items-stretch">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 md:gap-6 mb-6 md:mb-8 items-stretch">
           {/* First card - same width/height */}
-          <Card className="overflow-hidden h-[360px] md:h-[420px] bg-white border shadow-sm">
+          <Card className="overflow-hidden bg-white border shadow-sm h-auto md:h-[360px] lg:h-[420px]">
             {studentPhoto ? (
               <img
                 src={studentPhoto}
                 alt={student?.name || 'Student'}
-                className="w-full h-full object-cover block"
+                className="w-full h-48 md:h-full object-cover block"
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-6xl font-bold text-white" style={{ backgroundColor: '#61a5c2' }}>
+              <div className="w-full h-48 md:h-full flex items-center justify-center text-4xl md:text-6xl font-bold text-white" style={{ backgroundColor: '#61a5c2' }}>
                 {studentInitials}
                   </div>
             )}
               </Card>
 
           {/* Second card - double width with Tabs (Personal | Academic | Contact) */}
-          <Card className="h-[360px] md:h-[420px] bg-white border shadow-sm md:col-span-2">
-              <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-[#013a63]">Student Information</CardTitle>
+          <Card className="bg-white border shadow-sm md:col-span-1 lg:col-span-2 h-auto md:h-[360px] lg:h-[420px]">
+              <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 sm:pb-3 md:pb-4">
+              <CardTitle className="text-lg sm:text-xl md:text-2xl text-[#013a63]">Student Information</CardTitle>
               {userRole === 'teacher' && (
-                <Button onClick={() => setBehaviourOpen(true)} className="h-9 px-3 text-white transition-all duration-150 ease-in-out transform hover:shadow-lg active:scale-95 active:shadow-md" style={{ backgroundColor: themeColors.primary }}>
-                  <Plus className="w-4 h-4 mr-1" /> Add Behaviour
+                <Button onClick={() => setBehaviourOpen(true)} className="h-8 sm:h-9 px-2 sm:px-3 text-xs sm:text-sm text-white transition-all duration-150 ease-in-out transform hover:shadow-lg active:scale-95 active:shadow-md w-full sm:w-auto" style={{ backgroundColor: themeColors.primary }}>
+                  <Plus className="w-3 h-3 sm:w-4 sm:h-4 mr-1" /> <span className="hidden sm:inline">Add Behaviour</span><span className="sm:hidden">Add</span>
                 </Button>
               )}
                 </CardHeader>
-            <CardContent className="h-[calc(100%-3.5rem)] flex flex-col min-h-0">
+            <CardContent className="h-auto md:h-[calc(100%-3.5rem)] flex flex-col min-h-0 overflow-hidden">
               <Tabs defaultValue="personal" className="w-full h-full flex flex-col min-h-0">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="personal">Personal</TabsTrigger>
-                  <TabsTrigger value="academic">Academic</TabsTrigger>
-                  <TabsTrigger value="contact">Contact</TabsTrigger>
+                <TabsList className="grid w-full grid-cols-3 text-xs sm:text-sm">
+                  <TabsTrigger value="personal" className="text-xs sm:text-sm">Personal</TabsTrigger>
+                  <TabsTrigger value="academic" className="text-xs sm:text-sm">Academic</TabsTrigger>
+                  <TabsTrigger value="contact" className="text-xs sm:text-sm">Contact</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="personal" className="flex-1 mt-4 min-h-0 overflow-y-auto pr-1">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 content-start">
-                    <div className="w-full rounded-lg border bg-white divide-y">
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Full Name</p>
-                        <div className="col-span-2 font-medium text-gray-800">{student?.name || '—'}</div>
+                <TabsContent value="personal" className="flex-1 mt-2 sm:mt-3 md:mt-4 min-h-0 overflow-y-auto pr-0 sm:pr-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 md:gap-4 content-start">
+                    <div className="w-full rounded-lg border bg-white divide-y text-sm">
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Full Name</p>
+                        <div className="col-span-2 font-medium text-gray-800 text-xs sm:text-sm truncate">{student?.name || '—'}</div>
                   </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Gender</p>
-                        <div className="col-span-2 text-gray-800">{student?.gender || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Gender</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.gender || '—'}</div>
                       </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Date of Birth</p>
-                        <div className="col-span-2 text-gray-800">{student?.dob || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">DOB</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.dob || '—'}</div>
                   </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Age</p>
-                        <div className="col-span-2 text-gray-800">{age}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Age</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{age}</div>
             </div>
 
                           </div>
-                    <div className="w-full rounded-lg border bg-white divide-y">
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Religion</p>
-                        <div className="col-span-2 text-gray-800">{student?.religion || '—'}</div>
+                    <div className="w-full rounded-lg border bg-white divide-y text-sm">
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Religion</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.religion || '—'}</div>
                           </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Mother Tongue</p>
-                        <div className="col-span-2 text-gray-800">{student?.mother_tongue || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Mother Tongue</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.mother_tongue || '—'}</div>
                         </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Place of Birth</p>
-                        <div className="col-span-2 text-gray-800">{(student as any)?.place_of_birth || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Place of Birth</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.place_of_birth || '—'}</div>
                           </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Zakat Status</p>
-                        <div className="col-span-2 text-gray-800 capitalize">{(student as any)?.zakat_status || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Zakat Status</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm capitalize">{(student as any)?.zakat_status || '—'}</div>
                         </div>
                       </div>
                   </div>
                 </TabsContent>
 
-                <TabsContent value="academic" className="flex-1 mt-4 min-h-0 overflow-y-auto pr-1">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 content-start">
-                    <div className="w-full rounded-lg border bg-white divide-y">
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Student ID</p>
-                        <div className="col-span-2 font-medium text-gray-800">{(student as any)?.student_id || '—'}</div>
+                <TabsContent value="academic" className="flex-1 mt-2 sm:mt-3 md:mt-4 min-h-0 overflow-y-auto pr-0 sm:pr-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 md:gap-4 content-start">
+                    <div className="w-full rounded-lg border bg-white divide-y text-sm">
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Student ID</p>
+                        <div className="col-span-2 font-medium text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.student_id || '—'}</div>
                       </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Current Grade</p>
-                        <div className="col-span-2 text-gray-800">{(student as any)?.current_grade || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Current Grade</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{(student as any)?.current_grade || '—'}</div>
                       </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Section</p>
-                        <div className="col-span-2 text-gray-800">{student?.section || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Section</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.section || '—'}</div>
                     </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Class Teacher</p>
-                        <div className="col-span-2 text-gray-800">{
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Class Teacher</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{
                           (student as any)?.classroom?.class_teacher?.full_name
                           || (student as any)?.class_teacher?.full_name
                           || (student as any)?.classroom?.class_teacher_name
@@ -878,63 +877,63 @@ function StudentProfileContent() {
                         }</div>
                       </div>
                       </div>
-                    <div className="w-full rounded-lg border bg-white divide-y">
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Campus</p>
-                        <div className="col-span-2 text-gray-800">{student?.campus_name || student?.campus?.campus_name || '—'}</div>
+                    <div className="w-full rounded-lg border bg-white divide-y text-sm">
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Campus</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{student?.campus_name || student?.campus?.campus_name || '—'}</div>
                     </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Shift</p>
-                        <div className="col-span-2 text-gray-800 capitalize">{(student as any)?.shift || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Shift</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm capitalize">{(student as any)?.shift || '—'}</div>
                       </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Enrollment Year</p>
-                        <div className="col-span-2 text-gray-800">{(student as any)?.enrollment_year || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Enrollment Year</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{(student as any)?.enrollment_year || '—'}</div>
                       </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">GR No</p>
-                        <div className="col-span-2 text-gray-800">{student?.gr_no || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">GR No</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.gr_no || '—'}</div>
                     </div>
                   </div>
             </div>
           </TabsContent>
 
-                <TabsContent value="contact" className="flex-1 mt-4 min-h-0 overflow-y-auto pr-1">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 content-start">
-                    <div className="w-full rounded-lg border bg-white divide-y">
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Father Name</p>
-                        <div className="col-span-2 text-gray-800">{student?.father_name || '—'}</div>
+                <TabsContent value="contact" className="flex-1 mt-2 sm:mt-3 md:mt-4 min-h-0 overflow-y-auto pr-0 sm:pr-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 md:gap-4 content-start">
+                    <div className="w-full rounded-lg border bg-white divide-y text-sm">
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Father Name</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{student?.father_name || '—'}</div>
                 </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Father Contact</p>
-                        <div className="col-span-2 text-gray-800">{student?.father_contact || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Father Contact</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.father_contact || '—'}</div>
                     </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Father CNIC</p>
-                        <div className="col-span-2 text-gray-800">{(student as any)?.father_cnic || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Father CNIC</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.father_cnic || '—'}</div>
                         </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Father Profession</p>
-                        <div className="col-span-2 text-gray-800">{(student as any)?.father_profession || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Father Profession</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.father_profession || '—'}</div>
                       </div>
                         </div>
-                    <div className="w-full rounded-lg border bg-white divide-y">
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Mother Name</p>
-                        <div className="col-span-2 text-gray-800">{(student as any)?.mother_name || '—'}</div>
+                    <div className="w-full rounded-lg border bg-white divide-y text-sm">
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Mother Name</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.mother_name || '—'}</div>
                       </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Mother Contact</p>
-                        <div className="col-span-2 text-gray-800">{(student as any)?.mother_contact || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Mother Contact</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{(student as any)?.mother_contact || '—'}</div>
                     </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Mother Status</p>
-                        <div className="col-span-2 text-gray-800 capitalize">{(student as any)?.mother_status || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Mother Status</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm capitalize">{(student as any)?.mother_status || '—'}</div>
                             </div>
-                      <div className="grid grid-cols-3 gap-4 p-4">
-                        <p className="text-sm text-gray-500">Address</p>
-                        <div className="col-span-2 text-gray-800">{(student as any)?.address || '—'}</div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Address</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.address || '—'}</div>
                           </div>
                         </div>
                     </div>
@@ -942,30 +941,27 @@ function StudentProfileContent() {
               </Tabs>
                 </CardContent>
               </Card>
-            </div>
-
-        {/* Donut + Subject Progress (same row, equal width) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 items-stretch">
-          <Card className="bg-white border shadow-sm h-[380px] md:h-[420px] overflow-hidden">
-            <CardHeader>
-              <div className="flex items-start justify-between gap-2">
-                <CardTitle className="text-[#013a63]">Attendance</CardTitle>
-                <div className="flex flex-col items-end gap-1">
+            </div>        {/* Donut + Subject Progress (same row, equal width) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 md:gap-6 mb-6 md:mb-8 items-stretch">
+          <Card className="bg-white border shadow-sm h-auto md:h-[380px] lg:h-[420px] overflow-hidden">
+            <CardHeader className="pb-2 sm:pb-3 md:pb-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3">
+                <CardTitle className="text-lg sm:text-xl md:text-2xl text-[#013a63]">Attendance</CardTitle>
+                <div className="flex flex-col items-start sm:items-end gap-1 sm:gap-2 w-full sm:w-auto">
                   <Select value={String(donutRange)} onValueChange={(v) => setDonutRange(parseInt(v))}>
-                    <SelectTrigger className="h-8 w-[150px] rounded-md border bg-white text-sm focus:ring-sky-500">
+                    <SelectTrigger className="h-7 sm:h-8 text-xs sm:text-sm rounded-md border bg-white focus:ring-sky-500 w-full sm:w-[140px]">
                       <SelectValue placeholder="Last 7 days" />
                     </SelectTrigger>
-                    <SelectContent className="text-sm">
+                    <SelectContent className="text-xs sm:text-sm">
                       <SelectItem value="7">Last 7 days</SelectItem>
                       <SelectItem value="15">Last 15 days</SelectItem>
                       <SelectItem value="30">Last 30 days</SelectItem>
                     </SelectContent>
                   </Select>
-                  <div className="flex items-center gap-3 text-xs mt-1">
-                    <span className="inline-flex items-center gap-1 text-green-600"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#22c55e' }}></span>Present: {cwPresent}</span>
-                    <span className="inline-flex items-center gap-1 text-rose-600"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#ef4444' }}></span>Absent: {cwAbsent}</span>
-                    <span className="inline-flex items-center gap-1 text-slate-600"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#cbd5e1' }}></span>No record: {(donutData?.find(d => d.name === 'No Record')?.value as number) || 0}</span>
-                    <span className="inline-flex items-center gap-1 text-[#1d4ed8]"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: '#1d4ed8' }}></span>Sundays: {cwSundays}</span>
+                  <div className="flex flex-wrap gap-2 sm:gap-1 text-xs mt-1">
+                    <span className="inline-flex items-center gap-1 text-green-600 whitespace-nowrap"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#22c55e' }}></span><span className="hidden sm:inline">Present:</span> {cwPresent}</span>
+                    <span className="inline-flex items-center gap-1 text-rose-600 whitespace-nowrap"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#ef4444' }}></span><span className="hidden sm:inline">Absent:</span> {cwAbsent}</span>
+                    <span className="inline-flex items-center gap-1 text-slate-600 whitespace-nowrap"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#cbd5e1' }}></span>NR: {(donutData?.find(d => d.name === 'No Record')?.value as number) || 0}</span>
                 </div>
 
                   {/* Behaviour Modal (teachers only) */}
@@ -995,12 +991,12 @@ function StudentProfileContent() {
                       }}
                     />
                   )}
-                  <div className="text-[11px] text-slate-500 mt-1">Range: {cwStartLabel} – {cwEndLabel}</div>
+                  <div className="text-[10px] text-slate-500 mt-1">Range: {cwStartLabel} – {cwEndLabel}</div>
                           </div>
                           </div>
             </CardHeader>
-            <CardContent className="h-[calc(100%-3.5rem)] pb-2">
-              <div className="relative h-full">
+            <CardContent className="h-auto md:h-[calc(100%-4.5rem)] pb-2 sm:pb-3 md:pb-4">
+              <div className="relative h-64 md:h-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <RechartsPieChart>
                     <defs>
@@ -1009,25 +1005,25 @@ function StudentProfileContent() {
                         <stop offset="100%" stopColor="#1d4ed8" />
                       </linearGradient>
                     </defs>
-                    <Pie data={donutData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="58%" outerRadius="78%" startAngle={90} endAngle={-270} stroke="#ffffff" strokeWidth={2}>
+                    <Pie data={donutData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="50%" outerRadius="70%" startAngle={90} endAngle={-270} stroke="#ffffff" strokeWidth={2}>
                       <Cell fill="#22c55e" />
                       <Cell fill="#ef4444" />
                       <Cell fill="#cbd5e1" />
                       <Cell fill="url(#attBlue)" />
                     </Pie>
                     {/* thin accent ring */}
-                    <Pie data={[{ value: 100 }]} dataKey="value" cx="50%" cy="50%" innerRadius="81%" outerRadius="83%" startAngle={90} endAngle={-270} fill="none" stroke="#ef4444" strokeWidth={3} />
+                    <Pie data={[{ value: 100 }]} dataKey="value" cx="50%" cy="50%" innerRadius="73%" outerRadius="75%" startAngle={90} endAngle={-270} fill="none" stroke="#ef4444" strokeWidth={2} />
                     <Tooltip content={<DonutTooltip />} />
                   </RechartsPieChart>
                 </ResponsiveContainer>
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <div className="text-3xl md:text-4xl font-extrabold" style={{ color: themeColors.primary }}>{cwPct}%</div>
+                  <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold" style={{ color: themeColors.primary }}>{cwPct}%</div>
                   <div className="text-xs text-slate-600">{cwPresent} / {cwDenom}</div>
                         </div>
                           </div>
-              <div className="mt-4 h-24">
+              <div className="mt-2 sm:mt-3 md:mt-4 h-20 md:h-24">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={sparkData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                  <AreaChart data={sparkData} margin={{ top: 4, right: 4, left: 4, bottom: 4 }}>
                     <defs>
                       <linearGradient id="spark" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#60a5fa" stopOpacity={0.35} />
@@ -1045,71 +1041,73 @@ function StudentProfileContent() {
                 </CardContent>
               </Card>
 
-          <Card className="bg-white border shadow-sm h-[380px] md:h-[420px]">
-            <CardHeader>
-              <CardTitle className="text-[#013a63]">Subject Progress</CardTitle>
+          <Card className="bg-white border shadow-sm h-auto md:h-[380px] lg:h-[420px]">
+            <CardHeader className="pb-2 sm:pb-3 md:pb-4">
+              <CardTitle className="text-lg sm:text-xl md:text-2xl text-[#013a63]">Subject Progress</CardTitle>
                 </CardHeader>
-            <CardContent className="h-[calc(100%-3.5rem)]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={subjectProgressData} margin={{ top: 12, right: 12, left: 0, bottom: 6 }}>
-                  <CartesianGrid stroke="#e5e7eb" vertical={false} />
-                  <XAxis dataKey="subject" tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
-                  <YAxis domain={[0, 100]} tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
-                  <Tooltip cursor={{ fill: 'rgba(2,132,199,0.06)' }} formatter={(value: any, name: string) => [`${value}%`, name === 'student' ? 'Student' : 'Class Avg']} />
-                  <defs>
-                    <linearGradient id="gradStudent" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#34d399" />
-                      <stop offset="100%" stopColor="#10b981" />
-                    </linearGradient>
-                    <linearGradient id="gradClass" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#93c5fd" />
-                      <stop offset="100%" stopColor="#3b82f6" />
-                    </linearGradient>
-                  </defs>
-                  <Bar dataKey="student" name="Student" fill="url(#gradStudent)" radius={[6, 6, 0, 0]}>
-                    <LabelList dataKey="student" position="top" className="fill-slate-700 text-[10px]" />
-                  </Bar>
-                  <Bar dataKey="classAvg" name="Class Avg" fill="url(#gradClass)" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+            <CardContent className="h-auto md:h-[calc(100%-3.5rem)] pb-2 sm:pb-3 md:pb-4">
+              <div className="h-64 md:h-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={subjectProgressData} margin={{ top: 8, right: 8, left: -20, bottom: 4 }}>
+                    <CartesianGrid stroke="#e5e7eb" vertical={false} />
+                    <XAxis dataKey="subject" tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
+                    <YAxis domain={[0, 100]} tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 10 }} width={30} />
+                    <Tooltip cursor={{ fill: 'rgba(2,132,199,0.06)' }} formatter={(value: any, name: string) => [`${value}%`, name === 'student' ? 'Student' : 'Class Avg']} />
+                    <defs>
+                      <linearGradient id="gradStudent" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#34d399" />
+                        <stop offset="100%" stopColor="#10b981" />
+                      </linearGradient>
+                      <linearGradient id="gradClass" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#93c5fd" />
+                        <stop offset="100%" stopColor="#3b82f6" />
+                      </linearGradient>
+                    </defs>
+                    <Bar dataKey="student" name="Student" fill="url(#gradStudent)" radius={[4, 4, 0, 0]}>
+                      <LabelList dataKey="student" position="top" className="fill-slate-700 text-[9px]" />
+                    </Bar>
+                    <Bar dataKey="classAvg" name="Class Avg" fill="url(#gradClass)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+                </div>
                 </CardContent>
               </Card>
                       </div>
         {/* Behaviour Snapshot - Student's Behaviour Snapshot*/}
-        <div className="grid grid-cols-1 gap-6 mb-8">
-          <Card className="bg-white border shadow-sm h-[380px] md:h-[420px]">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-[#013a63]">Student's Behaviour Snapshot</CardTitle>
+        <div className="grid grid-cols-1 gap-3 sm:gap-4 md:gap-6 mb-8">
+          <Card className="bg-white border shadow-sm h-auto md:h-[380px] lg:h-[420px]">
+            <CardHeader className="pb-2 sm:pb-3 md:pb-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3">
+                <CardTitle className="text-lg sm:text-xl md:text-2xl text-[#013a63]">Student's Behaviour Snapshot</CardTitle>
                 {selectedImp && (
-                  <div className={`text-xs px-3 py-2 rounded-md border max-w-[60%] ${selectedImp.severity === 'critical' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                  <div className={`text-xs px-2 sm:px-3 py-1.5 sm:py-2 rounded-md border w-full sm:max-w-xs ${selectedImp.severity === 'critical' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
                     {selectedImp.message}
                     </div>
                 )}
                       </div>
             </CardHeader>
-            <CardContent className="h-[calc(100%-3.5rem)]">
+            <CardContent className="h-auto md:h-[calc(100%-4.5rem)] pb-2 sm:pb-3 md:pb-4">
               {behaviourComputed && behaviourComputed.items ? (
-                <div className="grid grid-cols-1 md:grid-cols-10 gap-6 h-full">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-10 gap-3 sm:gap-4 md:gap-6 h-full">
                   {/* Left: Detail list (30%) with clickable improvement indicators */}
-                  <div className="md:col-span-3 flex flex-col h-full">
+                  <div className="md:col-span-1 lg:col-span-3 flex flex-col h-full">
                     <div className="w-full rounded-lg border bg-white divide-y overflow-y-auto">
                       {behaviourComputed.items.map((it: any) => {
                         const imp = (behaviourImprovements as any[]).find((x: any) => x.key === it.key)
                         const severityClass = imp ? (imp.severity === 'critical' ? 'text-rose-600' : 'text-amber-600') : 'text-green-600'
                         const showPulse = !!imp
                         return (
-                          <button key={it.key} type="button" className="w-full text-left flex items-center justify-between p-3 hover:bg-slate-50" onClick={() => showPulse ? setSelectedImprovement(it.key) : setSelectedImprovement(null)}>
-                            <span className="text-sm text-gray-600 flex items-center gap-2">
-                              {it.label}
+                          <button key={it.key} type="button" className="w-full text-left flex items-center justify-between p-2 sm:p-3 hover:bg-slate-50 text-xs sm:text-sm" onClick={() => showPulse ? setSelectedImprovement(it.key) : setSelectedImprovement(null)}>
+                            <span className="text-gray-600 flex items-center gap-2 min-w-0">
+                              <span className="truncate">{it.label}</span>
                               {showPulse && (
-                                <span className="relative inline-flex h-2 w-2">
+                                <span className="relative inline-flex h-1.5 w-1.5 sm:h-2 sm:w-2 flex-shrink-0">
                                   <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${imp?.severity === 'critical' ? 'bg-rose-400' : 'bg-amber-400'} opacity-75`}></span>
-                                  <span className={`relative inline-flex rounded-full h-2 w-2 ${imp?.severity === 'critical' ? 'bg-rose-500' : 'bg-amber-500'}`}></span>
+                                  <span className={`relative inline-flex rounded-full h-full w-full ${imp?.severity === 'critical' ? 'bg-rose-500' : 'bg-amber-500'}`}></span>
                                 </span>
                               )}
                             </span>
-                            <span className={`text-sm font-semibold ${severityClass}`}>{it.value}%</span>
+                            <span className={`text-sm font-semibold ${severityClass} flex-shrink-0`}>{it.value}%</span>
                           </button>
                         )
                       })}
@@ -1118,19 +1116,19 @@ function StudentProfileContent() {
                       </div>
 
                   {/* Right: Radar chart (70%) */}
-                  <div className="md:col-span-7">
+                  <div className="md:col-span-2 lg:col-span-7 h-64 md:h-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <RadarChart data={behaviourComputed.items.map((it: any) => ({ metric: it.label, value: it.value, full: 100 }))}>
                         <PolarGrid stroke="#e5e7eb" />
-                        <PolarAngleAxis dataKey="metric" tick={{ fill: '#64748b', fontSize: 12 }} />
-                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                        <PolarAngleAxis dataKey="metric" tick={{ fill: '#64748b', fontSize: 10 }} />
+                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 9 }} />
                         <Radar name="Score" dataKey="value" stroke="#013a63" fill="#60a5fa" fillOpacity={0.7} />
                       </RadarChart>
                     </ResponsiveContainer>
                     </div>
                       </div>
               ) : (
-                <div className="h-full flex items-center justify-center text-slate-500">No behaviour data yet. Add first record.</div>
+                <div className="h-full flex items-center justify-center text-slate-500 text-sm">No behaviour data yet. Add first record.</div>
               )}
               {/* Removed bottom messages block; now handled inline per-row */}
               </CardContent>

@@ -59,6 +59,25 @@ class TeacherViewSet(viewsets.ModelViewSet):
         
         return queryset
     
+    def perform_create(self, serializer):
+        """Set actor before creating teacher"""
+        instance = serializer.save()
+        instance._actor = self.request.user
+        # Save again to trigger signals with actor
+        instance.save()
+    
+    def perform_update(self, serializer):
+        """Set actor before updating teacher"""
+        instance = serializer.save()
+        instance._actor = self.request.user
+        # Save again to trigger signals with actor
+        instance.save()
+    
+    def perform_destroy(self, instance):
+        """Set actor before deleting teacher"""
+        instance._actor = self.request.user
+        super().perform_destroy(instance)
+    
     @decorators.action(detail=False, methods=['get'])
     def by_coordinator(self, request):
         """Get teachers assigned to a specific coordinator"""

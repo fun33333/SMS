@@ -1,14 +1,33 @@
 from django.contrib import admin
-from .models import Attendance, StudentAttendance, Weekend
+from django.utils.html import format_html
+from .models import Attendance, StudentAttendance, Weekend, Holiday
 
 
 @admin.register(Attendance)
 class AttendanceAdmin(admin.ModelAdmin):
     list_display = [
-        'classroom', 'date', 'marked_by', 'total_students', 
+        'classroom', 'date', 'get_status_display_colored', 'marked_by', 'total_students', 
         'present_count', 'absent_count', 'leave_count', 'created_at'
     ]
-    list_filter = ['date', 'classroom__grade__level__campus', 'classroom__grade', 'marked_by']
+    
+    def get_status_display_colored(self, obj):
+        """Display status with color coding"""
+        status_colors = {
+            'draft': '#808080',  # gray
+            'submitted': '#0066CC',  # blue
+            'under_review': '#FF8C00',  # orange
+            'approved': '#008000',  # green
+        }
+        color = status_colors.get(obj.status, '#808080')
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color,
+            obj.get_status_display()
+        )
+    get_status_display_colored.short_description = 'Status'
+    get_status_display_colored.admin_order_field = 'status'
+    
+    list_filter = ['status', 'date', 'classroom__grade__level__campus', 'classroom__grade', 'marked_by']
     search_fields = ['classroom__code', 'marked_by__full_name']
     readonly_fields = ['total_students', 'present_count', 'absent_count', 'leave_count', 'created_at', 'updated_at']
     date_hierarchy = 'date'
@@ -16,10 +35,14 @@ class AttendanceAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Basic Information', {
-            'fields': ('classroom', 'date', 'marked_by')
+            'fields': ('classroom', 'date', 'marked_by', 'status')
         }),
         ('Attendance Summary', {
             'fields': ('total_students', 'present_count', 'absent_count', 'leave_count'),
+            'classes': ('collapse',)
+        }),
+        ('Status Details', {
+            'fields': ('submitted_at', 'submitted_by', 'reviewed_at', 'reviewed_by', 'finalized_at', 'finalized_by'),
             'classes': ('collapse',)
         }),
         ('Timestamps', {
@@ -64,3 +87,23 @@ class WeekendAdmin(admin.ModelAdmin):
     date_hierarchy = 'date'
     ordering = ['-date', 'level']
     readonly_fields = ['created_at']
+
+
+@admin.register(Holiday)
+class HolidayAdmin(admin.ModelAdmin):
+    list_display = ['date', 'reason', 'level', 'created_by', 'created_at', 'updated_at']
+    list_filter = ['level__campus', 'level', 'date', 'created_at']
+    search_fields = ['reason', 'level__name']
+    date_hierarchy = 'date'
+    ordering = ['-date', 'level']
+    readonly_fields = ['created_at', 'updated_at']
+    
+    fieldsets = (
+        ('Holiday Information', {
+            'fields': ('date', 'reason', 'level')
+        }),
+        ('Audit Information', {
+            'fields': ('created_by', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )

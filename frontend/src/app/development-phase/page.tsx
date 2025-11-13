@@ -91,7 +91,7 @@ function DevelopmentPhaseContent() {
               This feature is currently in development. 🚧
             </p>
             <p className="text-sm text-gray-600">
-              We’ll be launching it soon. Thank you for your patience! <a href="https://iak.ngo/" target="_blank" className="text-orange-600 hover:text-orange-700">Idara Al-Khair Foundation</a>
+              We’ll be launching it soon. Thank you for your patience! <a href="http://iak.ngo/" target="_blank" className="text-orange-600 hover:text-orange-700">Idara Al-Khair Foundation</a>
             </p>
           </div>
 

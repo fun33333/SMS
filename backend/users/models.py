@@ -72,10 +72,11 @@ class User(AbstractUser):
                 
                 # Set username to employee code
                 self.username = employee_code
-                print(f"✅ Auto-generated super admin employee code: {employee_code}")
+                print(f"[OK] Auto-generated super admin employee code: {employee_code}")
                     
             except Exception as e:
-                print(f"❌ Error generating super admin employee code: {str(e)}")
+                error_msg = str(e).encode('ascii', 'replace').decode('ascii') if isinstance(str(e), str) else repr(e)
+                print(f"[ERROR] Error generating super admin employee code: {error_msg}")
         
         # Ensure super admin doesn't have campus assignment
         if self.role == 'superadmin':

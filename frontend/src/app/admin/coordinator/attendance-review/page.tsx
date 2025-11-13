@@ -9,10 +9,12 @@ import { Badge } from "@/components/ui/badge"
 // Tabs UI removed - using card grid view instead
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { getCurrentUserProfile, getCoordinatorClasses, getAttendanceForDate, editAttendance, getStoredUserProfile, ApiError } from "@/lib/api"
+import { getCurrentUserProfile, getCoordinatorClasses, getAttendanceForDate, editAttendance, getStoredUserProfile, ApiError, getHolidays } from "@/lib/api"
 import { useRouter } from "next/navigation"
 import HolidayManagement from "@/components/attendance/holiday-management"
 import BackfillPermission from "@/components/attendance/backfill-permission"
+import HolidayAssignmentModal from "@/components/attendance/holiday-assignment-modal"
+import CoordinatorHolidayManagement from "@/components/attendance/coordinator-holiday-management"
 
 
 
@@ -78,6 +80,10 @@ export default function AttendanceReviewPage() {
   const [selectedShift, setSelectedShift] = useState<string | null>('all');
   const [availableGrades, setAvailableGrades] = useState<string[]>([]);
   const [selectedGrade, setSelectedGrade] = useState<string | 'all' | null>('all');
+  const [showHolidayModal, setShowHolidayModal] = useState(false);
+  const [holidays, setHolidays] = useState<any[]>([]);
+  const [allUpcomingHolidays, setAllUpcomingHolidays] = useState<any[]>([]);
+  const [selectedHoliday, setSelectedHoliday] = useState<any | null>(null);
   const ALLOWED_APPROVE_STATUSES = ['draft', 'submitted', 'under_review'];
   const currentAttendanceStatus = (attendanceData && attendanceData.length > 0) ? (attendanceData[0].status || 'not_marked') : 'not_marked';
   const dialogHasCounts = (attendanceData && attendanceData.length > 0)
@@ -139,7 +145,42 @@ export default function AttendanceReviewPage() {
       setLoadingSummary(true);
       const summary = [];
 
+      // Check if date is a holiday for any level
+      const normalizeDate = (dateStr: string) => {
+        return dateStr.split('T')[0];
+      };
+      const normalizedDate = normalizeDate(date);
+      
       for (const classroom of classroomsData) {
+        // Check if this date is a holiday for this classroom's level
+        let holidayForClassroom: any = null;
+        if (classroom.level && holidays.length > 0) {
+          holidayForClassroom = holidays.find((h: any) => {
+            const holidayDate = normalizeDate(h.date);
+            return holidayDate === normalizedDate && h.level_id === classroom.level?.id;
+          });
+        }
+
+        // If it's a holiday, show holiday info instead of attendance
+        if (holidayForClassroom) {
+          summary.push({
+            classroom_id: classroom.id,
+            classroom_name: classroom.name,
+            teacher_name: classroom.class_teacher?.name || 'Not Assigned',
+            total_students: classroom.student_count,
+            present_count: 0,
+            absent_count: 0,
+            leave_count: 0,
+            status: 'holiday',
+            marked_by: 'Holiday',
+            attendance_percentage: 0,
+            is_holiday: true,
+            holiday_reason: holidayForClassroom.reason,
+            holiday_id: holidayForClassroom.id
+          });
+          continue;
+        }
+
         try {
           console.log(`🔍 DEBUG: Fetching attendance for classroom ${classroom.id} (${classroom.name})`);
           const data = await getAttendanceForDate(classroom.id, date);
@@ -152,20 +193,22 @@ export default function AttendanceReviewPage() {
             const absentCount = d.absent_count ?? d.absent ?? d.absent_count_total ?? 0;
             const leaveCount = d.leave_count ?? d.on_leave_count ?? d.leaves_count ?? d.leaves ?? d.leave ?? 0;
 
-            let statusCandidate = d.status ?? d.attendance_status ?? d.state ?? d.review_status ?? d.status_display ?? null;
+            // Use display_status first, then check actual status
+            let statusCandidate = d.display_status ?? d.status ?? d.attendance_status ?? d.state ?? d.review_status ?? d.status_display ?? null;
             if (!statusCandidate) {
               if (d.approved === true || d.coordinator_approved === true || d.finalized === true) {
                 statusCandidate = 'approved';
               } else if (d.finalized_at || d.approved_at) {
                 statusCandidate = 'approved';
               } else if (presentCount + absentCount + leaveCount > 0) {
-                statusCandidate = d.under_review ? 'under_review' : 'submitted';
+                // New flow: default to under_review when attendance is marked
+                statusCandidate = (d.status === 'under_review' || d.under_review === true) ? 'under_review' : 'under_review';
               }
             }
 
-            // If counts exist but no status found, consider it submitted
+            // If counts exist but no status found, consider it under_review (new flow)
             if (!statusCandidate && (presentCount + absentCount + leaveCount > 0)) {
-              statusCandidate = 'submitted';
+              statusCandidate = 'under_review';
             }
 
             summary.push({
@@ -177,8 +220,10 @@ export default function AttendanceReviewPage() {
               absent_count: absentCount,
               leave_count: leaveCount,
               status: statusCandidate || 'not_marked',
+              display_status: d.display_status || null,
               marked_by: d.marked_by || d.marked_by_name || 'Not Marked',
-              attendance_percentage: d.attendance_percentage ?? d.present_pct ?? 0
+              attendance_percentage: d.attendance_percentage ?? d.present_pct ?? 0,
+              is_holiday: d.is_holiday || false
             });
           } else {
             console.log(`   - No attendance data found for ${classroom.name}, using default values`);
@@ -278,6 +323,62 @@ export default function AttendanceReviewPage() {
     }
   }, [classrooms, selectedShift, selectedLevelId]);
 
+  // Fetch holidays when date or levels change
+  useEffect(() => {
+    const fetchHolidaysForDate = async () => {
+      if (availableLevels.length === 0) return;
+      
+      try {
+        const allHolidays: any[] = [];
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Fetch holidays for selected date (for checking if date is holiday)
+        for (const level of availableLevels) {
+          try {
+            const data = await getHolidays(level.id, selectedDate, selectedDate);
+            if (Array.isArray(data)) {
+              allHolidays.push(...data);
+            }
+          } catch (error) {
+            console.error(`Failed to fetch holidays for level ${level.id}:`, error);
+          }
+        }
+        
+        // Also fetch all upcoming holidays (from today onwards) for badge count
+        const upcomingHolidays: any[] = [];
+        for (const level of availableLevels) {
+          try {
+            const data = await getHolidays(level.id, today);
+            if (Array.isArray(data)) {
+              // Filter to only future holidays (excluding today)
+              const futureHolidays = data.filter((h: any) => {
+                const holidayDate = h.date.split('T')[0];
+                return holidayDate > today;
+              });
+              upcomingHolidays.push(...futureHolidays);
+            }
+          } catch (error) {
+            console.error(`Failed to fetch upcoming holidays for level ${level.id}:`, error);
+          }
+        }
+        
+        // Store holidays for selected date check
+        setHolidays(allHolidays);
+        // Store all upcoming holidays for badge count
+        setAllUpcomingHolidays(upcomingHolidays);
+        
+        // Refresh attendance summary after holidays are fetched to update cards
+        if (classrooms.length > 0) {
+          fetchAttendanceSummary(selectedDate);
+        }
+      } catch (error) {
+        console.error('Error fetching holidays:', error);
+      }
+    };
+    
+    fetchHolidaysForDate();
+  }, [selectedDate, availableLevels]);
+
   // When filters change, refresh the attendance summary
   useEffect(() => {
     // avoid calling on initial mount before classrooms populated
@@ -311,20 +412,25 @@ export default function AttendanceReviewPage() {
         const absentCount = d.absent_count ?? d.absent ?? d.absent_count_total ?? 0;
         const leaveCount = d.leave_count ?? d.on_leave_count ?? d.leaves_count ?? d.leaves ?? d.leave ?? 0;
         
-        // Normalize status using same logic as summary
-        let statusCandidate = d.status ?? d.attendance_status ?? d.state ?? d.review_status ?? d.status_display ?? null;
+        // Normalize status using same logic as summary - use display_status first
+        let statusCandidate = d.display_status ?? d.status ?? d.attendance_status ?? d.state ?? d.review_status ?? d.status_display ?? null;
         if (!statusCandidate) {
           if (d.approved === true || d.coordinator_approved === true || d.finalized === true) {
             statusCandidate = 'approved';
           } else if (d.finalized_at || d.approved_at) {
             statusCandidate = 'approved';
           } else if (presentCount + absentCount + leaveCount > 0) {
-            statusCandidate = d.under_review ? 'under_review' : 'submitted';
+            // New flow: default to under_review when attendance is marked
+            statusCandidate = (d.status === 'under_review' || d.under_review === true) ? 'under_review' : 'under_review';
           }
         }
 
-        // Update the status before setting
-        d.status = statusCandidate || (presentCount + absentCount + leaveCount > 0 ? 'submitted' : 'not_marked');
+        // Update the status before setting - new flow uses under_review
+        d.status = statusCandidate || (presentCount + absentCount + leaveCount > 0 ? 'under_review' : 'not_marked');
+        // Preserve display_status if available
+        if (d.display_status) {
+          d.display_status = d.display_status;
+        }
         setAttendanceData([d]);
       } else {
         console.log('No attendance data found for date:', date);
@@ -355,6 +461,27 @@ export default function AttendanceReviewPage() {
     setActiveClassroomId(classroomId);
     setActiveClassroomName(classroomName);
     setExpandedClassroom(classroomId);
+    
+    // Check if this is a holiday
+    const classroom = classrooms.find(c => c.id === classroomId);
+    const normalizeDate = (dateStr: string) => dateStr.split('T')[0];
+    const normalizedDate = normalizeDate(selectedDate);
+    
+    if (classroom?.level) {
+      const holiday = holidays.find((h: any) => {
+        const holidayDate = normalizeDate(h.date);
+        return holidayDate === normalizedDate && h.level_id === classroom.level?.id;
+      });
+      
+      if (holiday) {
+        setSelectedHoliday(holiday);
+        setAttendanceData([]);
+        setIsDialogOpen(true);
+        return;
+      }
+    }
+    
+    setSelectedHoliday(null);
     const data = await fetchClassroomAttendance(classroomId, selectedDate);
     setEditedAttendance((data && (data as any).student_attendance) ? [...(data as any).student_attendance] : []);
     setIsDialogOpen(true);
@@ -368,6 +495,7 @@ export default function AttendanceReviewPage() {
     setEditingAttendance(false);
     setEditedAttendance([]);
     setApprovalComment('');
+    setSelectedHoliday(null);
   };
 
   // Approve attendance as coordinator
@@ -402,9 +530,11 @@ export default function AttendanceReviewPage() {
       updatedAttendance[0] = { ...(updatedAttendance[0] || {}), status: 'approved' };
       setAttendanceData(updatedAttendance);
 
-      // Update the classroom summary optimistically as well - try multiple matching keys
+      // Update the classroom summary optimistically - remove approved attendance from list
+      // (Approved attendance should not show in coordinator dashboard)
       setClassroomAttendanceSummary(prev => {
-        try {
+        // Filter out the approved attendance card
+        return prev.filter(item => {
           const candidates: Array<number | string | null> = [];
           if (activeClassroomId) candidates.push(activeClassroomId);
           if (expandedClassroom) candidates.push(expandedClassroom);
@@ -412,19 +542,17 @@ export default function AttendanceReviewPage() {
           if (att.classroom_id) candidates.push(att.classroom_id);
           if ((att as any).classroom && typeof (att as any).classroom === 'number') candidates.push((att as any).classroom);
           if ((att as any).classroom && typeof (att as any).classroom === 'object' && (att as any).classroom.id) candidates.push((att as any).classroom.id);
-
+          
           // If we have a classroom name, try matching by name as a fallback
           const classroomName = (att && (att.classroom_name || att.classroom_name_text || att.classroom)) || activeClassroomName;
-
-          return prev.map(item => {
-            const idMatch = candidates.some(c => c !== null && String(item.classroom_id) === String(c));
-            const nameMatch = classroomName && String(item.classroom_name) === String(classroomName);
-            if (idMatch || nameMatch) return { ...item, status: 'approved' };
-            return item;
-          });
-        } catch (e) {
-          return prev;
-        }
+          
+          // Check if this item matches the approved attendance
+          const idMatch = candidates.some(c => c !== null && String(item.classroom_id) === String(c));
+          const nameMatch = classroomName && String(item.classroom_name) === String(classroomName);
+          
+          // Remove this item if it matches (it's now approved)
+          return !(idMatch || nameMatch);
+        });
       });
 
       // Refresh summary from server to get accurate counts, then close dialog
@@ -503,10 +631,19 @@ export default function AttendanceReviewPage() {
       }
     } catch (error: any) {
       console.error('Error saving attendance:', error);
-      if (error instanceof ApiError && error.status === 403) {
-        setCanEditAttendance(false);
-        alert(error.message || 'You do not have permission to edit this attendance');
+      
+      // Handle ApiError with user-friendly messages
+      if (error instanceof ApiError) {
+        if (error.status === 403) {
+          setCanEditAttendance(false);
+          // Show the user-friendly error message from ApiError
+          alert(error.message || 'You do not have permission to edit this attendance');
+        } else {
+          // Show error message for other status codes
+          alert(error.message || 'Error saving attendance. Please try again.');
+        }
       } else {
+        // Generic error message for unexpected errors
         alert('Error saving attendance. Please try again.');
       }
     } finally {
@@ -632,15 +769,109 @@ export default function AttendanceReviewPage() {
           </div>
         </div>
 
-        {/* Refresh Button Right Side */}
-        <Button
-          onClick={() => fetchAttendanceSummary(selectedDate)}
-          className="bg-[#6096ba] hover:bg-[#274c77] text-white flex items-center self-end sm:self-center"
-          disabled={loadingSummary}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${loadingSummary ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        {/* Action Buttons Right Side */}
+        <div className="flex items-center gap-2 self-end sm:self-center">
+          {/* Upcoming Holidays Badge */}
+          {allUpcomingHolidays.length > 0 && (() => {
+            // Sort holidays by date
+            const sortedHolidays = [...allUpcomingHolidays].sort((a, b) => {
+              const dateA = new Date(a.date).getTime();
+              const dateB = new Date(b.date).getTime();
+              return dateA - dateB;
+            });
+            
+            // Format dates
+            const formatDate = (dateStr: string) => {
+              const date = new Date(dateStr);
+              return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            };
+            
+            // Find longest continuous sequence of holidays (minimum 3 days)
+            const findLongestContinuous = (holidays: any[]) => {
+              if (holidays.length === 0) return null;
+              
+              let longestStart = 0;
+              let longestEnd = 0;
+              let currentStart = 0;
+              
+              for (let i = 1; i < holidays.length; i++) {
+                const prevDate = new Date(holidays[i - 1].date).getTime();
+                const currDate = new Date(holidays[i].date).getTime();
+                const diff = (currDate - prevDate) / (1000 * 60 * 60 * 24);
+                
+                if (diff === 1) {
+                  // Continuous
+                  const currentLength = i - currentStart + 1;
+                  const longestLength = longestEnd - longestStart + 1;
+                  
+                  if (currentLength >= 3 && currentLength > longestLength) {
+                    longestStart = currentStart;
+                    longestEnd = i;
+                  }
+                } else {
+                  // Break in continuity
+                  currentStart = i;
+                }
+              }
+              
+              // Check if we found a sequence of at least 3
+              if (longestEnd - longestStart + 1 >= 3) {
+                return {
+                  start: longestStart,
+                  end: longestEnd,
+                  holidays: holidays.slice(longestStart, longestEnd + 1)
+                };
+              }
+              
+              return null;
+            };
+            
+            const continuousSequence = findLongestContinuous(sortedHolidays);
+            
+            // Get dates to display
+            let datesToShow = '';
+            if (continuousSequence && continuousSequence.holidays.length >= 3) {
+              // Show first and last date of continuous sequence (minimum 3 days)
+              const firstDate = formatDate(continuousSequence.holidays[0].date);
+              const lastDate = formatDate(continuousSequence.holidays[continuousSequence.holidays.length - 1].date);
+              datesToShow = `(${firstDate} - ${lastDate})`;
+            } else {
+              // Show individual dates (first 3 if more than 3)
+              const nextHolidays = sortedHolidays.slice(0, 3);
+              datesToShow = `(${nextHolidays.map(h => formatDate(h.date)).join(', ')})`;
+            }
+            
+            return (
+              <Badge className="bg-green-500 text-white border-green-600 text-sm px-3 py-1.5 flex items-center gap-1.5">
+                <Calendar className="h-4 w-4" />
+                <span className="font-semibold">{allUpcomingHolidays.length}</span>
+                <span className="hidden sm:inline">Upcoming Holiday{allUpcomingHolidays.length !== 1 ? 's' : ''}</span>
+                <span className="sm:hidden">Upcoming</span>
+                {datesToShow && (
+                  <span className="hidden md:inline ml-1 text-xs opacity-90">
+                    {datesToShow}
+                  </span>
+                )}
+              </Badge>
+            );
+          })()}
+          <Button
+            onClick={() => setShowHolidayModal(true)}
+            className="bg-green-600 hover:bg-green-700 text-white flex items-center"
+            variant="default"
+          >
+            <Calendar className="h-4 w-4 mr-2" />
+            Manage Holidays
+          </Button>
+          <Button
+            onClick={() => fetchAttendanceSummary(selectedDate)}
+            className="bg-[#6096ba] hover:bg-[#274c77] text-white flex items-center"
+            disabled={loadingSummary}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${loadingSummary ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
 
@@ -745,11 +976,18 @@ export default function AttendanceReviewPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-            {classroomAttendanceSummary.map((summary) => {
+            {classroomAttendanceSummary
+              .filter((summary) => {
+                // Hide approved attendance cards from coordinator dashboard
+                const st = summary.status;
+                return st !== 'approved' && st !== 'Approved';
+              })
+              .map((summary) => {
               const hasCounts = (summary.present_count || 0) + (summary.absent_count || 0) + (summary.leave_count || 0) > 0;
               const st = summary.status;
-              const badgeLabel = (st && st !== 'not_marked') ? (st.charAt(0).toUpperCase() + st.slice(1)) : (hasCounts ? 'Marked' : 'Not Marked');
-              const badgeClass = st === 'approved' ? 'bg-green-100 text-green-800 border-green-300' :
+              const badgeLabel = summary.is_holiday ? 'Holiday' : (summary.display_status || ((st && st !== 'not_marked') ? (st.charAt(0).toUpperCase() + st.slice(1)) : (hasCounts ? 'Marked' : 'Not Marked')));
+              const badgeClass = summary.is_holiday ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
+                st === 'approved' ? 'bg-green-100 text-green-800 border-green-300' :
                 st === 'submitted' ? 'bg-blue-100 text-blue-800 border-blue-300' :
                 st === 'under_review' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
                 st === 'draft' ? 'bg-gray-100 text-gray-800 border-gray-300' :
@@ -775,40 +1013,53 @@ export default function AttendanceReviewPage() {
                     variant="outline"
                     className={badgeClass}
                   >
+                    {summary.is_holiday && <Calendar className="h-3 w-3 mr-1" />}
                     {badgeLabel}
                   </Badge>
                 </div>
-                <div className="text-sm text-gray-600 mb-3">
-                  <div>Teacher: {summary.teacher_name}</div>
-                </div>
-                <div className="grid grid-cols-1 gap-3 text-sm">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                    <span>Present: {summary.present_count}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                    <span>Absent: {summary.absent_count}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                    <span>Leave: {summary.leave_count}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
-                    <span>Total: {summary.total_students}</span>
-                  </div>
-                </div>
-                {summary.total_students > 0 && (
-                  <div className="mt-4">
-                    <div className="text-sm text-gray-600 mb-1">Attendance: {summary.attendance_percentage}%</div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-[#6096ba] h-2 rounded-full"
-                        style={{ width: `${summary.attendance_percentage}%` }}
-                      ></div>
+                {summary.is_holiday ? (
+                  <div className="text-center py-4">
+                    <div className="bg-yellow-50 rounded-lg p-4 border-2 border-yellow-200">
+                      <Calendar className="h-8 w-8 mx-auto mb-2 text-yellow-600" />
+                      <div className="text-lg font-semibold text-yellow-800 mb-1">Holiday</div>
+                      <div className="text-sm text-yellow-700">{summary.holiday_reason || 'Holiday'}</div>
                     </div>
                   </div>
+                ) : (
+                  <>
+                    <div className="text-sm text-gray-600 mb-3">
+                      <div>Teacher: {summary.teacher_name}</div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 text-sm">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                        <span>Present: {summary.present_count}</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                        <span>Absent: {summary.absent_count}</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                        <span>Leave: {summary.leave_count}</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
+                        <span>Total: {summary.total_students}</span>
+                      </div>
+                    </div>
+                    {summary.total_students > 0 && (
+                      <div className="mt-4">
+                        <div className="text-sm text-gray-600 mb-1">Attendance: {summary.attendance_percentage}%</div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-[#6096ba] h-2 rounded-full"
+                            style={{ width: `${summary.attendance_percentage}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
               );
@@ -822,17 +1073,48 @@ export default function AttendanceReviewPage() {
       <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!open) closeClassroomDialog(); setIsDialogOpen(open); }}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>{activeClassroomName ? `${activeClassroomName} — Attendance` : 'Attendance'}</DialogTitle>
+            <DialogTitle>
+              {selectedHoliday 
+                ? `${activeClassroomName ? activeClassroomName : 'Class'} — Holiday` 
+                : activeClassroomName ? `${activeClassroomName} — Attendance` : 'Attendance'
+              }
+            </DialogTitle>
             <DialogDescription>
-              Review the attendance sheet submitted by the teacher. You can approve it to finalize.
+              {selectedHoliday 
+                ? 'Holiday information for this date.'
+                : 'Review the attendance sheet submitted by the teacher. You can approve it to finalize.'
+              }
             </DialogDescription>
           </DialogHeader>
 
           <div className="mt-4">
-            {/* current status is shown below; isApprovable is derived above and used for the Approve button */}
-            {attendanceData && attendanceData.length > 0 ? (
+            {selectedHoliday ? (
               <div className="space-y-4">
-                <div className="text-sm text-gray-700">Status: <strong>{attendanceData[0].status || 'Not Marked'}</strong></div>
+                <div className="bg-yellow-50 rounded-lg p-6 border-2 border-yellow-200 text-center">
+                  <Calendar className="h-16 w-16 mx-auto mb-4 text-yellow-600" />
+                  <div className="text-2xl font-bold text-yellow-800 mb-2">Holiday Declared</div>
+                  <div className="text-lg text-yellow-700 mb-4">{selectedHoliday.reason}</div>
+                  <div className="text-sm text-yellow-600">
+                    Date: {new Date(selectedHoliday.date).toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </div>
+                  {selectedHoliday.created_by && (
+                    <div className="text-sm text-yellow-600 mt-2">
+                      Created by: {selectedHoliday.created_by}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* current status is shown below; isApprovable is derived above and used for the Approve button */}
+                {attendanceData && attendanceData.length > 0 ? (
+              <div className="space-y-4">
+                <div className="text-sm text-gray-700">Status: <strong>{attendanceData[0].display_status || attendanceData[0].status || 'Not Marked'}</strong></div>
                 <div className="space-y-2">
                   <label className="text-sm text-gray-700 font-medium">Coordinator's Comment:</label>
                   <Input 
@@ -886,25 +1168,31 @@ export default function AttendanceReviewPage() {
                   </table>
                 </div>
               </div>
-            ) : (
-              <div className="py-8 text-center text-gray-600">Loading attendance...</div>
+                ) : (
+                  <div className="py-8 text-center text-gray-600">Loading attendance...</div>
+                )}
+              </>
             )}
           </div>
 
           <DialogFooter>
             <div className="flex gap-2">
               <button onClick={closeClassroomDialog} className="px-4 py-2 border rounded">Close</button>
-              <button
-                onClick={saveAttendanceChanges}
-                disabled={!canEditAttendance || savingAttendance || !(editedAttendance && editedAttendance.length > 0)}
-                className="px-4 py-2 bg-[#2c7a7b] text-white rounded disabled:opacity-60"
-              >{savingAttendance ? 'Saving...' : 'Save Remarks'}</button>
-              <button
-                onClick={approveAttendance}
-                disabled={!canApproveAttendance || approving || !(attendanceData && attendanceData.length > 0) || !canClickApprove}
-                title={isAlreadyApproved ? 'Attendance is already approved' : (!isMarkedOrAllowedStatus ? 'Only draft/submitted/under review or marked attendance can be approved' : undefined)}
-                className="px-4 py-2 bg-[#274c77] text-white rounded disabled:opacity-60"
-              >{approving ? 'Approving...' : 'Approve'}</button>
+              {!selectedHoliday && (
+                <>
+                  <button
+                    onClick={saveAttendanceChanges}
+                    disabled={!canEditAttendance || savingAttendance || !(editedAttendance && editedAttendance.length > 0)}
+                    className="px-4 py-2 bg-[#2c7a7b] text-white rounded disabled:opacity-60"
+                  >{savingAttendance ? 'Saving...' : 'Save Remarks'}</button>
+                  <button
+                    onClick={approveAttendance}
+                    disabled={!canApproveAttendance || approving || !(attendanceData && attendanceData.length > 0) || !canClickApprove}
+                    title={isAlreadyApproved ? 'Attendance is already approved' : (!isMarkedOrAllowedStatus ? 'Only draft/submitted/under review or marked attendance can be approved' : undefined)}
+                    className="px-4 py-2 bg-[#274c77] text-white rounded disabled:opacity-60"
+                  >{approving ? 'Approving...' : 'Approve'}</button>
+                </>
+              )}
             </div>
           </DialogFooter>
         </DialogContent>
@@ -912,8 +1200,30 @@ export default function AttendanceReviewPage() {
 
       {/* tablist wala kam yaha tha  */}
 
-
-
+      {/* Holiday Assignment Modal */}
+      {/* Holiday Management Modal - Full CRUD */}
+      <Dialog open={showHolidayModal} onOpenChange={setShowHolidayModal}>
+        <DialogContent className="max-w-6xl w-[95vw] max-h-[95vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <Calendar className="h-5 w-5" />
+              Manage Holidays
+            </DialogTitle>
+            <DialogDescription>
+              View, create, update, and delete holidays for your assigned levels
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-hidden min-h-0">
+            <CoordinatorHolidayManagement
+              levels={availableLevels.length > 0 ? availableLevels : (coordinatorProfile?.assigned_levels || [])}
+              onSuccess={() => {
+                fetchAttendanceSummary(selectedDate)
+              }}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   )

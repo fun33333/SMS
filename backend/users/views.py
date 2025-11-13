@@ -261,7 +261,7 @@ def current_user_profile(request):
             # Build assigned_classrooms list (supports multi-class assignment)
             assigned_list = []
             try:
-                for cr in teacher.assigned_classrooms.all():
+                for cr in teacher.assigned_classrooms.all().select_related('grade', 'grade__level'):
                     assigned_list.append({
                         'id': cr.id,
                         'name': str(cr),
@@ -269,6 +269,9 @@ def current_user_profile(request):
                         'section': cr.section,
                         'shift': cr.shift,
                         'code': cr.code,
+                        'grade_id': cr.grade.id if cr.grade else None,
+                        'level_id': cr.grade.level.id if cr.grade and cr.grade.level else None,
+                        'level_name': cr.grade.level.name if cr.grade and cr.grade.level else None,
                     })
             except Exception:
                 assigned_list = []
@@ -298,6 +301,9 @@ def current_user_profile(request):
                     'grade': teacher.assigned_classroom.grade.name if teacher.assigned_classroom.grade else None,
                     'section': teacher.assigned_classroom.section,
                     'shift': teacher.assigned_classroom.shift,
+                    'grade_id': teacher.assigned_classroom.grade.id if teacher.assigned_classroom.grade else None,
+                    'level_id': teacher.assigned_classroom.grade.level.id if teacher.assigned_classroom.grade and teacher.assigned_classroom.grade.level else None,
+                    'level_name': teacher.assigned_classroom.grade.level.name if teacher.assigned_classroom.grade and teacher.assigned_classroom.grade.level else None,
                 } if teacher.assigned_classroom else (
                     assigned_list[0] if assigned_list else None
                 )),

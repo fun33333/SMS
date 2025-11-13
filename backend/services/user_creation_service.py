@@ -120,9 +120,9 @@ class UserCreationService:
                     user, employee_code, entity_type
                 )
                 if email_sent:
-                    print(f"📧 Credentials email sent to {user.email}")
+                    print(f"[OK] Credentials email sent to {user.email}")
                 else:
-                    print(f"⚠️ Failed to send email: {email_message}")
+                    print(f"[WARN] Failed to send email: {email_message}")
                 
                 return user, "User created successfully"
                 

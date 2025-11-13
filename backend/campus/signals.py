@@ -36,7 +36,7 @@ def reassign_related_records_on_campus_restore(sender, instance, created, **kwar
     if students_count > 0:
         students_to_reassign.update(campus=instance)
         reassigned_count += students_count
-        print(f"✅ Reassigned {students_count} students to campus {campus_code}")
+        print(f"[OK] Reassigned {students_count} students to campus {campus_code}")
     
     # 🔹 Reassign Levels with matching campus_code in code
     # Level codes format: C06-L1-M (campus_code-level-shift)
@@ -50,7 +50,7 @@ def reassign_related_records_on_campus_restore(sender, instance, created, **kwar
     if levels_count > 0:
         levels_to_reassign.update(campus=instance)
         reassigned_count += levels_count
-        print(f"✅ Reassigned {levels_count} levels to campus {campus_code}")
+        print(f"[OK] Reassigned {levels_count} levels to campus {campus_code}")
     
     # 🔹 Reassign Grades (through their Level)
     from classes.models import Grade
@@ -79,7 +79,7 @@ def reassign_related_records_on_campus_restore(sender, instance, created, **kwar
     if teachers_count > 0:
         teachers_to_reassign.update(current_campus=instance)
         reassigned_count += teachers_count
-        print(f"✅ Reassigned {teachers_count} teachers to campus {campus_code}")
+        print(f"[OK] Reassigned {teachers_count} teachers to campus {campus_code}")
     
     # 🔹 Reassign Transfer Requests (if from_campus or to_campus matches)
     from transfers.models import TransferRequest
@@ -107,4 +107,4 @@ def reassign_related_records_on_campus_restore(sender, instance, created, **kwar
         pass  # Can add logic here if needed
     
     if reassigned_count > 0:
-        print(f"🎉 Total reassigned {reassigned_count} records to campus {campus_code}")
+        print(f"[OK] Total reassigned {reassigned_count} records to campus {campus_code}")

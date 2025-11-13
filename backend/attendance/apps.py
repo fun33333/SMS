@@ -7,4 +7,4 @@ class AttendanceConfig(AppConfig):
     verbose_name = 'Attendance Management'
     
     def ready(self):
-        import attendance.signals
+        import attendance.signals  # Import signals to register them

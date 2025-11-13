@@ -47,6 +47,25 @@ class CoordinatorViewSet(viewsets.ModelViewSet):
             
         return queryset
     
+    def perform_create(self, serializer):
+        """Set actor before creating coordinator"""
+        instance = serializer.save()
+        instance._actor = self.request.user
+        # Save again to trigger signals with actor
+        instance.save()
+    
+    def perform_update(self, serializer):
+        """Set actor before updating coordinator"""
+        instance = serializer.save()
+        instance._actor = self.request.user
+        # Save again to trigger signals with actor
+        instance.save()
+    
+    def perform_destroy(self, instance):
+        """Set actor before deleting coordinator"""
+        instance._actor = self.request.user
+        super().perform_destroy(instance)
+    
     def create(self, request, *args, **kwargs):
         """Override create method to add debug logging"""
         logger.info(f"Received coordinator data: {request.data}")

@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Calendar, Users, CheckCircle, XCircle, AlertCircle, Save, RefreshCw, Edit3, History, Eraser, Clock3, Bell, Eye, EyeOff, X } from "lucide-react";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { getCurrentUserRole } from "@/lib/permissions";
-import { getCurrentUserProfile, getClassStudents, markBulkAttendance, getAttendanceHistory, getAttendanceForDate, editAttendance, submitAttendance, getBackfillPermissions, finalizeAttendance, coordinatorApproveAttendance, getApiBaseUrl } from "@/lib/api";
+import { getCurrentUserProfile, getClassStudents, markBulkAttendance, getAttendanceHistory, getAttendanceForDate, editAttendance, submitAttendance, getBackfillPermissions, finalizeAttendance, coordinatorApproveAttendance, getApiBaseUrl, ApiError, getHolidays } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
 
 
@@ -70,14 +70,25 @@ function TeacherAttendanceContent() {
   const [last6DaysAttendance, setLast6DaysAttendance] = useState<any[]>([]);
   const [loadingLast6Days, setLoadingLast6Days] = useState(false);
   const [expandedAttendance, setExpandedAttendance] = useState<number | null>(null);
-  const [showApprovalNotification, setShowApprovalNotification] = useState(false);
-  const [approvedDate, setApprovedDate] = useState<string>('');
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [attendanceHistoryData, setAttendanceHistoryData] = useState<any[]>([]);
   const [attendanceSubmitted, setAttendanceSubmitted] = useState(false);
   const [attendanceLoaded, setAttendanceLoaded] = useState(false);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [classroomOptions, setClassroomOptions] = useState<SimpleClassRoom[]>([]);
+  const [holidays, setHolidays] = useState<any[]>([]);
+  const [selectedHoliday, setSelectedHoliday] = useState<any | null>(null);
+  
+  // Helper function to normalize date format (YYYY-MM-DD)
+  const normalizeDate = (dateStr: string | undefined | null): string => {
+    if (!dateStr) return '';
+    // Handle both date objects and strings
+    if (typeof dateStr === 'string') {
+      return dateStr.split('T')[0]; // Remove time part if present
+    }
+    return dateStr;
+  };
+  
   const router = useRouter();
   const searchParams = useSearchParams();
   const resolveMediaUrl = (url?: string) => {
@@ -113,30 +124,7 @@ function TeacherAttendanceContent() {
     }
   }, [attendanceHistory, userRole]);
 
-  // Periodic check for approval status updates (every 30 seconds)
-  useEffect(() => {
-    if (userRole === 'teacher' && existingAttendanceId) {
-      const interval = setInterval(async () => {
-        try {
-          const attendanceData = await getAttendanceForDate(classInfo?.id || 0, selectedDate) as any;
-          if (attendanceData && attendanceData.status === 'approved' && !showApprovalNotification) {
-            console.log('Attendance approved detected!');
-            setShowApprovalNotification(true);
-            setApprovedDate(attendanceData.date);
-            
-            // Auto-hide notification after 5 seconds
-            setTimeout(() => {
-              setShowApprovalNotification(false);
-            }, 5000);
-          }
-        } catch (error) {
-          console.error('Error checking approval status:', error);
-        }
-      }, 30000); // Check every 30 seconds
-
-      return () => clearInterval(interval);
-    }
-  }, [userRole, existingAttendanceId, classInfo?.id, selectedDate, showApprovalNotification]);
+  // Removed periodic check - approval notifications now come via WebSocket only
 
   const fetchTeacherData = async () => {
     try {
@@ -196,8 +184,71 @@ function TeacherAttendanceContent() {
       const initialDate = dateParam || selectedDate
       setSelectedDate(initialDate)
 
-      // Load existing attendance for initial date if any
-      await loadExistingAttendance(selected.id, initialDate);
+      // Fetch holidays FIRST before loading attendance - try multiple ways to get level ID
+      let levelId: number | null = null;
+      
+      // Method 1: Try level_id (direct - from backend update)
+      if ((selected as any).level_id) {
+        levelId = (selected as any).level_id;
+      }
+      // Method 2: Try grade.level.id (nested structure)
+      else if ((selected as any).grade?.level?.id) {
+        levelId = (selected as any).grade.level.id;
+      }
+      // Method 3: Try level.id (direct structure)
+      else if ((selected as any).level?.id) {
+        levelId = (selected as any).level.id;
+      }
+      // Method 4: Fallback - fetch full classroom details if we still don't have level_id
+      if (!levelId && selected.id) {
+        try {
+          const { getClassrooms } = await import('@/lib/api');
+          const classroomsData = await getClassrooms();
+          const classroomsList = Array.isArray(classroomsData) 
+            ? classroomsData 
+            : ((classroomsData as any)?.results || []);
+          const fullClassroom = classroomsList.find((c: any) => c.id === selected.id);
+          if (fullClassroom) {
+            // Try level_id first (from backend)
+            if (fullClassroom.level_id) {
+              levelId = fullClassroom.level_id;
+            }
+            // Try grade.level.id (nested)
+            else if (fullClassroom.grade?.level?.id) {
+              levelId = fullClassroom.grade.level.id;
+            }
+            // Try level.id (direct)
+            else if (fullClassroom.level?.id) {
+              levelId = fullClassroom.level.id;
+            }
+          }
+        } catch (fetchError) {
+          console.error('Failed to fetch classroom details:', fetchError);
+        }
+      }
+      
+      // Fetch holidays FIRST before loading attendance
+      let allHolidaysForCheck: any[] = [];
+      if (levelId) {
+        try {
+          const holidaysData = await getHolidays(levelId);
+          allHolidaysForCheck = Array.isArray(holidaysData) ? holidaysData : [];
+          // Filter to only future holidays (including today) for display badges
+          const today = normalizeDate(new Date().toISOString());
+          const futureHolidays = allHolidaysForCheck.filter((h: any) => {
+            const holidayDate = normalizeDate(h.date);
+            return holidayDate >= today; // Only future or today
+          });
+          setHolidays(futureHolidays);
+        } catch (error) {
+          console.error('Failed to fetch holidays:', error);
+          setHolidays([]);
+        }
+      }
+
+      // Load existing attendance for initial date AFTER holidays are fetched
+      // Pass levelId and allHolidays to ensure holiday check works properly
+      await loadExistingAttendance(selected.id, initialDate, levelId, allHolidaysForCheck);
 
     } catch (err: unknown) {
       console.error('Error fetching teacher data:', err);
@@ -208,8 +259,82 @@ function TeacherAttendanceContent() {
     }
   };
 
-  const loadExistingAttendance = async (classroomId: number, date: string) => {
+  const loadExistingAttendance = async (classroomId: number, date: string, providedLevelId?: number | null, providedHolidays?: any[]) => {
     try {
+      // Use provided levelId and holidays if available, otherwise try to get them
+      let levelId: number | null = providedLevelId ?? null;
+      let allHolidays: any[] = providedHolidays ?? [];
+      
+      // If not provided, try to get level ID from classroom options
+      if (!levelId) {
+        const currentClassroom = classroomOptions.find(c => c.id === classroomId);
+        
+        if (currentClassroom) {
+          // Method 1: Try level_id (direct - from backend update)
+          if ((currentClassroom as any).level_id) {
+            levelId = (currentClassroom as any).level_id;
+          }
+          // Method 2: Try grade.level.id (nested structure)
+          else if ((currentClassroom as any).grade?.level?.id) {
+            levelId = (currentClassroom as any).grade.level.id;
+          }
+          // Method 3: Try level.id (direct structure)
+          else if ((currentClassroom as any).level?.id) {
+            levelId = (currentClassroom as any).level.id;
+          }
+          // Method 4: Try grade.level (if level is an object with id)
+          else if ((currentClassroom as any).grade?.level && typeof (currentClassroom as any).grade.level === 'object' && (currentClassroom as any).grade.level.id) {
+            levelId = (currentClassroom as any).grade.level.id;
+          }
+        }
+      }
+      
+      // If holidays not provided, fetch them fresh
+      if (allHolidays.length === 0 && levelId) {
+        try {
+          const holidaysData = await getHolidays(levelId);
+          allHolidays = Array.isArray(holidaysData) ? holidaysData : [];
+          
+          // Filter to only future holidays (including today) for display badges
+          const today = normalizeDate(new Date().toISOString());
+          const futureHolidays = allHolidays.filter((h: any) => {
+            const holidayDate = normalizeDate(h.date);
+            return holidayDate >= today; // Only future or today
+          });
+          setHolidays(futureHolidays);
+        } catch (error) {
+          console.error('Failed to fetch holidays:', error);
+          // Fallback to state if fetch fails
+          allHolidays = holidays;
+        }
+      } else if (allHolidays.length === 0) {
+        // Fallback to state if no levelId
+        allHolidays = holidays;
+      }
+      
+      // Check if this date is a holiday (check all holidays, including past and today)
+      const normalizedDate = normalizeDate(date);
+      const holiday = allHolidays.find((h: any) => {
+        const holidayDate = normalizeDate(h.date);
+        return holidayDate === normalizedDate;
+      });
+      
+      if (holiday) {
+        // If holiday exists, don't load attendance - show holiday instead
+        console.log('[Holiday Check] Holiday found for date:', normalizedDate, 'Holiday:', holiday);
+        setSelectedHoliday(holiday);
+        setAttendance({});
+        setIsEditMode(false);
+        setExistingAttendanceId(null);
+        setAttendanceLoaded(false);
+        return;
+      } else {
+        console.log('[Holiday Check] No holiday found for date:', normalizedDate, 'Total holidays checked:', allHolidays.length);
+      }
+      
+      // Clear holiday selection if not a holiday
+      setSelectedHoliday(null);
+      
       const attendanceData = await getAttendanceForDate(classroomId, date) as any;
       if (attendanceData && attendanceData.id) {
         // Load the attendance data to show as read-only
@@ -255,13 +380,93 @@ function TeacherAttendanceContent() {
     setAttendance({});
     setIsEditMode(false);
     setExistingAttendanceId(null);
+    setSelectedHoliday(null);
     
+    // Refresh holidays when date changes (in case new holidays were added)
+    // Try to get level ID from classroom options
+    let levelId: number | null = null;
+    const currentClassroom = classroomOptions.find(c => c.id === classInfo?.id);
+    
+    if (currentClassroom) {
+      // Method 1: Try level_id (direct - from backend update)
+      if ((currentClassroom as any).level_id) {
+        levelId = (currentClassroom as any).level_id;
+      }
+      // Method 2: Try grade.level.id (nested structure)
+      else if ((currentClassroom as any).grade?.level?.id) {
+        levelId = (currentClassroom as any).grade.level.id;
+      }
+      // Method 3: Try level.id (direct structure)
+      else if ((currentClassroom as any).level?.id) {
+        levelId = (currentClassroom as any).level.id;
+      }
+      // Method 4: Try grade.level (if level is an object with id)
+      else if ((currentClassroom as any).grade?.level && typeof (currentClassroom as any).grade.level === 'object' && (currentClassroom as any).grade.level.id) {
+        levelId = (currentClassroom as any).grade.level.id;
+      }
+    }
+    
+    if (levelId) {
+      try {
+        const holidaysData = await getHolidays(levelId);
+        const allHolidays = Array.isArray(holidaysData) ? holidaysData : [];
+        
+        // Filter to only future holidays (including today) for display badges
+        const today = normalizeDate(new Date().toISOString());
+        const futureHolidays = allHolidays.filter((h: any) => {
+          const holidayDate = normalizeDate(h.date);
+          return holidayDate >= today; // Only future or today
+        });
+        setHolidays(futureHolidays);
+        
+        // Check if new date is a holiday (check all holidays, including past)
+        const normalizedNewDate = normalizeDate(newDate);
+        const holiday = allHolidays.find((h: any) => normalizeDate(h.date) === normalizedNewDate);
+        if (holiday) {
+          // If holiday found, set it and don't load attendance
+          console.log('[handleDateChange] Holiday found for date:', normalizedNewDate, 'Holiday:', holiday);
+          setSelectedHoliday(holiday);
+          setAttendance({});
+          setIsEditMode(false);
+          setExistingAttendanceId(null);
+          setAttendanceLoaded(false);
+          return; // Don't load attendance for holidays
+        } else {
+          console.log('[handleDateChange] No holiday found for date:', normalizedNewDate, 'Total holidays:', allHolidays.length);
+        }
+      } catch (error) {
+        console.error('Error fetching holidays:', error);
+      }
+    } else {
+      // Fallback: check existing holidays (normalize date format)
+      const normalizedNewDate = normalizeDate(newDate);
+      const holiday = holidays.find((h: any) => normalizeDate(h.date) === normalizedNewDate);
+      if (holiday) {
+        // If holiday found, set it and don't load attendance
+        setSelectedHoliday(holiday);
+        setAttendance({});
+        setIsEditMode(false);
+        setExistingAttendanceId(null);
+        setAttendanceLoaded(false);
+        return; // Don't load attendance for holidays
+      }
+    }
+    
+    // Only load attendance if it's not a holiday
     if (classInfo) {
       await loadExistingAttendance(classInfo.id, newDate);
     }
   };
 
   const handleSubmit = () => {
+    // Check if date is a holiday (normalize date format)
+    const normalizedSelectedDate = normalizeDate(selectedDate);
+    const holiday = holidays.find((h: any) => normalizeDate(h.date) === normalizedSelectedDate);
+    if (holiday) {
+      alert(`This date is a holiday: ${holiday.reason}. Attendance marking is disabled.`);
+      return;
+    }
+    
     // Block Sunday marking entirely
     if (isWeekend) {
       alert('Weekend (Sunday) — Attendance marking disabled. System will auto-record as Weekend/Holiday.');
@@ -354,7 +559,15 @@ function TeacherAttendanceContent() {
       
     } catch (err: unknown) {
       console.error('Error marking attendance:', err);
-      alert(`❌ Failed to ${isEditMode ? 'Update' : 'Mark'} Attendance!\n\nPlease check your internet connection and try again.\n\nIf the problem persists, contact the administrator.`);
+      
+      // Handle ApiError with user-friendly messages
+      if (err instanceof ApiError) {
+        // Show the user-friendly error message from ApiError
+        alert(err.message);
+      } else {
+        // Generic error message for unexpected errors
+        alert(`❌ Failed to ${isEditMode ? 'Update' : 'Mark'} Attendance!\n\nPlease check your internet connection and try again.\n\nIf the problem persists, contact the administrator.`);
+      }
     } finally {
       setSaving(false);
     }
@@ -673,15 +886,7 @@ function TeacherAttendanceContent() {
         new Date(record.finalized_at) > new Date(Date.now() - 30000) // Last 30 seconds
       );
       
-      if (approvedAttendance) {
-        setApprovedDate((approvedAttendance as any).date);
-        setShowApprovalNotification(true);
-        
-        // Auto-hide notification after 5 seconds
-        setTimeout(() => {
-          setShowApprovalNotification(false);
-        }, 5000);
-      }
+      // Approval notifications now come via WebSocket only
     }
   };
 
@@ -739,17 +944,7 @@ function TeacherAttendanceContent() {
         setExistingAttendanceId(attendanceData.id);
         setAttendanceLoaded(true);
         
-        // Check if attendance is approved and show notification
-  if (attendanceData.status === 'approved') {
-          console.log('Attendance is approved for date:', attendanceData.date);
-          setShowApprovalNotification(true);
-          setApprovedDate(attendanceData.date);
-          
-          // Auto-hide notification after 5 seconds
-          setTimeout(() => {
-            setShowApprovalNotification(false);
-          }, 5000);
-        }
+        // Approval notifications now come via WebSocket only
         
         alert('Saved attendance loaded successfully! You can now make changes and update.');
       } else {
@@ -772,6 +967,9 @@ function TeacherAttendanceContent() {
 
   // Check if date is editable (within 7 days)
   const isDateEditable = () => {
+    // Block holidays
+    if (selectedHoliday) return false;
+    
     const selectedDateObj = new Date(selectedDate);
     const today = new Date();
     const diffTime = Math.abs(today.getTime() - selectedDateObj.getTime());
@@ -894,17 +1092,25 @@ function TeacherAttendanceContent() {
                             <p className="text-sm font-medium text-gray-900 truncate">
                               {new Date(record.date).toLocaleDateString()}
                             </p>
-                            <Badge 
-                              variant="outline"
-                              className={`w-fit ${
-                                record.status === 'approved' ? 'bg-green-50 text-green-700 border-green-200' :
-                                record.status === 'submitted' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                record.status === 'under_review' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                                'bg-gray-50 text-gray-700 border-gray-200'
-                              }`}
-                            >
-                              {record.status?.charAt(0).toUpperCase() + record.status?.slice(1) || 'Draft'}
-                            </Badge>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              <Badge 
+                                variant="outline"
+                                className={`w-fit ${
+                                  record.status === 'approved' ? 'bg-green-50 text-green-700 border-green-200' :
+                                  record.status === 'submitted' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                  record.status === 'under_review' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                                  'bg-gray-50 text-gray-700 border-gray-200'
+                                }`}
+                              >
+                                {record.display_status || (record.status?.charAt(0).toUpperCase() + record.status?.slice(1)) || 'Draft'}
+                              </Badge>
+                              {record.is_holiday && (
+                                <Badge className="bg-yellow-500 text-white border-yellow-600 text-xs">
+                                  <Calendar className="h-3 w-3 mr-1" />
+                                  Holiday
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1092,22 +1298,7 @@ function TeacherAttendanceContent() {
 
   return (
     <div className="max-w-7xl mx-auto mt-4 sm:mt-6 lg:mt-8 p-2 sm:p-4 lg:p-6 space-y-4 sm:space-y-6">
-      {/* Approval Notification */}
-      {showApprovalNotification && (
-        <div className="fixed top-2 right-2 sm:top-4 sm:right-4 z-50 bg-green-500 text-white px-3 sm:px-6 py-3 sm:py-4 rounded-lg shadow-lg flex items-center space-x-2 sm:space-x-3 animate-pulse max-w-[calc(100vw-1rem)] sm:max-w-none">
-          <CheckCircle className="h-5 w-5 sm:h-6 sm:w-6 flex-shrink-0" />
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold text-sm sm:text-base">✅ Attendance Approved!</p>
-            <p className="text-xs sm:text-sm truncate">Your attendance for {approvedDate} has been approved by the coordinator.</p>
-          </div>
-          <button 
-            onClick={() => setShowApprovalNotification(false)}
-            className="text-white hover:text-gray-200 ml-1 sm:ml-2 flex-shrink-0"
-          >
-            <X className="h-4 w-4 sm:h-5 sm:w-5" />
-          </button>
-        </div>
-      )}
+      {/* Approval notifications now come via WebSocket only - no toast needed */}
 
       {/* Header Section */}
       <div className="bg-gradient-to-r from-[#274c77] to-[#6096ba] rounded-xl sm:rounded-2xl p-3 sm:p-4 lg:p-6 text-white shadow-xl">
@@ -1119,15 +1310,68 @@ function TeacherAttendanceContent() {
                 <Users className="h-4 w-4 sm:h-5 sm:w-5" />
                 <span className="truncate">{classInfo?.name} - {classInfo?.section}</span>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 flex-wrap">
                 <Calendar className="h-4 w-4 sm:h-5 sm:w-5" />
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => handleDateChange(e.target.value)}
-                  max={new Date().toISOString().split('T')[0]}
-                  className="bg-white/20 border border-white/30 rounded-lg px-2 sm:px-3 py-1 text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/50 text-xs sm:text-sm"
-                />
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => handleDateChange(e.target.value)}
+                    max={new Date().toISOString().split('T')[0]}
+                    className={`bg-white/20 border rounded-lg px-2 sm:px-3 py-1 text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/50 text-xs sm:text-sm ${
+                      selectedHoliday ? 'border-yellow-400 border-2 ring-2 ring-yellow-400/50' : 'border-white/30'
+                    }`}
+                    title={selectedHoliday ? `Holiday: ${selectedHoliday.reason}` : ''}
+                  />
+                  {/* Show holiday indicator if current selected date is a holiday */}
+                  {selectedHoliday && (
+                    <div 
+                      className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full border-2 border-white animate-pulse z-10" 
+                      title={`Holiday: ${selectedHoliday.reason}`}
+                    />
+                  )}
+                </div>
+                {selectedHoliday && (
+                  <Badge className="bg-yellow-500 text-white border-yellow-600 text-xs sm:text-sm px-2 sm:px-3 py-1 font-bold animate-pulse shadow-md">
+                    <Calendar className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                    Holiday
+                  </Badge>
+                )}
+                {/* Show list of upcoming holidays only (future dates, not past) */}
+                {(() => {
+                  const today = normalizeDate(new Date().toISOString());
+                  const upcomingHolidays = holidays.filter((h: any) => {
+                    const holidayDate = normalizeDate(h.date);
+                    return holidayDate >= today; // Only future or today
+                  });
+                  
+                  if (upcomingHolidays.length > 0 && !selectedHoliday) {
+                    return (
+                      <div className="flex flex-wrap gap-1">
+                        {upcomingHolidays.slice(0, 3).map((h: any) => {
+                          const holidayDate = normalizeDate(h.date);
+                          const holidayDay = new Date(h.date).getDate();
+                          return (
+                            <Badge 
+                              key={h.id}
+                              className="bg-yellow-400/80 text-yellow-900 border-yellow-500 text-[10px] px-1.5 py-0.5 cursor-pointer hover:bg-yellow-400 transition-all"
+                              title={`${h.date}: ${h.reason}`}
+                              onClick={() => handleDateChange(holidayDate)}
+                            >
+                              {holidayDay}
+                            </Badge>
+                          );
+                        })}
+                        {upcomingHolidays.length > 3 && (
+                          <Badge className="bg-yellow-400/80 text-yellow-900 border-yellow-500 text-[10px] px-1.5 py-0.5">
+                            +{upcomingHolidays.length - 3}
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
               <div className="flex items-center space-x-2">
                 <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -1152,7 +1396,7 @@ function TeacherAttendanceContent() {
                 </select>
               </div>
             )}
-            {!isWeekend && (
+            {/* {!isWeekend && (
               <div className="relative">
                 <Button
                   onClick={handleBackfillIconClick}
@@ -1168,7 +1412,7 @@ function TeacherAttendanceContent() {
                   </div>
                 )}
               </div>
-            )}
+            )} */}
             
             {isEditMode && (
               <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300 text-xs">
@@ -1180,7 +1424,15 @@ function TeacherAttendanceContent() {
             {!isDateEditable() && (
               <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300 text-xs">
                 <AlertCircle className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                <span className="hidden sm:inline">Read Only {isWeekend ? '(Weekend/Sunday)' : '(Older than 7 days)'}</span>
+                <span className="hidden sm:inline">
+                  Read Only {
+                    selectedHoliday 
+                      ? `(Holiday: ${selectedHoliday.reason})` 
+                      : isWeekend 
+                        ? '(Weekend/Sunday)' 
+                        : '(Older than 7 days)'
+                  }
+                </span>
                 <span className="sm:hidden">Read Only</span>
               </Badge>
             )}
@@ -1258,7 +1510,8 @@ function TeacherAttendanceContent() {
         </DialogContent>
       </Dialog>
 
-      {/* Stats Cards */}
+      {/* Stats Cards - Hide when holiday is selected */}
+      {!selectedHoliday && (
       <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
         <Card className="bg-gradient-to-r from-green-500 to-green-600 text-white">
           <CardContent className="p-3 sm:p-4">
@@ -1309,8 +1562,10 @@ function TeacherAttendanceContent() {
           </CardContent>
         </Card>
       </div>
+      )}
 
-      {/* Quick Actions */}
+      {/* Quick Actions - Hide when holiday is selected */}
+      {!selectedHoliday && (
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-[#274c77] text-base sm:text-lg">Quick Actions</CardTitle>
@@ -1408,13 +1663,111 @@ function TeacherAttendanceContent() {
           </div>
         </CardContent>
       </Card>
+      )}
 
+      {/* Holiday Display - Premium VIP Style */}
+      {selectedHoliday && (
+        <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 shadow-2xl">
+          {/* Animated background pattern */}
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(251,191,36,0.3),transparent_50%)] animate-pulse"></div>
+            <div className="absolute top-10 right-10 w-32 h-32 bg-yellow-300 rounded-full blur-3xl animate-pulse delay-300"></div>
+            <div className="absolute bottom-10 left-10 w-40 h-40 bg-amber-300 rounded-full blur-3xl animate-pulse delay-700"></div>
+          </div>
+          
+          {/* Decorative border */}
+          <div className="absolute inset-0 border-4 border-transparent bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-400 rounded-lg p-[4px]">
+            <div className="w-full h-full bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 rounded-lg"></div>
+          </div>
+          
+          <CardContent className="relative p-8 sm:p-12 lg:p-16 text-center">
+            <div className="flex flex-col items-center space-y-8">
+              {/* Premium Icon with glow effect */}
+              <div className="relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-amber-500 rounded-full blur-xl opacity-60 animate-pulse"></div>
+                <div className="relative h-32 w-32 sm:h-36 sm:w-36 rounded-full bg-gradient-to-br from-yellow-400 via-amber-400 to-yellow-500 flex items-center justify-center shadow-2xl transform hover:scale-110 transition-transform duration-300">
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/30 to-transparent"></div>
+                  <Calendar className="h-16 w-16 sm:h-20 sm:w-20 text-white drop-shadow-lg relative z-10" />
+                </div>
+                {/* Sparkle effects */}
+                <div className="absolute -top-2 -right-2 w-6 h-6 bg-yellow-300 rounded-full animate-ping"></div>
+                <div className="absolute -bottom-2 -left-2 w-4 h-4 bg-amber-300 rounded-full animate-ping delay-300"></div>
+              </div>
+              
+              {/* Premium Badge */}
+              <div className="relative">
+                <Badge className="bg-gradient-to-r from-yellow-500 via-amber-500 to-yellow-500 text-white border-0 text-lg sm:text-xl px-6 py-3 font-bold shadow-xl transform hover:scale-105 transition-transform duration-200">
+                  <Calendar className="h-5 w-5 sm:h-6 sm:w-6 mr-2" />
+                  <span className="tracking-wider">HOLIDAY</span>
+                </Badge>
+                <div className="absolute -inset-1 bg-gradient-to-r from-yellow-400 to-amber-400 rounded-lg blur opacity-50 -z-10"></div>
+              </div>
+              
+              {/* Main Title */}
+              <div>
+                <h3 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold bg-gradient-to-r from-yellow-700 via-amber-700 to-yellow-700 bg-clip-text text-transparent mb-6 drop-shadow-sm">
+                  Holiday Declared
+                </h3>
+                
+                {/* Premium Card for Holiday Details */}
+                <div className="relative max-w-md mx-auto">
+                  {/* Card glow effect */}
+                  <div className="absolute -inset-1 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-400 rounded-2xl blur opacity-30"></div>
+                  
+                  {/* Main card */}
+                  <div className="relative bg-white/95 backdrop-blur-sm rounded-2xl p-6 sm:p-8 shadow-2xl border-2 border-yellow-200/50">
+                    {/* Decorative top border */}
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-yellow-400 to-transparent"></div>
+                    
+                    {/* Holiday Reason */}
+                    <div className="mb-4">
+                      <p className="text-2xl sm:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-yellow-600 to-amber-600 bg-clip-text text-transparent">
+                        {selectedHoliday.reason}
+                      </p>
+                    </div>
+                    
+                    {/* Date with icon */}
+                    <div className="flex items-center justify-center gap-3 mt-6 pt-6 border-t-2 border-yellow-200/50">
+                      <div className="p-2 bg-gradient-to-br from-yellow-100 to-amber-100 rounded-lg">
+                        <Calendar className="h-5 w-5 sm:h-6 sm:w-6 text-yellow-700" />
+                      </div>
+                      <p className="text-base sm:text-lg lg:text-xl font-semibold text-gray-700">
+                        {new Date(selectedHoliday.date).toLocaleDateString('en-US', { 
+                          weekday: 'long', 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric' 
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Warning Message - Premium Style */}
+                <div className="mt-8 max-w-md mx-auto">
+                  <div className="relative bg-gradient-to-r from-amber-100 via-yellow-100 to-amber-100 rounded-xl p-4 sm:p-5 border-2 border-amber-300/50 shadow-lg">
+                    <div className="flex items-center justify-center gap-3">
+                      <div className="p-2 bg-amber-200 rounded-full">
+                        <AlertCircle className="h-5 w-5 sm:h-6 sm:w-6 text-amber-700" />
+                      </div>
+                      <p className="text-sm sm:text-base font-semibold text-amber-800">
+                        Attendance marking is disabled for this date
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Students Table */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
-          <CardTitle className="text-[#274c77] text-base sm:text-lg">Students List ({students.length} students)</CardTitle>
+      {!selectedHoliday && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
+            <CardTitle className="text-[#274c77] text-base sm:text-lg">Students List ({students.length} students)</CardTitle>
             {existingAttendanceId && !isEditMode && (
               <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300 text-xs">
                 <Eye className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
@@ -1536,8 +1889,8 @@ function TeacherAttendanceContent() {
           )}
         </CardContent>
       </Card>
+      )}
 
-      {/* Confirmation Modal */}
       <Dialog open={showConfirmationModal} onOpenChange={setShowConfirmationModal}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -1695,6 +2048,18 @@ function TeacherAttendanceContent() {
                             Marked by: {record.marked_by}
                           </p>
                         )}
+                        {(() => {
+                          const recordDate = normalizeDate(record.date);
+                          const holiday = holidays.find((h: any) => normalizeDate(h.date) === recordDate);
+                          return holiday ? (
+                            <div className="mt-2">
+                              <Badge className="bg-yellow-500 text-white border-yellow-600 text-sm sm:text-base px-3 py-1.5 font-bold shadow-md">
+                                <Calendar className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                                HOLIDAY: {holiday.reason}
+                              </Badge>
+                            </div>
+                          ) : null;
+                        })()}
                       </div>
                     </div>
 
@@ -1708,10 +2073,11 @@ function TeacherAttendanceContent() {
                           'bg-gray-100 text-gray-800 border-gray-300'
                         }`}
                       >
-                        {record.status === 'approved' ? '✅ Approved' : 
-                         record.status === 'submitted' ? '📤 Submitted' : 
-                         record.status === 'under_review' ? '⏳ Under Review' :
-                         '📝 Draft'}
+                        {record.display_status || 
+                         (record.status === 'approved' ? '✅ Approved' : 
+                          record.status === 'submitted' ? '📤 Submitted' : 
+                          record.status === 'under_review' ? '⏳ Under Review' :
+                          '📝 Draft')}
                       </Badge>
                       
                       {record.status === 'approved' && record.finalized_at && (
