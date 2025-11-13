@@ -34,6 +34,17 @@ interface ClassInfo {
   monthlyTrend: Array<{ month: string; students: number }>;
 }
 
+type AtRiskReason =
+  | { type: 'low_attendance'; attendanceRate: number }
+  | { type: 'consecutive_absence'; streakLength: number; startedOn?: string; lastAbsentOn?: string };
+
+interface AtRiskStudent {
+  id: number;
+  name: string;
+  code?: string;
+  reasons: AtRiskReason[];
+}
+
 export default function TeacherClassDashboard() {
   const [classInfo, setClassInfo] = useState<ClassInfo>({
     name: "Loading...",
@@ -51,8 +62,15 @@ export default function TeacherClassDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [absenteesToday, setAbsenteesToday] = useState<Array<{ id: number; name: string; code?: string; gender?: string }>>([])
-  const [atRisk, setAtRisk] = useState<Array<{ id: number; name: string; attendanceRate: number }>>([])
+  const [atRisk, setAtRisk] = useState<AtRiskStudent[]>([])
   const [recentSubmissions, setRecentSubmissions] = useState<any[]>([])
+
+  const formatAlertDate = (value?: string) => {
+    if (!value) return ""
+    const dateObj = new Date(value)
+    if (isNaN(dateObj.getTime())) return value
+    return dateObj.toLocaleDateString?.() || value
+  }
 
   useEffect(() => {
     const role = getCurrentUserRole()
@@ -89,7 +107,7 @@ export default function TeacherClassDashboard() {
                 const s = start.toISOString().split('T')[0]
                 const e = end.toISOString().split('T')[0]
                 return await getAttendanceHistory(classroomId, s, e)
-              })()
+              })(),
             ])
             
             // Handle different response formats
@@ -205,26 +223,135 @@ export default function TeacherClassDashboard() {
               { grade: 'C', count: Math.floor(students.length * 0.10) },
             ]
             
-            // Compute at-risk (last 30 days < 80% present)
+            // Compute at-risk students combining low attendance and consecutive absence alerts
             try {
-              const perStudent: Record<number, { name: string; present: number; total: number }> = {}
+              const perStudent: Record<number, { name: string; code?: string; present: number; total: number; history: Array<{ date?: string; status: string }> }> = {}
               if (Array.isArray(last30DaysHistory)) {
                 last30DaysHistory.forEach((sheet: any) => {
                   const arr = sheet.student_attendance || []
+                  const sheetDateRaw = sheet?.date ?? sheet?.attendance_date ?? sheet?.created_at
+                  let sheetDate: string | undefined
+                  if (typeof sheetDateRaw === 'string') {
+                    sheetDate = sheetDateRaw
+                  } else if (sheetDateRaw) {
+                    try {
+                      sheetDate = new Date(sheetDateRaw).toISOString().split('T')[0]
+                    } catch {
+                      sheetDate = undefined
+                    }
+                  }
+
                   arr.forEach((r: any) => {
                     const sid = Number(r.student_id)
-                    if (!perStudent[sid]) perStudent[sid] = { name: r.student_name || `ID ${sid}`, present: 0, total: 0 }
+                    const studentCode = r.student_code || r.student_id || r.student_gr_no
+                    if (!perStudent[sid]) {
+                      perStudent[sid] = { name: r.student_name || `ID ${sid}`, code: studentCode, present: 0, total: 0, history: [] }
+                    } else if (!perStudent[sid].code && studentCode) {
+                      perStudent[sid].code = studentCode
+                    }
                     perStudent[sid].total += 1
                     if (r.status === 'present') perStudent[sid].present += 1
+                    perStudent[sid].history.push({ date: sheetDate, status: r.status })
                   })
                 })
               }
-              const computed = Object.entries(perStudent)
-                .map(([id, v]) => ({ id: Number(id), name: v.name, attendanceRate: v.total ? Math.round((v.present / v.total) * 100) : 0 }))
+
+              const lowAttendanceList = Object.entries(perStudent)
+                .map(([id, v]) => ({
+                  id: Number(id),
+                  name: v.name,
+                  code: v.code,
+                  attendanceRate: v.total ? Math.round((v.present / v.total) * 100) : 0
+                }))
                 .filter(x => x.attendanceRate < 80)
-                .sort((a, b) => a.attendanceRate - b.attendanceRate)
+
+              const riskMap = new Map<number, AtRiskStudent>()
+
+              const ensureRiskEntry = (id: number, name: string, code?: string) => {
+                if (!riskMap.has(id)) {
+                  riskMap.set(id, { id, name, code, reasons: [] })
+                }
+                const entry = riskMap.get(id)!
+                if (code && !entry.code) entry.code = code
+                return entry
+              }
+
+              lowAttendanceList.forEach((student) => {
+                const entry = ensureRiskEntry(student.id, student.name, student.code)
+                entry.reasons.push({ type: 'low_attendance', attendanceRate: student.attendanceRate })
+              })
+
+              const consecutiveAbsenceList = Object.entries(perStudent)
+                .map(([id, info]) => {
+                  const sortedHistory = [...info.history].filter((record) => record.status && record.date).sort((a, b) => {
+                    if (!a.date || !b.date) return 0
+                    return new Date(b.date).getTime() - new Date(a.date).getTime()
+                  })
+                  let streak = 0
+                  let lastAbsentOn: string | undefined
+                  let streakStart: string | undefined
+
+                  for (const record of sortedHistory) {
+                    if (record.status === 'absent') {
+                      streak += 1
+                      if (!lastAbsentOn) {
+                        lastAbsentOn = record.date
+                      }
+                      streakStart = record.date || streakStart
+                    } else if (record.status === 'leave') {
+                      streak = 0
+                      break
+                    } else {
+                      break
+                    }
+                  }
+
+                  return {
+                    id: Number(id),
+                    name: info.name,
+                    code: info.code,
+                    streakLength: streak,
+                    startedOn: streak >= 1 ? streakStart : undefined,
+                    lastAbsentOn: streak >= 1 ? lastAbsentOn : undefined,
+                  }
+                })
+                .filter((item) => item.streakLength >= 3)
+
+              consecutiveAbsenceList.forEach((student) => {
+                const entry = ensureRiskEntry(student.id, student.name, student.code)
+                entry.reasons.push({
+                  type: 'consecutive_absence',
+                  streakLength: student.streakLength,
+                  startedOn: student.startedOn,
+                  lastAbsentOn: student.lastAbsentOn,
+                })
+              })
+
+
+              const getMaxStreak = (student: AtRiskStudent) =>
+                student.reasons.reduce((max, reason) => {
+                  if (reason.type === 'consecutive_absence') {
+                    return Math.max(max, reason.streakLength)
+                  }
+                  return max
+                }, 0)
+
+              const getAttendanceRate = (student: AtRiskStudent) => {
+                const attendanceReason = student.reasons.find((reason) => reason.type === 'low_attendance') as
+                  | { type: 'low_attendance'; attendanceRate: number }
+                  | undefined
+                return attendanceReason ? attendanceReason.attendanceRate : 101
+              }
+
+              const riskList = Array.from(riskMap.values())
+                .sort((a, b) => {
+                  const streakDiff = getMaxStreak(b) - getMaxStreak(a)
+                  if (streakDiff !== 0) return streakDiff
+                  return getAttendanceRate(a) - getAttendanceRate(b)
+                })
                 .slice(0, 8)
-              setAtRisk(computed)
+
+              setAtRisk(riskList)
             } catch {}
 
             // Recent submissions (last 6 records)
@@ -436,10 +563,37 @@ export default function TeacherClassDashboard() {
                 <div className="text-sm text-gray-500">No at-risk students in last 30 days.</div>
               ) : (
                 <div className="space-y-2">
-                  {atRisk.map((s) => (
-                    <div key={s.id} className="flex items-center justify-between p-2 rounded-lg border border-gray-200">
-                      <p className="text-sm font-medium text-gray-900 truncate mr-2">{s.name}</p>
-                      <span className="text-xs px-2 py-1 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200">{s.attendanceRate}%</span>
+                  {atRisk.map((student) => (
+                    <div key={student.id} className="flex items-start justify-between gap-3 p-2 rounded-lg border border-gray-200">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{student.name}</p>
+                        {student.code && <p className="text-xs text-gray-500 truncate">{student.code}</p>}
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        {student.reasons.map((reason, idx) => {
+                          if (reason.type === 'low_attendance') {
+                            return (
+                              <span
+                                key={`low-${student.id}-${idx}`}
+                                className="text-xs px-2 py-1 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200"
+                              >
+                                {reason.attendanceRate}% / 30d
+                              </span>
+                            )
+                          }
+                          const streakText = `${reason.streakLength} day streak`
+                          const lastAbsentText = reason.lastAbsentOn ? ` • Last: ${formatAlertDate(reason.lastAbsentOn)}` : ""
+                          return (
+                            <span
+                              key={`streak-${student.id}-${idx}`}
+                              className="text-xs px-2 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-200 text-right"
+                            >
+                              {streakText}
+                              {lastAbsentText}
+                            </span>
+                          )
+                        })}
+                      </div>
                     </div>
                   ))}
                 </div>

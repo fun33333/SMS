@@ -58,7 +58,7 @@ export default function HolidayManagement({ levelId, levelName }: HolidayManagem
   const fetchHolidays = async () => {
     setIsLoading(true)
     try {
-      const data = await getHolidays(levelId)
+      const data = await getHolidays({ levelId })
       setHolidays(data as Holiday[])
     } catch (error) {
       console.error('Failed to fetch holidays:', error)
