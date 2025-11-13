@@ -22,8 +22,12 @@ export function NotificationDropdown() {
   const { notifications, unreadCount, isConnected, markAsRead, markAllAsRead, refetch } = useWebSocketNotifications()
   const [open, setOpen] = useState(false)
 
+  // Filter to show only unread notifications
+  const unreadNotifications = notifications.filter(n => n.unread === true)
+
   const handleMarkAsRead = async (notificationId: number) => {
     await markAsRead(notificationId)
+    // Notification will be automatically removed from list since it's now read
   }
 
   const handleMarkAllAsRead = async () => {
@@ -96,7 +100,7 @@ export function NotificationDropdown() {
 
         <div className="h-[60vh] sm:h-[400px] max-h-[500px] bg-gray-50/30">
           <ScrollArea className="h-full">
-          {!notifications || !Array.isArray(notifications) || notifications.length === 0 ? (
+          {!unreadNotifications || !Array.isArray(unreadNotifications) || unreadNotifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-8 sm:p-12 text-center">
               <div className="p-4 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-full mb-4">
                 <Bell className="w-10 h-10 sm:w-12 sm:h-12 text-blue-500" />
@@ -106,7 +110,7 @@ export function NotificationDropdown() {
             </div>
           ) : (
             <div className="divide-y divide-gray-200/60">
-              {notifications.map((notification) => (
+              {unreadNotifications.map((notification) => (
                 <NotificationItem
                   key={notification.id}
                   notification={notification}

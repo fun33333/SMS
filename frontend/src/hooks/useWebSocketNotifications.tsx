@@ -266,8 +266,10 @@ export function useWebSocketNotifications() {
         const data = await response.json()
         // Handle paginated response (results array) or direct array
         const notificationsList = Array.isArray(data) ? data : (data.results || [])
-        setNotifications(notificationsList)
-        setUnreadCount(notificationsList.filter((n: Notification) => n.unread).length)
+        // Filter to only unread notifications
+        const unreadOnly = notificationsList.filter((n: Notification) => n.unread === true)
+        setNotifications(unreadOnly)
+        setUnreadCount(unreadOnly.length)
       }
     } catch (error) {
       console.error('Error fetching notifications:', error)
@@ -292,9 +294,9 @@ export function useWebSocketNotifications() {
       })
 
       if (response.ok) {
-        // Update local state
+        // Remove notification from list when marked as read (only show unread)
         setNotifications((prev) =>
-          prev.map((n) => (n.id === notificationId ? { ...n, unread: false } : n))
+          prev.filter((n) => n.id !== notificationId)
         )
         setUnreadCount((prev) => Math.max(0, prev - 1))
       }
@@ -321,8 +323,8 @@ export function useWebSocketNotifications() {
       })
 
       if (response.ok) {
-        // Update local state
-        setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })))
+        // Remove all notifications from list when all marked as read (only show unread)
+        setNotifications([])
         setUnreadCount(0)
       }
     } catch (error) {

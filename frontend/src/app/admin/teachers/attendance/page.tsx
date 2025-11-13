@@ -184,10 +184,7 @@ function TeacherAttendanceContent() {
       const initialDate = dateParam || selectedDate
       setSelectedDate(initialDate)
 
-      // Load existing attendance for initial date if any
-      await loadExistingAttendance(selected.id, initialDate);
-
-      // Fetch holidays for this level - try multiple ways to get level ID
+      // Fetch holidays FIRST before loading attendance - try multiple ways to get level ID
       let levelId: number | null = null;
       
       // Method 1: Try level_id (direct - from backend update)
@@ -230,15 +227,28 @@ function TeacherAttendanceContent() {
         }
       }
       
+      // Fetch holidays FIRST before loading attendance
+      let allHolidaysForCheck: any[] = [];
       if (levelId) {
         try {
           const holidaysData = await getHolidays(levelId);
-          setHolidays(Array.isArray(holidaysData) ? holidaysData : []);
+          allHolidaysForCheck = Array.isArray(holidaysData) ? holidaysData : [];
+          // Filter to only future holidays (including today) for display badges
+          const today = normalizeDate(new Date().toISOString());
+          const futureHolidays = allHolidaysForCheck.filter((h: any) => {
+            const holidayDate = normalizeDate(h.date);
+            return holidayDate >= today; // Only future or today
+          });
+          setHolidays(futureHolidays);
         } catch (error) {
           console.error('Failed to fetch holidays:', error);
           setHolidays([]);
         }
       }
+
+      // Load existing attendance for initial date AFTER holidays are fetched
+      // Pass levelId and allHolidays to ensure holiday check works properly
+      await loadExistingAttendance(selected.id, initialDate, levelId, allHolidaysForCheck);
 
     } catch (err: unknown) {
       console.error('Error fetching teacher data:', err);
@@ -249,59 +259,77 @@ function TeacherAttendanceContent() {
     }
   };
 
-  const loadExistingAttendance = async (classroomId: number, date: string) => {
+  const loadExistingAttendance = async (classroomId: number, date: string, providedLevelId?: number | null, providedHolidays?: any[]) => {
     try {
-      // First, ensure holidays are loaded
-      let holidaysToCheck = holidays;
+      // Use provided levelId and holidays if available, otherwise try to get them
+      let levelId: number | null = providedLevelId ?? null;
+      let allHolidays: any[] = providedHolidays ?? [];
       
-      // Try to get level ID from classroom options (find the selected classroom)
-      let levelId: number | null = null;
-      const currentClassroom = classroomOptions.find(c => c.id === classroomId);
-      
-      if (currentClassroom) {
-        // Method 1: Try level_id (direct - from backend update)
-        if ((currentClassroom as any).level_id) {
-          levelId = (currentClassroom as any).level_id;
-        }
-        // Method 2: Try grade.level.id (nested structure)
-        else if ((currentClassroom as any).grade?.level?.id) {
-          levelId = (currentClassroom as any).grade.level.id;
-        }
-        // Method 3: Try level.id (direct structure)
-        else if ((currentClassroom as any).level?.id) {
-          levelId = (currentClassroom as any).level.id;
-        }
-        // Method 4: Try grade.level (if level is an object with id)
-        else if ((currentClassroom as any).grade?.level && typeof (currentClassroom as any).grade.level === 'object' && (currentClassroom as any).grade.level.id) {
-          levelId = (currentClassroom as any).grade.level.id;
+      // If not provided, try to get level ID from classroom options
+      if (!levelId) {
+        const currentClassroom = classroomOptions.find(c => c.id === classroomId);
+        
+        if (currentClassroom) {
+          // Method 1: Try level_id (direct - from backend update)
+          if ((currentClassroom as any).level_id) {
+            levelId = (currentClassroom as any).level_id;
+          }
+          // Method 2: Try grade.level.id (nested structure)
+          else if ((currentClassroom as any).grade?.level?.id) {
+            levelId = (currentClassroom as any).grade.level.id;
+          }
+          // Method 3: Try level.id (direct structure)
+          else if ((currentClassroom as any).level?.id) {
+            levelId = (currentClassroom as any).level.id;
+          }
+          // Method 4: Try grade.level (if level is an object with id)
+          else if ((currentClassroom as any).grade?.level && typeof (currentClassroom as any).grade.level === 'object' && (currentClassroom as any).grade.level.id) {
+            levelId = (currentClassroom as any).grade.level.id;
+          }
         }
       }
       
-      if (levelId) {
+      // If holidays not provided, fetch them fresh
+      if (allHolidays.length === 0 && levelId) {
         try {
           const holidaysData = await getHolidays(levelId);
-          holidaysToCheck = Array.isArray(holidaysData) ? holidaysData : [];
-          setHolidays(holidaysToCheck);
+          allHolidays = Array.isArray(holidaysData) ? holidaysData : [];
+          
+          // Filter to only future holidays (including today) for display badges
+          const today = normalizeDate(new Date().toISOString());
+          const futureHolidays = allHolidays.filter((h: any) => {
+            const holidayDate = normalizeDate(h.date);
+            return holidayDate >= today; // Only future or today
+          });
+          setHolidays(futureHolidays);
         } catch (error) {
           console.error('Failed to fetch holidays:', error);
+          // Fallback to state if fetch fails
+          allHolidays = holidays;
         }
+      } else if (allHolidays.length === 0) {
+        // Fallback to state if no levelId
+        allHolidays = holidays;
       }
       
-      // Check if this date is a holiday
+      // Check if this date is a holiday (check all holidays, including past and today)
       const normalizedDate = normalizeDate(date);
-      const holiday = holidaysToCheck.find((h: any) => {
+      const holiday = allHolidays.find((h: any) => {
         const holidayDate = normalizeDate(h.date);
         return holidayDate === normalizedDate;
       });
       
       if (holiday) {
         // If holiday exists, don't load attendance - show holiday instead
+        console.log('[Holiday Check] Holiday found for date:', normalizedDate, 'Holiday:', holiday);
         setSelectedHoliday(holiday);
         setAttendance({});
         setIsEditMode(false);
         setExistingAttendanceId(null);
         setAttendanceLoaded(false);
         return;
+      } else {
+        console.log('[Holiday Check] No holiday found for date:', normalizedDate, 'Total holidays checked:', allHolidays.length);
       }
       
       // Clear holiday selection if not a holiday
@@ -381,14 +409,30 @@ function TeacherAttendanceContent() {
     if (levelId) {
       try {
         const holidaysData = await getHolidays(levelId);
-        const updatedHolidays = Array.isArray(holidaysData) ? holidaysData : [];
-        setHolidays(updatedHolidays);
+        const allHolidays = Array.isArray(holidaysData) ? holidaysData : [];
         
-        // Check if new date is a holiday (normalize date format)
+        // Filter to only future holidays (including today) for display badges
+        const today = normalizeDate(new Date().toISOString());
+        const futureHolidays = allHolidays.filter((h: any) => {
+          const holidayDate = normalizeDate(h.date);
+          return holidayDate >= today; // Only future or today
+        });
+        setHolidays(futureHolidays);
+        
+        // Check if new date is a holiday (check all holidays, including past)
         const normalizedNewDate = normalizeDate(newDate);
-        const holiday = updatedHolidays.find((h: any) => normalizeDate(h.date) === normalizedNewDate);
+        const holiday = allHolidays.find((h: any) => normalizeDate(h.date) === normalizedNewDate);
         if (holiday) {
+          // If holiday found, set it and don't load attendance
+          console.log('[handleDateChange] Holiday found for date:', normalizedNewDate, 'Holiday:', holiday);
           setSelectedHoliday(holiday);
+          setAttendance({});
+          setIsEditMode(false);
+          setExistingAttendanceId(null);
+          setAttendanceLoaded(false);
+          return; // Don't load attendance for holidays
+        } else {
+          console.log('[handleDateChange] No holiday found for date:', normalizedNewDate, 'Total holidays:', allHolidays.length);
         }
       } catch (error) {
         console.error('Error fetching holidays:', error);
@@ -398,10 +442,17 @@ function TeacherAttendanceContent() {
       const normalizedNewDate = normalizeDate(newDate);
       const holiday = holidays.find((h: any) => normalizeDate(h.date) === normalizedNewDate);
       if (holiday) {
+        // If holiday found, set it and don't load attendance
         setSelectedHoliday(holiday);
+        setAttendance({});
+        setIsEditMode(false);
+        setExistingAttendanceId(null);
+        setAttendanceLoaded(false);
+        return; // Don't load attendance for holidays
       }
     }
     
+    // Only load attendance if it's not a holiday
     if (classInfo) {
       await loadExistingAttendance(classInfo.id, newDate);
     }
@@ -1279,13 +1330,6 @@ function TeacherAttendanceContent() {
                       title={`Holiday: ${selectedHoliday.reason}`}
                     />
                   )}
-                  {/* Show indicator if there are holidays (but not for current date) */}
-                  {holidays.length > 0 && !selectedHoliday && (
-                    <div 
-                      className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full border-2 border-white animate-pulse z-10" 
-                      title={`${holidays.length} holiday(s) available`}
-                    />
-                  )}
                 </div>
                 {selectedHoliday && (
                   <Badge className="bg-yellow-500 text-white border-yellow-600 text-xs sm:text-sm px-2 sm:px-3 py-1 font-bold animate-pulse shadow-md">
@@ -1293,30 +1337,41 @@ function TeacherAttendanceContent() {
                     Holiday
                   </Badge>
                 )}
-                {/* Show list of upcoming holidays */}
-                {holidays.length > 0 && !selectedHoliday && (
-                  <div className="flex flex-wrap gap-1">
-                    {holidays.slice(0, 3).map((h: any) => {
-                      const holidayDate = normalizeDate(h.date);
-                      const holidayDay = new Date(h.date).getDate();
-                      return (
-                        <Badge 
-                          key={h.id}
-                          className="bg-yellow-400/80 text-yellow-900 border-yellow-500 text-[10px] px-1.5 py-0.5 cursor-pointer hover:bg-yellow-400 transition-all"
-                          title={`${h.date}: ${h.reason}`}
-                          onClick={() => handleDateChange(holidayDate)}
-                        >
-                          {holidayDay}
-                        </Badge>
-                      );
-                    })}
-                    {holidays.length > 3 && (
-                      <Badge className="bg-yellow-400/80 text-yellow-900 border-yellow-500 text-[10px] px-1.5 py-0.5">
-                        +{holidays.length - 3}
-                      </Badge>
-                    )}
-                  </div>
-                )}
+                {/* Show list of upcoming holidays only (future dates, not past) */}
+                {(() => {
+                  const today = normalizeDate(new Date().toISOString());
+                  const upcomingHolidays = holidays.filter((h: any) => {
+                    const holidayDate = normalizeDate(h.date);
+                    return holidayDate >= today; // Only future or today
+                  });
+                  
+                  if (upcomingHolidays.length > 0 && !selectedHoliday) {
+                    return (
+                      <div className="flex flex-wrap gap-1">
+                        {upcomingHolidays.slice(0, 3).map((h: any) => {
+                          const holidayDate = normalizeDate(h.date);
+                          const holidayDay = new Date(h.date).getDate();
+                          return (
+                            <Badge 
+                              key={h.id}
+                              className="bg-yellow-400/80 text-yellow-900 border-yellow-500 text-[10px] px-1.5 py-0.5 cursor-pointer hover:bg-yellow-400 transition-all"
+                              title={`${h.date}: ${h.reason}`}
+                              onClick={() => handleDateChange(holidayDate)}
+                            >
+                              {holidayDay}
+                            </Badge>
+                          );
+                        })}
+                        {upcomingHolidays.length > 3 && (
+                          <Badge className="bg-yellow-400/80 text-yellow-900 border-yellow-500 text-[10px] px-1.5 py-0.5">
+                            +{upcomingHolidays.length - 3}
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
               <div className="flex items-center space-x-2">
                 <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -1369,7 +1424,15 @@ function TeacherAttendanceContent() {
             {!isDateEditable() && (
               <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300 text-xs">
                 <AlertCircle className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                <span className="hidden sm:inline">Read Only {isWeekend ? '(Weekend/Sunday)' : '(Older than 7 days)'}</span>
+                <span className="hidden sm:inline">
+                  Read Only {
+                    selectedHoliday 
+                      ? `(Holiday: ${selectedHoliday.reason})` 
+                      : isWeekend 
+                        ? '(Weekend/Sunday)' 
+                        : '(Older than 7 days)'
+                  }
+                </span>
                 <span className="sm:hidden">Read Only</span>
               </Badge>
             )}
@@ -1602,34 +1665,97 @@ function TeacherAttendanceContent() {
       </Card>
       )}
 
-      {/* Holiday Display - Prominent */}
+      {/* Holiday Display - Premium VIP Style */}
       {selectedHoliday && (
-        <Card className="border-yellow-400 border-4 bg-gradient-to-br from-yellow-50 via-yellow-100 to-yellow-50 shadow-2xl">
-          <CardContent className="p-8 sm:p-10 text-center">
-            <div className="flex flex-col items-center space-y-6">
-              <div className="h-24 w-24 sm:h-28 sm:w-28 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-500 flex items-center justify-center shadow-lg animate-pulse">
-                <Calendar className="h-12 w-12 sm:h-14 sm:w-14 text-yellow-900" />
-              </div>
-              <div>
-                <Badge className="bg-yellow-500 text-white border-yellow-600 text-lg sm:text-xl px-4 py-2 mb-4 font-bold shadow-md">
-                  <Calendar className="h-5 w-5 sm:h-6 sm:w-6 mr-2" />
-                  HOLIDAY
-                </Badge>
-                <h3 className="text-2xl sm:text-3xl font-bold text-yellow-900 mb-4">Holiday Declared</h3>
-                <div className="bg-white/80 rounded-lg p-4 sm:p-6 shadow-inner border-2 border-yellow-300">
-                  <p className="text-xl sm:text-2xl font-semibold text-yellow-900 mb-2">{selectedHoliday.reason}</p>
-                  <p className="text-base sm:text-lg text-yellow-800 mt-3">
-                    📅 Date: {new Date(selectedHoliday.date).toLocaleDateString('en-US', { 
-                      weekday: 'long', 
-                      year: 'numeric', 
-                      month: 'long', 
-                      day: 'numeric' 
-                    })}
-                  </p>
+        <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 shadow-2xl">
+          {/* Animated background pattern */}
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(251,191,36,0.3),transparent_50%)] animate-pulse"></div>
+            <div className="absolute top-10 right-10 w-32 h-32 bg-yellow-300 rounded-full blur-3xl animate-pulse delay-300"></div>
+            <div className="absolute bottom-10 left-10 w-40 h-40 bg-amber-300 rounded-full blur-3xl animate-pulse delay-700"></div>
+          </div>
+          
+          {/* Decorative border */}
+          <div className="absolute inset-0 border-4 border-transparent bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-400 rounded-lg p-[4px]">
+            <div className="w-full h-full bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 rounded-lg"></div>
+          </div>
+          
+          <CardContent className="relative p-8 sm:p-12 lg:p-16 text-center">
+            <div className="flex flex-col items-center space-y-8">
+              {/* Premium Icon with glow effect */}
+              <div className="relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-amber-500 rounded-full blur-xl opacity-60 animate-pulse"></div>
+                <div className="relative h-32 w-32 sm:h-36 sm:w-36 rounded-full bg-gradient-to-br from-yellow-400 via-amber-400 to-yellow-500 flex items-center justify-center shadow-2xl transform hover:scale-110 transition-transform duration-300">
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/30 to-transparent"></div>
+                  <Calendar className="h-16 w-16 sm:h-20 sm:w-20 text-white drop-shadow-lg relative z-10" />
                 </div>
-                <p className="text-sm sm:text-base text-yellow-700 mt-4 font-medium bg-yellow-200/50 px-4 py-2 rounded-lg">
-                  ⚠️ Attendance marking is disabled for this date.
-                </p>
+                {/* Sparkle effects */}
+                <div className="absolute -top-2 -right-2 w-6 h-6 bg-yellow-300 rounded-full animate-ping"></div>
+                <div className="absolute -bottom-2 -left-2 w-4 h-4 bg-amber-300 rounded-full animate-ping delay-300"></div>
+              </div>
+              
+              {/* Premium Badge */}
+              <div className="relative">
+                <Badge className="bg-gradient-to-r from-yellow-500 via-amber-500 to-yellow-500 text-white border-0 text-lg sm:text-xl px-6 py-3 font-bold shadow-xl transform hover:scale-105 transition-transform duration-200">
+                  <Calendar className="h-5 w-5 sm:h-6 sm:w-6 mr-2" />
+                  <span className="tracking-wider">HOLIDAY</span>
+                </Badge>
+                <div className="absolute -inset-1 bg-gradient-to-r from-yellow-400 to-amber-400 rounded-lg blur opacity-50 -z-10"></div>
+              </div>
+              
+              {/* Main Title */}
+              <div>
+                <h3 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold bg-gradient-to-r from-yellow-700 via-amber-700 to-yellow-700 bg-clip-text text-transparent mb-6 drop-shadow-sm">
+                  Holiday Declared
+                </h3>
+                
+                {/* Premium Card for Holiday Details */}
+                <div className="relative max-w-md mx-auto">
+                  {/* Card glow effect */}
+                  <div className="absolute -inset-1 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-400 rounded-2xl blur opacity-30"></div>
+                  
+                  {/* Main card */}
+                  <div className="relative bg-white/95 backdrop-blur-sm rounded-2xl p-6 sm:p-8 shadow-2xl border-2 border-yellow-200/50">
+                    {/* Decorative top border */}
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-yellow-400 to-transparent"></div>
+                    
+                    {/* Holiday Reason */}
+                    <div className="mb-4">
+                      <p className="text-2xl sm:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-yellow-600 to-amber-600 bg-clip-text text-transparent">
+                        {selectedHoliday.reason}
+                      </p>
+                    </div>
+                    
+                    {/* Date with icon */}
+                    <div className="flex items-center justify-center gap-3 mt-6 pt-6 border-t-2 border-yellow-200/50">
+                      <div className="p-2 bg-gradient-to-br from-yellow-100 to-amber-100 rounded-lg">
+                        <Calendar className="h-5 w-5 sm:h-6 sm:w-6 text-yellow-700" />
+                      </div>
+                      <p className="text-base sm:text-lg lg:text-xl font-semibold text-gray-700">
+                        {new Date(selectedHoliday.date).toLocaleDateString('en-US', { 
+                          weekday: 'long', 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric' 
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Warning Message - Premium Style */}
+                <div className="mt-8 max-w-md mx-auto">
+                  <div className="relative bg-gradient-to-r from-amber-100 via-yellow-100 to-amber-100 rounded-xl p-4 sm:p-5 border-2 border-amber-300/50 shadow-lg">
+                    <div className="flex items-center justify-center gap-3">
+                      <div className="p-2 bg-amber-200 rounded-full">
+                        <AlertCircle className="h-5 w-5 sm:h-6 sm:w-6 text-amber-700" />
+                      </div>
+                      <p className="text-sm sm:text-base font-semibold text-amber-800">
+                        Attendance marking is disabled for this date
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </CardContent>

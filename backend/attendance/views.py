@@ -2031,6 +2031,18 @@ def update_holiday(request, holiday_id):
         if not allowed and not request.user.is_superuser:
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
+        # Check if holiday can be edited (must be at least 12 hours before holiday date)
+        holiday_date = holiday.date
+        # Create datetime at start of holiday date (midnight)
+        holiday_datetime = timezone.make_aware(datetime.combine(holiday_date, datetime.min.time()))
+        # Calculate 12 hours before holiday date
+        twelve_hours_before = holiday_datetime - timedelta(hours=12)
+        
+        if timezone.now() >= twelve_hours_before:
+            return Response({
+                'error': f'Cannot edit holiday within 12 hours of the holiday date. Holiday is on {holiday_date.strftime("%B %d, %Y")}.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
         date_str = request.data.get('date')
         reason = request.data.get('reason')
         level_id = request.data.get('level_id')
@@ -2267,7 +2279,18 @@ def delete_holiday(request, holiday_id):
         if not allowed and not request.user.is_superuser:
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
         
+        # Check if holiday can be deleted (must be at least 12 hours before holiday date)
         holiday_date = holiday.date
+        # Create datetime at start of holiday date (midnight)
+        holiday_datetime = timezone.make_aware(datetime.combine(holiday_date, datetime.min.time()))
+        # Calculate 12 hours before holiday date
+        twelve_hours_before = holiday_datetime - timedelta(hours=12)
+        
+        if timezone.now() >= twelve_hours_before:
+            return Response({
+                'error': f'Cannot delete holiday within 12 hours of the holiday date. Holiday is on {holiday_date.strftime("%B %d, %Y")}.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
         holiday_level = holiday.level
         holiday_reason = holiday.reason
         

@@ -235,10 +235,24 @@ export default function CoordinatorHolidayManagement({ levels, onSuccess }: Coor
     }
   }
 
-  // Filter to show only upcoming holidays (date > today, excluding today and past)
+  // Check if holiday can be edited/deleted (must be at least 12 hours before holiday date)
+  const canEditOrDeleteHoliday = (holidayDate: string) => {
+    const now = new Date()
+    const holidayDateTime = new Date(holidayDate)
+    holidayDateTime.setHours(0, 0, 0, 0) // Set to start of holiday date
+    
+    // Calculate 12 hours before holiday date
+    const twelveHoursBefore = new Date(holidayDateTime)
+    twelveHoursBefore.setHours(twelveHoursBefore.getHours() - 12)
+    
+    // Can edit/delete if current time is before 12 hours before holiday date
+    return now < twelveHoursBefore
+  }
+
+  // Filter to show current and upcoming holidays (date >= today, excluding past)
   const today = new Date().toISOString().split('T')[0]
   const filteredHolidays = holidays
-    .filter(h => h.date > today) // Only future holidays (exclude today and past)
+    .filter(h => h.date >= today) // Include today and future holidays (exclude past)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
   return (
@@ -282,11 +296,17 @@ export default function CoordinatorHolidayManagement({ levels, onSuccess }: Coor
         </Button>
       </div>
 
-      {/* Summary Stats - Only Upcoming */}
-      <div className="flex-shrink-0">
+      {/* Summary Stats - Current and Upcoming Separated */}
+      <div className="flex-shrink-0 grid grid-cols-2 gap-3">
+        <Card className="text-center p-3 sm:p-4 bg-gradient-to-r from-blue-50 to-blue-100 border-2 border-blue-200">
+          <div className="text-2xl sm:text-3xl font-bold text-blue-600 mb-1">
+            {holidays.filter(h => isHolidayToday(h.date)).length}
+          </div>
+          <div className="text-xs sm:text-sm font-semibold text-blue-700">Current Holidays</div>
+        </Card>
         <Card className="text-center p-3 sm:p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200">
           <div className="text-2xl sm:text-3xl font-bold text-green-600 mb-1">
-            {filteredHolidays.length}
+            {holidays.filter(h => isHolidayUpcoming(h.date)).length}
           </div>
           <div className="text-xs sm:text-sm font-semibold text-green-700">Upcoming Holidays</div>
         </Card>
@@ -349,19 +369,23 @@ export default function CoordinatorHolidayManagement({ levels, onSuccess }: Coor
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 h-8 w-8 p-0"
+                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 h-8 w-8 p-0 disabled:opacity-50 disabled:cursor-not-allowed"
                             onClick={() => handleEditClick(holiday)}
+                            disabled={!canEditOrDeleteHoliday(holiday.date)}
+                            title={!canEditOrDeleteHoliday(holiday.date) ? 'Cannot edit holiday within 12 hours of the holiday date' : 'Edit holiday'}
                           >
                             <Edit className="w-4 h-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0 disabled:opacity-50 disabled:cursor-not-allowed"
                             onClick={() => {
                               setDeletingHolidayId(holiday.id)
                               setShowDeleteConfirm(true)
                             }}
+                            disabled={!canEditOrDeleteHoliday(holiday.date)}
+                            title={!canEditOrDeleteHoliday(holiday.date) ? 'Cannot delete holiday within 12 hours of the holiday date' : 'Delete holiday'}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
