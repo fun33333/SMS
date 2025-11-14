@@ -498,6 +498,31 @@ export default function StudentListPage() {
     setShowDobPicker(false);
   };
 
+  const handleDelete = async (student: Student) => {
+    const confirm = window.confirm(`Are you sure you want to delete ${student.name}?`);
+    if (!confirm) return;
+    try {
+      const base = getApiBaseUrl();
+      const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+      const response = await fetch(`${cleanBase}/api/students/${student.id}/`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('sis_access_token')}`,
+        },
+      });
+      if (response.ok || response.status === 204) {
+        alert(`✅ Student ${student.name} deleted successfully.`);
+        fetchStudents();
+      } else {
+        const text = await response.text();
+        alert(`Error deleting student: ${response.status} - ${text}`);
+      }
+    } catch (error) {
+      console.error('Error deleting student:', error);
+      alert('Failed to delete student. Please try again.');
+    }
+  };
+
   // Define table columns
   const columns = [
     {
@@ -686,26 +711,6 @@ export default function StudentListPage() {
               <option value="D">D</option>
             </select>
                </div>
-               
-          {/* Status Filter */}
-               {/* <div>
-            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
-              Status
-            </label>
-                 <select
-              value={filters.current_state}
-              onChange={(e) => handleFilterChange('current_state', e.target.value)}
-              className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
-              style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
-            >
-              <option value="">All Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="terminated">Terminated</option>
-                 </select>
-               </div> */}
-               
-          {/* Shift Filter */}
                <div>
             <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
               Shift
@@ -730,9 +735,11 @@ export default function StudentListPage() {
         columns={columns}
         onView={(student) => router.push(`/admin/students/profile?id=${student.id}`)}
         onEdit={(student) => handleEdit(student)}
+        onDelete={(student) => handleDelete(student)}
         isLoading={loading}
         emptyMessage="No students found"
-        allowEdit={userRole !== 'superadmin' && userRole !== 'principal'} // Coordinator and teacher can edit
+        allowEdit={userRole !== 'superadmin'} // Coordinator and teacher can edit
+        allowDelete={userRole !== 'superadmin'}
       />
 
       <PaginationControls
@@ -754,22 +761,22 @@ export default function StudentListPage() {
 
       {/* Edit Student Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-4xl max-h-[90vh] overflow-y-auto px-4 sm:px-6 py-6 rounded-3xl">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold transition-all duration-150 ease-in-out transform hover:shadow-lg active:scale-95 active:shadow-md" style={{ color: '#274c77' }}>
               Edit Student - {editingStudent?.name}
             </DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-6">
+          <div className="space-y-6 text-sm sm:text-base">
             {/* Personal Information */}
-            <div className="bg-gray-50 p-4 rounded-lg">
+            <div className="bg-gray-50 p-4 sm:p-5 rounded-2xl border border-[#e4ecf5] shadow-inner">
               <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Personal Information</h3>
               
               {/* Photo Upload */}
               <div className="mb-6">
                 <Label htmlFor="photo">Profile Photo</Label>
-                <div className="flex items-start space-x-4">
+                <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
                   {editFormData.photo ? (
                     <div className="relative">
                       <img 
@@ -903,7 +910,7 @@ export default function StudentListPage() {
             </div>
 
             {/* Father Information */}
-            <div className="bg-gray-50 p-4 rounded-lg">
+            <div className="bg-gray-50 p-4 sm:p-5 rounded-2xl border border-[#e4ecf5] shadow-inner">
               <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Father Information</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -958,7 +965,7 @@ export default function StudentListPage() {
             </div>
 
             {/* Guardian Information */}
-            <div className="bg-gray-50 p-4 rounded-lg">
+            <div className="bg-gray-50 p-4 sm:p-5 rounded-2xl border border-[#e4ecf5] shadow-inner">
               <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Guardian Information</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1001,7 +1008,7 @@ export default function StudentListPage() {
             </div>
 
             {/* Academic Information */}
-            <div className="bg-gray-50 p-4 rounded-lg">
+            <div className="bg-gray-50 p-4 sm:p-5 rounded-2xl border border-[#e4ecf5] shadow-inner">
               <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Academic Information</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1045,7 +1052,7 @@ export default function StudentListPage() {
             </div>
 
             {/* Family Information */}
-            <div className="bg-gray-50 p-4 rounded-lg">
+            <div className="bg-gray-50 p-4 sm:p-5 rounded-2xl border border-[#e4ecf5] shadow-inner">
               <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Family Information</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1094,18 +1101,18 @@ export default function StudentListPage() {
             </div>
           </div>
 
-          <div className="flex justify-end space-x-3 mt-6 transition-all duration-150 ease-in-out transform hover:shadow-lg active:scale-95 active:shadow-md">
+          <div className="flex flex-col sm:flex-row sm:justify-end gap-3 mt-6 transition-all duration-150">
             <Button
               onClick={handleEditClose}
               variant="outline"
-              className="px-6"
+              className="px-6 w-full sm:w-auto"
             >
               Cancel
             </Button>
             <Button
               onClick={handleEditSubmit}
               disabled={isSubmitting}
-              className="px-6"
+              className="px-6 w-full sm:w-auto"
               style={{ backgroundColor: '#6096ba' }}
             >
               {isSubmitting ? (

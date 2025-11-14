@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Users, Building2, GraduationCap, TrendingUp, LogOut, Award, Calendar, ArrowRightLeft, LayoutDashboard, Calendar1 } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 
 
 
@@ -74,6 +74,18 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
   }, [sidebarOpen, isMobile, isTablet]);
 
   const pathname = usePathname()
+  const previousPathRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const previousPath = previousPathRef.current;
+    const isNewRoute = previousPath !== null && previousPath !== pathname;
+
+    if (isNewRoute && (isMobile || isTablet) && sidebarOpen) {
+      setSidebarOpen(false);
+    }
+
+    previousPathRef.current = pathname;
+  }, [pathname, isMobile, isTablet, sidebarOpen, setSidebarOpen]);
   const [userRole, setUserRole] = useState<string | null>(null);
   useEffect(() => {
     // Sync role if localStorage changes (e.g., login/logout in another tab)
@@ -179,7 +191,7 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
         subItems: [],
       }, {
         key: "attendance",
-        title: "Attendance",
+        title: "Attendance Review",
         icon: Calendar,
         href: "/admin/coordinator/attendance-review",
         subItems: [],
@@ -471,7 +483,7 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
 
                 return (
                   <div key={item.key}>
-                    <Link href={item.href}>
+                    <Link href={item.href} onClick={autoCloseSidebar}>
                       <button
                         className={`w-full flex ${sidebarOpen ? "items-center gap-3 px-4 py-3" : "justify-center items-center p-0"} rounded-xl font-semibold shadow-lg transition-all duration-500 ${isActive ? "bg-[#6096ba] text-[#e7ecef] shadow-xl" : "text-[#274c77] hover:bg-[#a3cef1]"}`}
                         style={{

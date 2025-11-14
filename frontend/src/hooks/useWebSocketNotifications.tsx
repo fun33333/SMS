@@ -23,6 +23,25 @@ export function useWebSocketNotifications() {
   const [isConnected, setIsConnected] = useState(false)
   const [usePolling, setUsePolling] = useState(false)
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const manualCloseRef = useRef(false)
+  const consecutiveFailuresRef = useRef(0)
+  const backendHintShownRef = useRef(false)
+  const MAX_FAILURES_BEFORE_POLLING = 3
+
+  const describeReadyState = (state: number) => {
+    switch (state) {
+      case WebSocket.CONNECTING:
+        return 'CONNECTING (0)'
+      case WebSocket.OPEN:
+        return 'OPEN (1)'
+      case WebSocket.CLOSING:
+        return 'CLOSING (2)'
+      case WebSocket.CLOSED:
+        return 'CLOSED (3)'
+      default:
+        return `UNKNOWN (${state})`
+    }
+  }
 
   const connectWebSocket = useCallback(() => {
     const token = localStorage.getItem('sis_access_token')
@@ -38,6 +57,7 @@ export function useWebSocketNotifications() {
 
     // Close existing connection if any
     if (wsRef.current) {
+      manualCloseRef.current = true
       wsRef.current.close()
       wsRef.current = null
     }
@@ -62,12 +82,20 @@ export function useWebSocketNotifications() {
     console.log('📍 API Base URL:', apiBaseUrl)
 
     try {
+      manualCloseRef.current = false
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
       ws.onopen = () => {
         console.log('✅ WebSocket connected successfully')
         setIsConnected(true)
+        consecutiveFailuresRef.current = 0
+        setUsePolling((prev) => {
+          if (prev) {
+            console.log('🔁 WebSocket recovered - disabling polling fallback')
+          }
+          return false
+        })
         // Clear any reconnect timeout
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current)
@@ -109,17 +137,28 @@ export function useWebSocketNotifications() {
       }
 
       ws.onerror = (error) => {
-        console.error('❌ WebSocket error occurred')
-        console.error('Error event:', error)
-        console.error('WebSocket readyState:', ws.readyState)
-        console.error('WebSocket URL (masked):', wsUrl.replace(token, 'TOKEN'))
-        
-        // Provide helpful error message
-        if (ws.readyState === WebSocket.CLOSED) {
-          console.error('💡 Tip: Make sure backend is running with ASGI server (daphne)')
-          console.error('💡 Run: daphne -b 0.0.0.0 -p 8000 backend.asgi:application')
+        if (manualCloseRef.current) {
+          return
         }
-        
+
+        const maskedUrl = wsUrl.replace(token, 'TOKEN')
+        const readyStateLabel = describeReadyState(ws.readyState)
+
+        const payload: Record<string, unknown> = {
+          type: error?.type,
+          message: (error as ErrorEvent)?.message,
+          url: maskedUrl,
+          readyState: readyStateLabel,
+        }
+
+        if (error instanceof CloseEvent) {
+          payload.code = error.code
+          payload.reason = error.reason
+          payload.wasClean = error.wasClean
+        }
+
+        console.warn('⚠️ WebSocket transient issue detected', payload)
+
         setIsConnected(false)
       }
 
@@ -147,24 +186,40 @@ export function useWebSocketNotifications() {
         })
         
         setIsConnected(false)
-        
-        // If connection fails multiple times, fallback to polling
-        if (event.code === 1006 || event.code === 1002) {
-          console.warn('⚠️ WebSocket connection failed - falling back to polling')
-          setUsePolling(true)
+
+        if (manualCloseRef.current) {
+          manualCloseRef.current = false
+          return
+        }
+
+        // Don't reconnect on authentication errors (4003) or no token (4001)
+        if (event.code === 4001 || event.code === 4003) {
+          console.error('🚫 Authentication failed - not reconnecting')
           return
         }
         
-        // Only reconnect if it wasn't a clean close (code 1000) and not manually closed
-        // Don't reconnect on authentication errors (4003) or no token (4001)
-        if (event.code !== 1000 && event.code !== 4001 && event.code !== 4003 && !reconnectTimeoutRef.current) {
-          console.log('🔄 Will attempt to reconnect in 3 seconds...')
-          reconnectTimeoutRef.current = setTimeout(() => {
-            reconnectTimeoutRef.current = null
-            connectWebSocket()
-          }, 3000)
-        } else if (event.code === 4001 || event.code === 4003) {
-          console.error('🚫 Authentication failed - not reconnecting')
+        if (event.code !== 1000) {
+          consecutiveFailuresRef.current += 1
+
+          if (consecutiveFailuresRef.current >= MAX_FAILURES_BEFORE_POLLING) {
+            console.warn('⚠️ WebSocket connection failed repeatedly - falling back to polling')
+            setUsePolling(true)
+            if (!backendHintShownRef.current) {
+              console.info(
+                '💡 Check that the ASGI server is running (e.g. daphne -b 0.0.0.0 -p 8000 backend.asgi:application)'
+              )
+              backendHintShownRef.current = true
+            }
+            return
+          }
+        
+          if (!reconnectTimeoutRef.current) {
+            console.log('🔄 WebSocket will attempt to reconnect in 3 seconds...')
+            reconnectTimeoutRef.current = setTimeout(() => {
+              reconnectTimeoutRef.current = null
+              connectWebSocket()
+            }, 3000)
+          }
         }
       }
     } catch (error) {
@@ -175,6 +230,7 @@ export function useWebSocketNotifications() {
 
   const disconnectWebSocket = useCallback(() => {
     if (wsRef.current) {
+      manualCloseRef.current = true
       wsRef.current.close()
       wsRef.current = null
     }
@@ -182,6 +238,7 @@ export function useWebSocketNotifications() {
       clearTimeout(reconnectTimeoutRef.current)
       reconnectTimeoutRef.current = null
     }
+    consecutiveFailuresRef.current = 0
   }, [])
 
   // Send ping to keep connection alive
@@ -192,7 +249,7 @@ export function useWebSocketNotifications() {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: 'ping' }))
       }
-    }, 30000) // Ping every 30 seconds
+    }, 30000) 
 
     return () => clearInterval(pingInterval)
   }, [isConnected])

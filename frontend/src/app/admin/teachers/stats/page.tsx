@@ -39,7 +39,7 @@ type AtRiskReason =
   | { type: 'consecutive_absence'; streakLength: number; startedOn?: string; lastAbsentOn?: string };
 
 interface AtRiskStudent {
-  id: number;
+  id: number | string;
   name: string;
   code?: string;
   reasons: AtRiskReason[];
@@ -225,7 +225,24 @@ export default function TeacherClassDashboard() {
             
             // Compute at-risk students combining low attendance and consecutive absence alerts
             try {
-              const perStudent: Record<number, { name: string; code?: string; present: number; total: number; history: Array<{ date?: string; status: string }> }> = {}
+              const buildStudentKey = (record: any) => {
+                const base =
+                  record.student_id ??
+                  record.student_code ??
+                  record.student_gr_no ??
+                  record.student_name ??
+                  Math.random().toString(36).slice(2)
+                return String(base)
+              }
+
+              const deriveIdValue = (record: any): number | string => {
+                if (record.student_id !== undefined && record.student_id !== null) return record.student_id
+                if (record.student_code) return record.student_code
+                if (record.student_gr_no) return record.student_gr_no
+                return record.student_name || "unknown"
+              }
+
+              const perStudent: Record<string, { name: string; code?: string; present: number; total: number; history: Array<{ date?: string; status: string }>; idValue: number | string }> = {}
               if (Array.isArray(last30DaysHistory)) {
                 last30DaysHistory.forEach((sheet: any) => {
                   const arr = sheet.student_attendance || []
@@ -242,47 +259,55 @@ export default function TeacherClassDashboard() {
                   }
 
                   arr.forEach((r: any) => {
-                    const sid = Number(r.student_id)
+                    const key = buildStudentKey(r)
                     const studentCode = r.student_code || r.student_id || r.student_gr_no
-                    if (!perStudent[sid]) {
-                      perStudent[sid] = { name: r.student_name || `ID ${sid}`, code: studentCode, present: 0, total: 0, history: [] }
-                    } else if (!perStudent[sid].code && studentCode) {
-                      perStudent[sid].code = studentCode
+                    if (!perStudent[key]) {
+                      perStudent[key] = {
+                        name: r.student_name || String(key),
+                        code: studentCode,
+                        present: 0,
+                        total: 0,
+                        history: [],
+                        idValue: deriveIdValue(r),
+                      }
+                    } else if (!perStudent[key].code && studentCode) {
+                      perStudent[key].code = studentCode
                     }
-                    perStudent[sid].total += 1
-                    if (r.status === 'present') perStudent[sid].present += 1
-                    perStudent[sid].history.push({ date: sheetDate, status: r.status })
+                    perStudent[key].total += 1
+                    if (r.status === 'present') perStudent[key].present += 1
+                    perStudent[key].history.push({ date: sheetDate, status: r.status })
                   })
                 })
               }
 
               const lowAttendanceList = Object.entries(perStudent)
-                .map(([id, v]) => ({
-                  id: Number(id),
+                .map(([key, v]) => ({
+                  key,
+                  idValue: v.idValue ?? key,
                   name: v.name,
                   code: v.code,
-                  attendanceRate: v.total ? Math.round((v.present / v.total) * 100) : 0
+                  attendanceRate: v.total ? Math.round((v.present / v.total) * 100) : 0,
                 }))
                 .filter(x => x.attendanceRate < 80)
 
-              const riskMap = new Map<number, AtRiskStudent>()
+              const riskMap = new Map<string, AtRiskStudent>()
 
-              const ensureRiskEntry = (id: number, name: string, code?: string) => {
-                if (!riskMap.has(id)) {
-                  riskMap.set(id, { id, name, code, reasons: [] })
+              const ensureRiskEntry = (key: string, idValue: number | string, name: string, code?: string) => {
+                if (!riskMap.has(key)) {
+                  riskMap.set(key, { id: idValue, name, code, reasons: [] })
                 }
-                const entry = riskMap.get(id)!
+                const entry = riskMap.get(key)!
                 if (code && !entry.code) entry.code = code
                 return entry
               }
 
               lowAttendanceList.forEach((student) => {
-                const entry = ensureRiskEntry(student.id, student.name, student.code)
+                const entry = ensureRiskEntry(String(student.key), student.idValue, student.name, student.code)
                 entry.reasons.push({ type: 'low_attendance', attendanceRate: student.attendanceRate })
               })
 
               const consecutiveAbsenceList = Object.entries(perStudent)
-                .map(([id, info]) => {
+                .map(([key, info]) => {
                   const sortedHistory = [...info.history].filter((record) => record.status && record.date).sort((a, b) => {
                     if (!a.date || !b.date) return 0
                     return new Date(b.date).getTime() - new Date(a.date).getTime()
@@ -290,13 +315,28 @@ export default function TeacherClassDashboard() {
                   let streak = 0
                   let lastAbsentOn: string | undefined
                   let streakStart: string | undefined
+                  let previousDate: Date | undefined
 
                   for (const record of sortedHistory) {
+                    if (!record.date) break
+                    const current = new Date(record.date)
+                    if (isNaN(current.getTime())) break
+
                     if (record.status === 'absent') {
-                      streak += 1
-                      if (!lastAbsentOn) {
+                      if (!previousDate) {
+                        streak = 1
                         lastAbsentOn = record.date
+                        streakStart = record.date
+                        previousDate = current
+                        continue
                       }
+
+                      const diffDays = Math.round((previousDate.getTime() - current.getTime()) / 86400000)
+                      if (diffDays !== 1) {
+                        break
+                      }
+                      streak += 1
+                      previousDate = current
                       streakStart = record.date || streakStart
                     } else if (record.status === 'leave') {
                       streak = 0
@@ -307,7 +347,8 @@ export default function TeacherClassDashboard() {
                   }
 
                   return {
-                    id: Number(id),
+                    key,
+                    idValue: info.idValue ?? key,
                     name: info.name,
                     code: info.code,
                     streakLength: streak,
@@ -318,7 +359,7 @@ export default function TeacherClassDashboard() {
                 .filter((item) => item.streakLength >= 3)
 
               consecutiveAbsenceList.forEach((student) => {
-                const entry = ensureRiskEntry(student.id, student.name, student.code)
+                const entry = ensureRiskEntry(String(student.key), student.idValue, student.name, student.code)
                 entry.reasons.push({
                   type: 'consecutive_absence',
                   streakLength: student.streakLength,

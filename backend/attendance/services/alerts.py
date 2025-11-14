@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Optional, Sequence, TYPE_CHECKING
 
 from django.db.models import QuerySet
@@ -65,13 +66,24 @@ def _recent_attendance_queryset(student_id: int, classroom_id: int, up_to_date) 
     )
 
 
-def _calculate_absence_streak(records: Sequence[StudentAttendance]) -> int:
-    """Count consecutive 'absent' statuses starting from the most recent record."""
+def _calculate_absence_streak(records: Sequence[StudentAttendance], anchor_date) -> int:
+    """
+    Count consecutive 'absent' statuses starting from the provided anchor date.
+    Ensures dates are contiguous (no gaps) so weekends or missing days break the streak.
+    """
     streak = 0
+    expected_date = anchor_date
+
     for record in records:
+        record_date = record.attendance.date
         if record.status != "absent":
             break
+        if record_date != expected_date:
+            break
+
         streak += 1
+        expected_date = expected_date - timedelta(days=1)
+
     return streak
 
 
@@ -112,8 +124,8 @@ def process_consecutive_absence_alerts(attendance) -> list[ConsecutiveAbsenceAle
         if not recent_records:
             continue
 
-        streak = _calculate_absence_streak(recent_records)
-        if streak != 3:
+        streak = _calculate_absence_streak(recent_records, attendance.date)
+        if streak < 3:
             continue
 
         student = student_attendance.student
@@ -129,7 +141,7 @@ def process_consecutive_absence_alerts(attendance) -> list[ConsecutiveAbsenceAle
         )
         alerts.append(alert)
 
-        verb = f"{student.name} has missed class for 3 consecutive days"
+        verb = f"{student.name} has missed class for {streak} consecutive days"
         target_text = f"Class {classroom} • Please reach out to the student or guardians."
         create_notification(
             recipient=teacher_user,

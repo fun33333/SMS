@@ -3,20 +3,27 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Calendar, RefreshCw, AlertCircle, Users, Eye, Edit3, Save } from "lucide-react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription, DialogClose } from '@/components/ui/dialog'
+import { Calendar, RefreshCw, AlertCircle, Users } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { Badge } from "@/components/ui/badge"
-// Tabs UI removed - using card grid view instead
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
 import { getCurrentUserProfile, getCoordinatorClasses, getAttendanceForDate, editAttendance, getStoredUserProfile, ApiError, getHolidays } from "@/lib/api"
 import { useRouter } from "next/navigation"
-import HolidayManagement from "@/components/attendance/holiday-management"
-import BackfillPermission from "@/components/attendance/backfill-permission"
-import HolidayAssignmentModal from "@/components/attendance/holiday-assignment-modal"
 import CoordinatorHolidayManagement from "@/components/attendance/coordinator-holiday-management"
 
 
+
+const normalizeShiftLabel = (shift?: string | null) => {
+  if (!shift) return 'morning'
+  const value = shift.toString().trim().toLowerCase()
+  if (!value) return 'morning'
+  if (['all', 'both', 'morning+afternoon', 'morning + afternoon'].includes(value)) return 'both'
+  if (value.startsWith('morn')) return 'morning'
+  if (value.startsWith('after')) return 'afternoon'
+  if (value.startsWith('even')) return 'evening'
+  if (value.startsWith('night')) return 'night'
+  return value
+}
 
 interface CoordinatorProfile {
   level?: {
@@ -74,7 +81,8 @@ export default function AttendanceReviewPage() {
   const [classroomAttendanceSummary, setClassroomAttendanceSummary] = useState<any[]>([]);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [approvalComment, setApprovalComment] = useState('');
-  const [availableLevels, setAvailableLevels] = useState<Array<{ id: number; name: string; shift?: string }>>([]);
+  const [availableLevels, setAvailableLevels] = useState<Array<{ id: number; name: string; shift: string }>>([]);
+  const [levelShiftSummary, setLevelShiftSummary] = useState<Record<number, string>>({});
   const [selectedLevelId, setSelectedLevelId] = useState<number | 'all' | null>(null);
   const [availableShifts, setAvailableShifts] = useState<string[]>([]);
   const [selectedShift, setSelectedShift] = useState<string | null>('all');
@@ -288,33 +296,48 @@ export default function AttendanceReviewPage() {
 
   // Recompute available levels whenever classrooms or selectedShift change
   useEffect(() => {
-    const levelMapAll = new Map<number, { id: number; name: string; shift?: string }>();
-    const levelMapFiltered = new Map<number, { id: number; name: string; shift?: string }>();
+    const levelMapAll = new Map<number, { id: number; name: string; shift: string }>();
+    const levelMapFiltered = new Map<number, { id: number; name: string; shift: string }>();
+    const shiftSummary: Record<number, string> = {};
 
     classrooms.forEach((c: any) => {
       if (c.level && c.level.id) {
+        const normalizedShift = normalizeShiftLabel(c.level.shift ?? c.shift ?? null);
         levelMapAll.set(c.level.id, {
           id: c.level.id,
           name: c.level.name,
-          shift: c.level.shift,
+          shift: normalizedShift,
         });
+        const existing = shiftSummary[c.level.id];
+        if (!existing) {
+          shiftSummary[c.level.id] = normalizedShift;
+        } else if (existing !== normalizedShift) {
+          shiftSummary[c.level.id] = 'both';
+        }
       }
     });
 
-    const filtered = (selectedShift && selectedShift !== 'all') ? classrooms.filter(c => c.shift === selectedShift) : classrooms;
+    const filtered = (selectedShift && selectedShift !== 'all')
+      ? classrooms.filter((c: any) => normalizeShiftLabel(c.shift ?? c.level?.shift ?? null) === selectedShift)
+      : classrooms;
     filtered.forEach((c: any) => {
       if (c.level && c.level.id) {
+        const normalizedShift = normalizeShiftLabel(c.level.shift ?? c.shift ?? null);
         levelMapFiltered.set(c.level.id, {
           id: c.level.id,
           name: c.level.name,
-          shift: c.level.shift,
+          shift: normalizedShift,
         });
       }
     });
 
-    const allLevels = Array.from(levelMapAll.values());
+    const allLevels = Array.from(levelMapAll.values()).map((level) => ({
+      ...level,
+      shift: shiftSummary[level.id] || level.shift || 'morning',
+    }));
     const filteredLevels = Array.from(levelMapFiltered.values());
     setAvailableLevels(allLevels);
+    setLevelShiftSummary(shiftSummary);
 
     // Adjust selectedLevelId if it no longer exists in available levels
     const exists = filteredLevels.some(l => l.id === selectedLevelId);
@@ -326,8 +349,10 @@ export default function AttendanceReviewPage() {
 
   // Recompute available grades whenever classrooms, selectedShift or selectedLevelId change
   useEffect(() => {
-    const filtered = (selectedShift && selectedShift !== 'all') ? classrooms.filter(c => c.shift === selectedShift) : classrooms;
-    const furtherFiltered = (selectedLevelId && selectedLevelId !== 'all') ? filtered.filter(c => c.level && c.level.id === selectedLevelId) : filtered;
+    const filtered = (selectedShift && selectedShift !== 'all')
+      ? classrooms.filter((c: any) => normalizeShiftLabel(c.shift ?? c.level?.shift ?? null) === selectedShift)
+      : classrooms;
+    const furtherFiltered = (selectedLevelId && selectedLevelId !== 'all') ? filtered.filter((c: any) => c.level && c.level.id === selectedLevelId) : filtered;
     const gradeSet = new Set<string>();
     furtherFiltered.forEach((c: any) => {
       if (c.grade) gradeSet.add(c.grade);
@@ -1250,7 +1275,7 @@ export default function AttendanceReviewPage() {
                 : (coordinatorProfile?.assigned_levels || []).map((level: any) => ({
                     id: level.id,
                     name: level.name,
-                    shift: level.shift,
+                    shift: levelShiftSummary[level.id] || 'both',
                   }))
               }
               onSuccess={() => {

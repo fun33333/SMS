@@ -100,13 +100,22 @@ interface CoordinatorHolidayManagementProps {
   onSuccess?: () => void
 }
 
-const SHIFT_ORDER = ['morning', 'afternoon', 'evening', 'night']
+const SHIFT_ORDER = ['both', 'morning', 'afternoon', 'evening', 'night']
 
 const normalizeShiftValue = (shift?: string | null) => {
   if (!shift) return 'morning'
-  const value = shift.toString().toLowerCase()
-  if (value === 'all') return 'both'
-  return value
+  const raw = shift.toString().trim().toLowerCase()
+  if (!raw) return 'morning'
+
+  if (['all', 'both', 'morning+afternoon', 'morning + afternoon'].includes(raw)) {
+    return 'both'
+  }
+  if (raw.startsWith('morn')) return 'morning'
+  if (raw.startsWith('after')) return 'afternoon'
+  if (raw.startsWith('even')) return 'evening'
+  if (raw.startsWith('night')) return 'night'
+
+  return raw
 }
 
 const collectShiftOptions = (levels: Level[]) => {
@@ -114,13 +123,29 @@ const collectShiftOptions = (levels: Level[]) => {
   levels.forEach((level) => {
     unique.add(normalizeShiftValue(level.shift))
   })
+
   const ordered = SHIFT_ORDER.filter((shift) => unique.has(shift))
-  const extras = Array.from(unique).filter((shift) => !SHIFT_ORDER.includes(shift))
-  const options = [...ordered, ...extras]
+  const extras = Array.from(unique).filter(
+    (shift) => !SHIFT_ORDER.includes(shift)
+  )
+
+  let options = [...ordered, ...extras]
+
   if (unique.size > 1 && !options.includes('both')) {
-    options.push('both')
+    options = ['both', ...options]
   }
-  return options.length > 0 ? options : ['morning']
+
+  if (options.length === 0) {
+    options = ['morning']
+  }
+
+  // Ensure options are unique while preserving order
+  const seen = new Set<string>()
+  return options.filter((option) => {
+    if (seen.has(option)) return false
+    seen.add(option)
+    return true
+  })
 }
 
 const filterLevelsByShift = (levels: Level[], shift: string) => {
@@ -758,19 +783,23 @@ export default function CoordinatorHolidayManagement({ levels, onSuccess }: Coor
       </div>
 
       {/* Create/Edit Dialog */}
-      <Dialog open={showCreateDialog || showEditDialog} onOpenChange={(open) => {
-        if (!open) {
-          resetForm()
-        }
-      }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+      <Dialog
+        open={showCreateDialog || showEditDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            resetForm()
+          }
+        }}
+      >
+        <DialogContent className="w-[min(94vw,900px)] max-w-3xl p-0 sm:p-6 overflow-hidden">
+          <DialogHeader className="px-4 pt-4 pb-2 sm:px-0 sm:pt-0">
             <DialogTitle className="flex items-center gap-2">
               <Calendar className="w-5 h-5" />
               {editingHoliday ? 'Edit Holiday' : 'Create New Holiday'}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleCreateHoliday} className="space-y-4">
+          <form onSubmit={handleCreateHoliday} className="flex flex-col gap-4">
+            <div className="space-y-4 overflow-y-auto px-4 pb-4 sm:px-0 sm:pb-0 max-h-[70vh]">
             <div className="space-y-2">
               <Label className="flex items-center gap-1">
                 Shift <span className="text-red-500">*</span>
@@ -894,7 +923,8 @@ export default function CoordinatorHolidayManagement({ levels, onSuccess }: Coor
                 required
               />
             </div>
-            <div className="flex justify-end gap-2">
+            </div>
+            <div className="flex justify-end gap-2 border-t border-gray-200 px-4 py-4 sm:px-0">
               <Button
                 type="button"
                 variant="outline"
