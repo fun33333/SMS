@@ -1834,11 +1834,18 @@ export async function getBackfillPermissions() {
 }
 
 // Holiday Management
-export async function createHoliday(data: {
+type HolidayPayload = {
   date: string;
   reason: string;
+  shift?: string;
   level_id?: number;
-}) {
+  level_ids?: number[];
+  grade_ids?: number[];
+};
+
+type HolidayUpdatePayload = HolidayPayload;
+
+export async function createHoliday(data: HolidayPayload) {
   try {
     return await apiPost('/api/attendance/holidays/create/', data);
   } catch (error) {
@@ -1847,17 +1854,31 @@ export async function createHoliday(data: {
   }
 }
 
-export async function getHolidays(levelId?: number, startDate?: string, endDate?: string) {
+export interface GetHolidaysParams {
+  levelId?: number;
+  levelIds?: number[];
+  gradeId?: number;
+  gradeIds?: number[];
+  startDate?: string;
+  endDate?: string;
+  shift?: string;
+}
+
+export async function getHolidays(params: GetHolidaysParams = {}) {
   try {
     let url = '/api/attendance/holidays/';
-    const params = new URLSearchParams();
+    const query = new URLSearchParams();
     
-    if (levelId) params.append('level_id', levelId.toString());
-    if (startDate) params.append('start_date', startDate);
-    if (endDate) params.append('end_date', endDate);
+    if (params.levelId) query.append('level_id', params.levelId.toString());
+    params.levelIds?.forEach((id) => query.append('level_ids', id.toString()));
+    if (params.gradeId) query.append('grade_id', params.gradeId.toString());
+    params.gradeIds?.forEach((id) => query.append('grade_ids', id.toString()));
+    if (params.startDate) query.append('start_date', params.startDate);
+    if (params.endDate) query.append('end_date', params.endDate);
+    if (params.shift) query.append('shift', params.shift);
     
-    if (params.toString()) {
-      url += `?${params.toString()}`;
+    if (query.toString()) {
+      url += `?${query.toString()}`;
     }
     
     return await apiGet(url);
@@ -1867,11 +1888,7 @@ export async function getHolidays(levelId?: number, startDate?: string, endDate?
   }
 }
 
-export async function updateHoliday(holidayId: number, data: {
-  date: string;
-  reason: string;
-  level_id?: number;
-}) {
+export async function updateHoliday(holidayId: number, data: HolidayUpdatePayload) {
   try {
     return await apiPut(`/api/attendance/holidays/${holidayId}/`, data);
   } catch (error) {

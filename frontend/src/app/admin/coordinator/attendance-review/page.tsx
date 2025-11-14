@@ -3,20 +3,27 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Calendar, RefreshCw, AlertCircle, Users, Eye, Edit3, Save } from "lucide-react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription, DialogClose } from '@/components/ui/dialog'
+import { Calendar, RefreshCw, AlertCircle, Users } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { Badge } from "@/components/ui/badge"
-// Tabs UI removed - using card grid view instead
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
 import { getCurrentUserProfile, getCoordinatorClasses, getAttendanceForDate, editAttendance, getStoredUserProfile, ApiError, getHolidays } from "@/lib/api"
 import { useRouter } from "next/navigation"
-import HolidayManagement from "@/components/attendance/holiday-management"
-import BackfillPermission from "@/components/attendance/backfill-permission"
-import HolidayAssignmentModal from "@/components/attendance/holiday-assignment-modal"
 import CoordinatorHolidayManagement from "@/components/attendance/coordinator-holiday-management"
 
 
+
+const normalizeShiftLabel = (shift?: string | null) => {
+  if (!shift) return 'morning'
+  const value = shift.toString().trim().toLowerCase()
+  if (!value) return 'morning'
+  if (['all', 'both', 'morning+afternoon', 'morning + afternoon'].includes(value)) return 'both'
+  if (value.startsWith('morn')) return 'morning'
+  if (value.startsWith('after')) return 'afternoon'
+  if (value.startsWith('even')) return 'evening'
+  if (value.startsWith('night')) return 'night'
+  return value
+}
 
 interface CoordinatorProfile {
   level?: {
@@ -74,7 +81,8 @@ export default function AttendanceReviewPage() {
   const [classroomAttendanceSummary, setClassroomAttendanceSummary] = useState<any[]>([]);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [approvalComment, setApprovalComment] = useState('');
-  const [availableLevels, setAvailableLevels] = useState<Array<{ id: number; name: string }>>([]);
+  const [availableLevels, setAvailableLevels] = useState<Array<{ id: number; name: string; shift: string }>>([]);
+  const [levelShiftSummary, setLevelShiftSummary] = useState<Record<number, string>>({});
   const [selectedLevelId, setSelectedLevelId] = useState<number | 'all' | null>(null);
   const [availableShifts, setAvailableShifts] = useState<string[]>([]);
   const [selectedShift, setSelectedShift] = useState<string | null>('all');
@@ -288,26 +296,63 @@ export default function AttendanceReviewPage() {
 
   // Recompute available levels whenever classrooms or selectedShift change
   useEffect(() => {
-    const levelMap = new Map<number, string>();
-    const filtered = (selectedShift && selectedShift !== 'all') ? classrooms.filter(c => c.shift === selectedShift) : classrooms;
-    filtered.forEach((c: any) => {
-      if (c.level && c.level.id) levelMap.set(c.level.id, c.level.name);
+    const levelMapAll = new Map<number, { id: number; name: string; shift: string }>();
+    const levelMapFiltered = new Map<number, { id: number; name: string; shift: string }>();
+    const shiftSummary: Record<number, string> = {};
+
+    classrooms.forEach((c: any) => {
+      if (c.level && c.level.id) {
+        const normalizedShift = normalizeShiftLabel(c.level.shift ?? c.shift ?? null);
+        levelMapAll.set(c.level.id, {
+          id: c.level.id,
+          name: c.level.name,
+          shift: normalizedShift,
+        });
+        const existing = shiftSummary[c.level.id];
+        if (!existing) {
+          shiftSummary[c.level.id] = normalizedShift;
+        } else if (existing !== normalizedShift) {
+          shiftSummary[c.level.id] = 'both';
+        }
+      }
     });
-    const levels = Array.from(levelMap.entries()).map(([id, name]) => ({ id, name }));
-    setAvailableLevels(levels);
+
+    const filtered = (selectedShift && selectedShift !== 'all')
+      ? classrooms.filter((c: any) => normalizeShiftLabel(c.shift ?? c.level?.shift ?? null) === selectedShift)
+      : classrooms;
+    filtered.forEach((c: any) => {
+      if (c.level && c.level.id) {
+        const normalizedShift = normalizeShiftLabel(c.level.shift ?? c.shift ?? null);
+        levelMapFiltered.set(c.level.id, {
+          id: c.level.id,
+          name: c.level.name,
+          shift: normalizedShift,
+        });
+      }
+    });
+
+    const allLevels = Array.from(levelMapAll.values()).map((level) => ({
+      ...level,
+      shift: shiftSummary[level.id] || level.shift || 'morning',
+    }));
+    const filteredLevels = Array.from(levelMapFiltered.values());
+    setAvailableLevels(allLevels);
+    setLevelShiftSummary(shiftSummary);
 
     // Adjust selectedLevelId if it no longer exists in available levels
-    const exists = levels.some(l => l.id === selectedLevelId);
+    const exists = filteredLevels.some(l => l.id === selectedLevelId);
     if (!exists) {
-      if (levels.length === 1) setSelectedLevelId(levels[0].id);
-      else setSelectedLevelId(levels.length > 0 ? 'all' : null);
+      if (filteredLevels.length === 1) setSelectedLevelId(filteredLevels[0].id);
+      else setSelectedLevelId(filteredLevels.length > 0 ? 'all' : null);
     }
   }, [classrooms, selectedShift]);
 
   // Recompute available grades whenever classrooms, selectedShift or selectedLevelId change
   useEffect(() => {
-    const filtered = (selectedShift && selectedShift !== 'all') ? classrooms.filter(c => c.shift === selectedShift) : classrooms;
-    const furtherFiltered = (selectedLevelId && selectedLevelId !== 'all') ? filtered.filter(c => c.level && c.level.id === selectedLevelId) : filtered;
+    const filtered = (selectedShift && selectedShift !== 'all')
+      ? classrooms.filter((c: any) => normalizeShiftLabel(c.shift ?? c.level?.shift ?? null) === selectedShift)
+      : classrooms;
+    const furtherFiltered = (selectedLevelId && selectedLevelId !== 'all') ? filtered.filter((c: any) => c.level && c.level.id === selectedLevelId) : filtered;
     const gradeSet = new Set<string>();
     furtherFiltered.forEach((c: any) => {
       if (c.grade) gradeSet.add(c.grade);
@@ -335,7 +380,11 @@ export default function AttendanceReviewPage() {
         // Fetch holidays for selected date (for checking if date is holiday)
         for (const level of availableLevels) {
           try {
-            const data = await getHolidays(level.id, selectedDate, selectedDate);
+            const data = await getHolidays({
+              levelId: level.id,
+              startDate: selectedDate,
+              endDate: selectedDate,
+            });
             if (Array.isArray(data)) {
               allHolidays.push(...data);
             }
@@ -348,7 +397,10 @@ export default function AttendanceReviewPage() {
         const upcomingHolidays: any[] = [];
         for (const level of availableLevels) {
           try {
-            const data = await getHolidays(level.id, today);
+            const data = await getHolidays({
+              levelId: level.id,
+              startDate: today,
+            });
             if (Array.isArray(data)) {
               // Filter to only future holidays (excluding today)
               const futureHolidays = data.filter((h: any) => {
@@ -770,7 +822,7 @@ export default function AttendanceReviewPage() {
         </div>
 
         {/* Action Buttons Right Side */}
-        <div className="flex items-center gap-2 self-end sm:self-center">
+        <div className="flex w-full flex-wrap items-center justify-end gap-2 self-end sm:w-auto sm:self-center">
           {/* Upcoming Holidays Badge */}
           {allUpcomingHolidays.length > 0 && (() => {
             // Sort holidays by date
@@ -786,7 +838,6 @@ export default function AttendanceReviewPage() {
               return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             };
             
-            // Find longest continuous sequence of holidays (minimum 3 days)
             const findLongestContinuous = (holidays: any[]) => {
               if (holidays.length === 0) return null;
               
@@ -857,7 +908,7 @@ export default function AttendanceReviewPage() {
           })()}
           <Button
             onClick={() => setShowHolidayModal(true)}
-            className="bg-green-600 hover:bg-green-700 text-white flex items-center"
+            className="flex w-full items-center bg-green-600 text-white hover:bg-green-700 sm:w-auto"
             variant="default"
           >
             <Calendar className="h-4 w-4 mr-2" />
@@ -865,7 +916,7 @@ export default function AttendanceReviewPage() {
           </Button>
           <Button
             onClick={() => fetchAttendanceSummary(selectedDate)}
-            className="bg-[#6096ba] hover:bg-[#274c77] text-white flex items-center"
+            className="flex w-full items-center bg-[#6096ba] text-white hover:bg-[#274c77] sm:w-auto"
             disabled={loadingSummary}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${loadingSummary ? 'animate-spin' : ''}`} />
@@ -877,12 +928,12 @@ export default function AttendanceReviewPage() {
 
       {/* Attendance Summary */}
       <div className="bg-white rounded-2xl shadow-xl border-2 border-[#a3cef1] p-4 sm:p-6">
-        <div className="flex items-start sm:items-center justify-between gap-3 flex-col sm:flex-row mb-4 sm:mb-6">
+        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center mb-4 sm:mb-6">
           <h2 className="text-xl sm:text-2xl font-bold text-[#274c77] flex items-center">
             <Calendar className="h-5 sm:h-6 w-5 sm:w-6 mr-2" />
             Today's({new Date(selectedDate).toLocaleDateString()})
           </h2>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             {/* Level select (show if multiple levels are available) */}
             {availableLevels && availableLevels.length > 0 ? (
               <Select
@@ -895,7 +946,7 @@ export default function AttendanceReviewPage() {
                   }
                 }}
               >
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-full sm:w-40">
                   <SelectValue placeholder="All Levels" />
                 </SelectTrigger>
                 <SelectContent>
@@ -920,7 +971,7 @@ export default function AttendanceReviewPage() {
                   setSelectedGrade(val === 'all' ? 'all' : val);
                 }}
               >
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-full sm:w-40">
                   <SelectValue placeholder="All Grades" />
                 </SelectTrigger>
                 <SelectContent>
@@ -943,7 +994,7 @@ export default function AttendanceReviewPage() {
                   setSelectedShift(val);
                 }}
               >
-                <SelectTrigger className="w-36">
+                <SelectTrigger className="w-full sm:w-36">
                   <SelectValue placeholder="All Shifts" />
                 </SelectTrigger>
                 <SelectContent>
@@ -970,9 +1021,9 @@ export default function AttendanceReviewPage() {
         </div>
 
         {loadingSummary ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#6096ba]"></div>
-            <span className="ml-2 text-gray-600">Loading attendance summary...</span>
+          <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#a3cef1] bg-[#f8fbff] px-4 py-10 text-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#6096ba]/30 border-t-[#6096ba] animate-spin"></div>
+            <span className="text-sm font-medium text-gray-600 sm:text-base">Loading attendance summary...</span>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
@@ -1071,15 +1122,15 @@ export default function AttendanceReviewPage() {
 
       {/* Dialog: Attendance sheet preview & approval */}
       <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!open) closeClassroomDialog(); setIsDialogOpen(open); }}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>
+        <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl p-4 sm:p-6">
+          <DialogHeader className="space-y-1 text-center sm:text-left">
+            <DialogTitle className="text-lg font-semibold sm:text-xl">
               {selectedHoliday 
                 ? `${activeClassroomName ? activeClassroomName : 'Class'} — Holiday` 
                 : activeClassroomName ? `${activeClassroomName} — Attendance` : 'Attendance'
               }
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-sm text-gray-500">
               {selectedHoliday 
                 ? 'Holiday information for this date.'
                 : 'Review the attendance sheet submitted by the teacher. You can approve it to finalize.'
@@ -1087,7 +1138,7 @@ export default function AttendanceReviewPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="mt-4">
+          <div className="mt-4 space-y-4 sm:space-y-6">
             {selectedHoliday ? (
               <div className="space-y-4">
                 <div className="bg-yellow-50 rounded-lg p-6 border-2 border-yellow-200 text-center">
@@ -1124,9 +1175,9 @@ export default function AttendanceReviewPage() {
                     className="w-full"
                   />
                 </div>
-                <div className="overflow-auto max-h-64 border rounded">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-gray-100">
+                <div className="overflow-auto max-h-[55vh] rounded border">
+                  <table className="min-w-full text-xs sm:text-sm">
+                    <thead className="bg-gray-100 text-gray-700">
                       <tr>
                         <th className="px-3 py-2 text-left">Student</th>
                         <th className="px-3 py-2 text-left">Status</th>
@@ -1169,27 +1220,30 @@ export default function AttendanceReviewPage() {
                 </div>
               </div>
                 ) : (
-                  <div className="py-8 text-center text-gray-600">Loading attendance...</div>
+                  <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-[#a3cef1] bg-[#f8fbff] px-4 py-10 text-center text-gray-600">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[#6096ba]/30 border-t-[#6096ba] animate-spin"></div>
+                    <span className="text-sm font-medium">Loading attendance...</span>
+                  </div>
                 )}
               </>
             )}
           </div>
 
           <DialogFooter>
-            <div className="flex gap-2">
-              <button onClick={closeClassroomDialog} className="px-4 py-2 border rounded">Close</button>
+            <div className="flex w-full flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">
+              <button onClick={closeClassroomDialog} className="w-full px-4 py-2 border rounded sm:w-auto">Close</button>
               {!selectedHoliday && (
                 <>
                   <button
                     onClick={saveAttendanceChanges}
                     disabled={!canEditAttendance || savingAttendance || !(editedAttendance && editedAttendance.length > 0)}
-                    className="px-4 py-2 bg-[#2c7a7b] text-white rounded disabled:opacity-60"
+                    className="w-full px-4 py-2 bg-[#2c7a7b] text-white rounded disabled:opacity-60 sm:w-auto"
                   >{savingAttendance ? 'Saving...' : 'Save Remarks'}</button>
                   <button
                     onClick={approveAttendance}
                     disabled={!canApproveAttendance || approving || !(attendanceData && attendanceData.length > 0) || !canClickApprove}
                     title={isAlreadyApproved ? 'Attendance is already approved' : (!isMarkedOrAllowedStatus ? 'Only draft/submitted/under review or marked attendance can be approved' : undefined)}
-                    className="px-4 py-2 bg-[#274c77] text-white rounded disabled:opacity-60"
+                    className="w-full px-4 py-2 bg-[#274c77] text-white rounded disabled:opacity-60 sm:w-auto"
                   >{approving ? 'Approving...' : 'Approve'}</button>
                 </>
               )}
@@ -1216,7 +1270,14 @@ export default function AttendanceReviewPage() {
           
           <div className="flex-1 overflow-hidden min-h-0">
             <CoordinatorHolidayManagement
-              levels={availableLevels.length > 0 ? availableLevels : (coordinatorProfile?.assigned_levels || [])}
+              levels={availableLevels.length > 0
+                ? availableLevels
+                : (coordinatorProfile?.assigned_levels || []).map((level: any) => ({
+                    id: level.id,
+                    name: level.name,
+                    shift: levelShiftSummary[level.id] || 'both',
+                  }))
+              }
               onSuccess={() => {
                 fetchAttendanceSummary(selectedDate)
               }}

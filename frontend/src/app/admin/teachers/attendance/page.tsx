@@ -231,7 +231,7 @@ function TeacherAttendanceContent() {
       let allHolidaysForCheck: any[] = [];
       if (levelId) {
         try {
-          const holidaysData = await getHolidays(levelId);
+          const holidaysData = await getHolidays({ levelId });
           allHolidaysForCheck = Array.isArray(holidaysData) ? holidaysData : [];
           // Filter to only future holidays (including today) for display badges
           const today = normalizeDate(new Date().toISOString());
@@ -292,7 +292,7 @@ function TeacherAttendanceContent() {
       // If holidays not provided, fetch them fresh
       if (allHolidays.length === 0 && levelId) {
         try {
-          const holidaysData = await getHolidays(levelId);
+          const holidaysData = await getHolidays({ levelId });
           allHolidays = Array.isArray(holidaysData) ? holidaysData : [];
           
           // Filter to only future holidays (including today) for display badges
@@ -408,7 +408,7 @@ function TeacherAttendanceContent() {
     
     if (levelId) {
       try {
-        const holidaysData = await getHolidays(levelId);
+        const holidaysData = await getHolidays({ levelId });
         const allHolidays = Array.isArray(holidaysData) ? holidaysData : [];
         
         // Filter to only future holidays (including today) for display badges

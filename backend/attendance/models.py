@@ -259,17 +259,34 @@ class Holiday(models.Model):
     """Model for tracking holidays defined by coordinators"""
     date = models.DateField()
     reason = models.CharField(max_length=200)
-    level = models.ForeignKey('classes.Level', on_delete=models.CASCADE, related_name='holidays')
+    # Keep level for backward compatibility (nullable for existing records)
+    level = models.ForeignKey('classes.Level', on_delete=models.CASCADE, related_name='holidays', null=True, blank=True)
+    # New: Support multiple levels
+    levels = models.ManyToManyField('classes.Level', related_name='holiday_set', blank=True)
+    # New: Optional grade-specific holidays
+    grades = models.ManyToManyField('classes.Grade', related_name='holidays', blank=True)
+    # Track targeted shifts (derived from level shifts)
+    shifts = models.JSONField(default=list, blank=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_holidays')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        unique_together = ['date', 'level']
+        # Remove unique_together constraint as we now support multiple levels
+        # Will handle uniqueness in API validation
         ordering = ['-date']
     
     def __str__(self):
-        return f"{self.date} - {self.reason}"
+        level_names = ', '.join([l.name for l in self.levels.all()]) if self.levels.exists() else (self.level.name if self.level else 'No Level')
+        grade_names = ', '.join([g.name for g in self.grades.all()]) if self.grades.exists() else None
+        shift_names = ', '.join(sorted(set(self.shifts))) if self.shifts else None
+        if grade_names:
+            descriptor = f"{level_names} - {grade_names}"
+        else:
+            descriptor = level_names
+        if shift_names:
+            descriptor = f"{descriptor} [{shift_names}]"
+        return f"{self.date} - {self.reason} ({descriptor})"
 
 
 class AttendanceBackfillPermission(models.Model):

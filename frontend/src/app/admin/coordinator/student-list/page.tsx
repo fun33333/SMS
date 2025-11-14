@@ -4,19 +4,37 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Users, Search, Eye, Edit } from "lucide-react"
+import { Users, Search, Phone, Mail, GraduationCap, Building2 } from "lucide-react"
 import { getAllStudents } from "@/lib/api"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import { useRouter } from "next/navigation"
+import { DataTable } from "@/components/shared/data-table"
+
+type StudentRow = {
+  id: number
+  name: string
+  student_code: string
+  gr_no: string
+  father_name: string
+  email: string
+  phone: string
+  enrollment_year: string
+  current_grade: string
+  classroom_name: string
+  campus_name: string
+  current_state: string
+  gender: string
+  shift: string
+}
 
 function CoordinatorStudentListContent() {
   const router = useRouter()
   const [search, setSearch] = useState("")
-  const [students, setStudents] = useState<any[]>([])
+  const [students, setStudents] = useState<StudentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isCoordinator, setIsCoordinator] = useState(false)
 
   // Helper function to truncate subjects/grades to max 2 items
 
@@ -34,6 +52,13 @@ function CoordinatorStudentListContent() {
          // Get user from localStorage
          const user = localStorage.getItem("sis_user");
          if (user) {
+           try {
+             const parsedUser = JSON.parse(user)
+             const role = String(parsedUser?.role || '').toLowerCase()
+             setIsCoordinator(role.includes('coord'))
+           } catch {
+             setIsCoordinator(false)
+           }
            
            // Backend automatically filters students based on logged-in coordinator
            // No need to find coordinator separately
@@ -59,6 +84,7 @@ function CoordinatorStudentListContent() {
           
           setStudents(mappedStudents)
         } else {
+          setIsCoordinator(false)
           setError("User not logged in")
         }
       } catch (err: any) {
@@ -79,6 +105,88 @@ function CoordinatorStudentListContent() {
     student.email.toLowerCase().includes(search.toLowerCase())
   )
 
+  const columns = [
+    {
+      key: "name",
+      label: "Student",
+      render: (student: StudentRow) => (
+        <div className="flex flex-col gap-1">
+          <p className="font-semibold text-gray-900">{student.name}</p>
+          <div className="flex flex-wrap gap-1 text-[11px] sm:text-xs text-gray-600">
+            <span className="inline-flex items-center gap-1 rounded-full bg-[#e7ecef] px-1.5 py-0.5">
+              <Users className="h-3.5 w-3.5 text-[#274c77]" />
+              {student.gender}
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-[#e7ecef] px-1.5 py-0.5">
+              <GraduationCap className="h-3.5 w-3.5 text-[#274c77]" />
+              {student.current_grade}
+            </span>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "student_code",
+      label: "Student ID",
+      render: (student: StudentRow) => (
+        <div className="space-y-1">
+          <span className="font-medium text-gray-900">{student.student_code}</span>
+          <span className="block text-xs text-gray-500">GR: {student.gr_no}</span>
+        </div>
+      ),
+    },
+    {
+      key: "father_name",
+      label: "Guardian",
+      render: (student: StudentRow) => (
+        <div className="space-y-1">
+          <p className="text-gray-900 font-medium">{student.father_name}</p>
+          <div className="flex flex-wrap items-center gap-1 text-xs text-gray-600">
+            <span className="inline-flex items-center gap-1">
+              <Phone className="h-3.5 w-3.5" />
+              {student.phone}
+            </span>
+            <span className="inline-flex items-center gap-1 break-all">
+              <Mail className="h-3.5 w-3.5" />
+              {student.email}
+            </span>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "classroom_name",
+      label: "Classroom",
+      render: (student: StudentRow) => (
+        <div className="space-y-1">
+          <div className="flex items-center gap-1 text-gray-900 font-medium">
+            <Building2 className="h-4 w-4 text-[#274c77]" />
+            {student.classroom_name}
+          </div>
+          <span className="inline-flex items-center gap-1 rounded-full bg-[#a3cef1]/40 px-2 py-0.5 text-[11px] sm:text-xs text-[#274c77] font-medium">
+            {student.campus_name}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "current_state",
+      label: "Status",
+      render: (student: StudentRow) => (
+        <Badge
+          variant={student.current_state === 'Active' ? 'default' : 'secondary'}
+          className="px-3 py-1 text-xs sm:text-sm"
+          style={{
+            backgroundColor: student.current_state === 'Active' ? '#10b981' : '#6b7280',
+            color: 'white'
+          }}
+        >
+          {student.current_state}
+        </Badge>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-6">
       <Card>
@@ -92,19 +200,19 @@ function CoordinatorStudentListContent() {
           </p>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center space-x-4">
-              <div className="relative">
+          <div className="flex flex-col gap-3 sm:gap-4 mb-6 sm:mb-8 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 w-full lg:max-w-lg">
+              <div className="relative flex-1 min-w-0">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
                 <Input
                   placeholder="Search students by name, ID, or father's name..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-10 w-80"
+                  className="pl-10 w-full"
                 />
               </div>
             </div>
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-gray-500 text-left sm:text-right">
               {filteredStudents.length} of {students.length} Students
             </div>
           </div>
@@ -122,80 +230,15 @@ function CoordinatorStudentListContent() {
               </Button>
             </div>
           ) : (
-            <Table>
-               <TableHeader>
-                 <TableRow style={{ backgroundColor: '#274c77' }}>
-                   <TableHead className="text-white">Name</TableHead>
-                   <TableHead className="text-white">Student ID</TableHead>
-                   <TableHead className="text-white">GR No</TableHead>
-                   <TableHead className="text-white">Father Name</TableHead>
-                   <TableHead className="text-white">Grade</TableHead>
-                   <TableHead className="text-white">Classroom</TableHead>
-                   <TableHead className="text-white">Status</TableHead>
-                   <TableHead className="text-white">Actions</TableHead>
-                 </TableRow>
-               </TableHeader>
-              <TableBody>
-                {filteredStudents.map((student, index) => (
-                  <TableRow 
-                    key={student.id}
-                    className={`hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : ''}`}
-                    style={{ backgroundColor: index % 2 === 0 ? '#e7ecef' : 'white' }}
-                  >
-                     <TableCell className="font-medium">{student.name}</TableCell>
-                     <TableCell className="text-sm text-gray-600">{student.student_code}</TableCell>
-                     <TableCell className="text-sm text-gray-600">{student.gr_no}</TableCell>
-                     <TableCell className="text-sm text-gray-600">{student.father_name}</TableCell>
-                     <TableCell>{student.current_grade}</TableCell>
-                     <TableCell>{student.classroom_name}</TableCell>
-                     <TableCell>
-                       <Badge 
-                         variant={student.current_state === 'Active' ? 'default' : 'secondary'}
-                         style={{ 
-                           backgroundColor: student.current_state === 'Active' ? '#10b981' : '#6b7280',
-                           color: 'white'
-                         }}
-                       >
-                         {student.current_state}
-                       </Badge>
-                     </TableCell>
-                     <TableCell>
-                      <div className="flex space-x-2">
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          style={{ borderColor: '#6096ba', color: '#274c77' }}
-                          onClick={() => router.push(`/admin/students/profile?id=${student.id}`)}
-                          title="View Student Profile"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          style={{ borderColor: '#6096ba', color: '#274c77' }}
-                          title="Edit Student"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-
-          {filteredStudents.length === 0 && !loading && !error && (
-            <div className="text-center py-8">
-              <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500">No students found</p>
-              {search && (
-                <p className="text-sm text-gray-400 mt-2">
-                  Try adjusting your search criteria
-                </p>
-              )}
-            </div>
+            <DataTable
+              data={filteredStudents}
+              columns={columns}
+              onView={(student) => router.push(`/admin/students/profile?id=${student.id}`)}
+              onEdit={isCoordinator ? undefined : (student) => router.push(`/admin/students/edit?id=${student.id}`)}
+              allowEdit={!isCoordinator}
+              allowDelete={false}
+              emptyMessage={search ? "No students match your search." : "No students found"}
+            />
           )}
         </CardContent>
       </Card>
