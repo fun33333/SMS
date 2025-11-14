@@ -1075,15 +1075,29 @@ export default function CoordinatorPage() {
         {overviewCards.map((card) => {
           const Icon = card.icon
           return (
-            <Card key={card.title} className="border-0 shadow-sm rounded-2xl bg-white/90">
+            <Card
+              key={card.title}
+              className="border-0 shadow-sm rounded-3xl overflow-hidden"
+              style={{
+                background:
+                  card.title === "Teachers"
+                    ? "linear-gradient(135deg, #274c77 0%, #3a6ea5 100%)"
+                    : card.title === "Students"
+                      ? "linear-gradient(135deg, #6096ba 0%, #78b0d8 100%)"
+                      : card.title === "Classes"
+                        ? "linear-gradient(135deg, #a3cef1 0%, #c0e0ff 100%)"
+                        : "linear-gradient(135deg, #f7b267 0%, #f9c784 100%)",
+                color: "#ffffff"
+              }}
+            >
               <CardContent className="p-5 flex items-center gap-4">
-                <div className={`${card.accent} text-white rounded-2xl p-3 shadow`}>
-                  <Icon className="h-5 w-5" />
+                <div className="rounded-2xl bg-white/20 text-white p-3 shadow">
+                  <Icon className="h-6 w-6" />
               </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-gray-500">{card.title}</p>
-                  <p className="text-2xl font-semibold text-[#274c77]">{card.value}</p>
-                  <p className="text-xs text-gray-500 mt-1">{card.detail}</p>
+                  <p className="text-xs uppercase tracking-wide text-white/80">{card.title}</p>
+                  <p className="text-3xl font-semibold">{card.value}</p>
+                  <p className="text-xs text-white/80 mt-1">{card.detail}</p>
             </div>
           </CardContent>
         </Card>
