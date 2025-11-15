@@ -212,6 +212,7 @@ class Student(models.Model):
     # --- System Fields ---
     is_draft = models.BooleanField(default=True)
     is_deleted = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True, help_text="Active students appear in attendance sheets and class lists")
     deleted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)

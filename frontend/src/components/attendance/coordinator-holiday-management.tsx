@@ -786,9 +786,9 @@ export default function CoordinatorHolidayManagement({ levels, onSuccess }: Coor
       <Dialog
         open={showCreateDialog || showEditDialog}
         onOpenChange={(open) => {
-          if (!open) {
-            resetForm()
-          }
+        if (!open) {
+          resetForm()
+        }
         }}
       >
         <DialogContent className="w-[min(94vw,900px)] max-w-3xl p-0 sm:p-6 overflow-hidden">

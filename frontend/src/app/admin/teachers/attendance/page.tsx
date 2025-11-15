@@ -17,6 +17,7 @@ type AttendanceStatus = "present" | "absent" | "leave";
 interface Student {
   id: number;
   name: string;
+  father_name?: string;
   student_code: string;
   student_id?: string;
   gr_no?: string;
@@ -775,6 +776,10 @@ function TeacherAttendanceContent() {
         console.log('👥 First record student_attendance:', attendanceData[0].student_attendance);
         console.log('👥 Student attendance type:', typeof attendanceData[0].student_attendance);
         console.log('👥 Student attendance length:', Array.isArray(attendanceData[0].student_attendance) ? attendanceData[0].student_attendance.length : 'Not an array');
+        if (Array.isArray(attendanceData[0].student_attendance) && attendanceData[0].student_attendance.length > 0) {
+          console.log('👥 First student in attendance:', attendanceData[0].student_attendance[0]);
+          console.log('👥 First student father_name:', attendanceData[0].student_attendance[0]?.student_father_name);
+        }
       }
 
       setLast6DaysAttendance((attendanceData as any[]) || []);
@@ -1224,7 +1229,14 @@ function TeacherAttendanceContent() {
                               </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
-                              {record.student_attendance.map((studentRecord: any, studentIndex: number) => (
+                              {record.student_attendance.map((studentRecord: any, studentIndex: number) => {
+                                // Debug: Log first student record to check data structure
+                                if (studentIndex === 0 && index === 0) {
+                                  console.log('🔍 Student Record Data:', studentRecord);
+                                  console.log('🔍 Has student_father_name?', 'student_father_name' in studentRecord);
+                                  console.log('🔍 student_father_name value:', studentRecord.student_father_name);
+                                }
+                                return (
                                 <tr key={studentIndex} className="hover:bg-gray-50">
                                   <td className="px-4 py-4 whitespace-nowrap">
                                     <div className="flex items-center">
@@ -1237,6 +1249,11 @@ function TeacherAttendanceContent() {
                                         <div className="text-sm font-medium text-gray-900">
                                           {studentRecord.student_name || 'Unknown Student'}
                                         </div>
+                                        {studentRecord.student_father_name && studentRecord.student_father_name.trim() && (
+                                          <div className="text-xs text-gray-600">
+                                            S/O {studentRecord.student_father_name}
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </td>
@@ -1271,7 +1288,8 @@ function TeacherAttendanceContent() {
                                     </Badge>
                                   </td>
                                 </tr>
-                              ))}
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -1800,7 +1818,10 @@ function TeacherAttendanceContent() {
 								<div className="flex items-center gap-2 min-w-0">
 									<div className="min-w-0">
 										<p className="text-sm font-medium text-gray-900 truncate">{student.name}</p>
-										<div className="flex items-center gap-2 text-[11px] text-gray-600">
+										{student.father_name && (
+											<p className="text-xs text-gray-600 truncate">{student.father_name}</p>
+										)}
+										<div className="flex items-center gap-2 text-[11px] text-gray-600 mt-1">
 											<span className="px-2 py-0.5 rounded-full bg-gray-100">{student.student_id || student.student_code || 'Not Assigned'}</span>
 											<span className="px-2 py-0.5 rounded-full bg-gray-100 capitalize">{student.gender}</span>
 										</div>
@@ -1850,7 +1871,12 @@ function TeacherAttendanceContent() {
 														{student.name.charAt(0).toUpperCase()}
 													</div>
 												)}
-												<span className="text-xs sm:text-sm truncate">{student.name}</span>
+												<div className="flex flex-col min-w-0">
+													<span className="text-xs sm:text-sm truncate font-medium">{student.name}</span>
+													{student.father_name && (
+														<span className="text-[10px] sm:text-xs text-gray-600 truncate">{student.father_name}</span>
+													)}
+												</div>
 											</div>
 										</TableCell>
 										<TableCell className="text-xs sm:text-sm">{student.student_id || student.student_code || 'Not Assigned'}</TableCell>

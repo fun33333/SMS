@@ -267,9 +267,12 @@ export default function CoordinatorListPage() {
     
     // Load full coordinator data from API
     try {
-      const response = await fetch(`/api/coordinators/${coordinator.id}/`, {
+      const baseUrl = getApiBaseUrl()
+      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+      const response = await fetch(`${cleanBaseUrl}/api/coordinators/${coordinator.id}/`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('sis_token')}`
+          'Authorization': `Bearer ${localStorage.getItem('sis_access_token')}`,
+          'Content-Type': 'application/json'
         }
       })
       

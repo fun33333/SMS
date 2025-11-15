@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { useEffect, useMemo, useState } from "react"
-import { getLevels, getGrades, getClassrooms } from "@/lib/api"
+import { getLevels, getGrades, getClassrooms, getAllCoordinators } from "@/lib/api"
 import { toast as sonnerToast } from "sonner"
 import { Checkbox } from "@/components/ui/checkbox"
 
@@ -20,9 +20,11 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
   const [levels, setLevels] = useState<any[]>([])
   const [grades, setGrades] = useState<any[]>([])
   const [classrooms, setClassrooms] = useState<any[]>([])
+  const [coordinators, setCoordinators] = useState<any[]>([])
   const [loadingLevels, setLoadingLevels] = useState(false)
   const [loadingGrades, setLoadingGrades] = useState(false)
   const [loadingClassrooms, setLoadingClassrooms] = useState(false)
+  const [loadingCoordinators, setLoadingCoordinators] = useState(false)
   // For BOTH shift workflow
   const [selectedLevels, setSelectedLevels] = useState<number[]>(Array.isArray(formData.assigned_levels) ? formData.assigned_levels : [])
   const [levelGrades, setLevelGrades] = useState<Record<string, string>>({})
@@ -42,6 +44,81 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
         .finally(() => setLoadingLevels(false))
     }
   }, [formData.current_campus])
+
+  // Fetch coordinators for the selected campus (only for non-class teachers)
+  useEffect(() => {
+    if (formData.current_campus && !formData.is_class_teacher) {
+      setLoadingCoordinators(true)
+      getAllCoordinators()
+        .then((data: any) => {
+          const coordinatorsList = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []
+          
+          // Filter coordinators by campus first
+          let campusCoordinators = coordinatorsList.filter((coord: any) => {
+            // Try multiple ways to get campus ID
+            const coordCampusId = coord.campus?.id || coord.campus?.pk || coord.campus_id || (typeof coord.campus === 'number' ? coord.campus : null)
+            const formCampusId = typeof formData.current_campus === 'number' ? formData.current_campus : parseInt(formData.current_campus)
+            
+            // Also check campus_name for matching (in case IDs don't match but it's the same campus)
+            const coordCampusName = coord.campus?.campus_name || coord.campus_name || ''
+            
+            // Match by ID first
+            const idMatch = coordCampusId && String(coordCampusId) === String(formCampusId)
+            
+            // Match by name if ID doesn't match (extract number from campus name like "Campus 6" -> 6)
+            let nameMatch = false
+            if (coordCampusName) {
+              const campusNameMatch = coordCampusName.match(/campus\s*(\d+)/i)
+              if (campusNameMatch) {
+                const campusNumFromName = parseInt(campusNameMatch[1])
+                nameMatch = campusNumFromName === formCampusId
+              }
+            }
+            
+            return idMatch || nameMatch
+          })
+          
+          // Filter coordinators by teacher's shift
+          const teacherShift = (formData.shift || '').toString().toLowerCase()
+          if (teacherShift && campusCoordinators.length > 0) {
+            campusCoordinators = campusCoordinators.filter((coord: any) => {
+              const coordShift = (coord.shift || '').toString().toLowerCase()
+              
+              // If teacher shift is "both", show all coordinators
+              if (teacherShift === 'both') {
+                return true // Show all coordinators (morning, afternoon, both)
+              }
+              
+              // If coordinator shift is "both", show for all teacher shifts
+              if (coordShift === 'both') {
+                return true // Both shift coordinators show for morning, afternoon, and both teachers
+              }
+              
+              // If teacher shift is "morning", show morning coordinators and both coordinators
+              if (teacherShift === 'morning') {
+                return coordShift === 'morning' || coordShift === 'both'
+              }
+              
+              // If teacher shift is "afternoon", show afternoon coordinators and both coordinators
+              if (teacherShift === 'afternoon') {
+                return coordShift === 'afternoon' || coordShift === 'both'
+              }
+              
+              // Default: show if shifts match
+              return coordShift === teacherShift
+            })
+          }
+          
+          setCoordinators(campusCoordinators)
+        })
+        .catch(err => {
+          setCoordinators([])
+        })
+        .finally(() => setLoadingCoordinators(false))
+    } else {
+      setCoordinators([])
+    }
+  }, [formData.current_campus, formData.is_class_teacher, formData.shift])
 
   // When shift changes, clear level/grade/section if incompatible
   useEffect(() => {
@@ -507,6 +584,87 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
                 </div>
               )}
             </>
+          )}
+
+          {/* Coordinator Assignment - Only show when NOT a class teacher */}
+          {!formData.is_class_teacher && (
+            <div className="md:col-span-2">
+              <Label htmlFor="assigned_coordinators">Assign Coordinators</Label>
+              <Select 
+                value="" 
+                onValueChange={(coordinatorId) => {
+                  const currentCoordinators = Array.isArray(formData.assigned_coordinators) ? formData.assigned_coordinators : []
+                  if (!currentCoordinators.includes(parseInt(coordinatorId))) {
+                    onInputChange("assigned_coordinators", [...currentCoordinators, parseInt(coordinatorId)])
+                  }
+                }}
+                disabled={loadingCoordinators || !formData.current_campus}
+              >
+                <SelectTrigger className="mt-2 border-2 focus:border-primary">
+                  <SelectValue placeholder={loadingCoordinators ? "Loading coordinators..." : coordinators.length === 0 ? "No coordinators available" : "Select coordinator to assign"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {coordinators.map((coordinator: any) => {
+                    const isAlreadyAssigned = Array.isArray(formData.assigned_coordinators) && formData.assigned_coordinators.includes(coordinator.id)
+                    return (
+                      <SelectItem 
+                        key={coordinator.id} 
+                        value={coordinator.id.toString()}
+                        disabled={isAlreadyAssigned}
+                      >
+                        {coordinator.full_name || `${coordinator.first_name || ''} ${coordinator.last_name || ''}`.trim() || coordinator.email}
+                        {coordinator.level?.name && ` - ${coordinator.level.name}`}
+                        {coordinator.shift && ` (${coordinator.shift})`}
+                        {isAlreadyAssigned && ' (Already assigned)'}
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500 mt-1">
+                {!formData.current_campus 
+                  ? "Please select a campus first" 
+                  : coordinators.length === 0 
+                    ? `No coordinators available for Campus ${formData.current_campus}. Make sure coordinators are assigned to this campus.` 
+                    : "Select coordinators to assign to this teacher"}
+              </p>
+              {coordinators.length === 0 && formData.current_campus && (
+                <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                  <p className="font-medium">💡 Tip:</p>
+                  <p>If you have coordinators but they're not showing, they might be assigned to a different campus. Check the coordinator list to update their campus assignment.</p>
+                </div>
+              )}
+              
+              {/* Display assigned coordinators */}
+              {Array.isArray(formData.assigned_coordinators) && formData.assigned_coordinators.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <Label className="text-sm font-medium">Assigned Coordinators:</Label>
+                  {formData.assigned_coordinators.map((coordinatorId: number) => {
+                    const coordinator = coordinators.find((c: any) => c.id === coordinatorId)
+                    return coordinator ? (
+                      <div key={coordinatorId} className="flex items-center justify-between bg-gray-100 p-2 rounded">
+                        <span className="text-sm">
+                          {coordinator.full_name || `${coordinator.first_name || ''} ${coordinator.last_name || ''}`.trim() || coordinator.email}
+                          {coordinator.level?.name && ` - ${coordinator.level.name}`}
+                          {coordinator.shift && ` (${coordinator.shift})`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = formData.assigned_coordinators.filter((id: number) => id !== coordinatorId)
+                            onInputChange("assigned_coordinators", updated)
+                          }}
+                          className="text-red-500 hover:text-red-700 text-lg font-bold"
+                          title="Remove coordinator"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : null
+                  })}
+                </div>
+              )}
+            </div>
           )}
           
         </div>

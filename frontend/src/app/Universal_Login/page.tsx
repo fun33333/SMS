@@ -96,11 +96,35 @@ export default function LoginPage() {
     return '';
   };
 
+  // Format employee code with auto dashes
+  const formatEmployeeCode = (value: string): string => {
+    // Remove all dashes and spaces, convert to uppercase
+    let cleaned = value.replace(/[-\s]/g, '').toUpperCase();
+    
+    // Check if it's Super Admin format (S-XX-XXXX)
+    if (cleaned.startsWith('S') && cleaned.length > 1) {
+      // Super Admin format: S-XX-XXXX
+      if (cleaned.length <= 1) return cleaned;
+      if (cleaned.length <= 3) return `${cleaned.slice(0, 1)}-${cleaned.slice(1)}`;
+      return `${cleaned.slice(0, 1)}-${cleaned.slice(1, 3)}-${cleaned.slice(3, 7)}`;
+    }
+    
+    // Regular format: C06-M-22-T-0012 (XXX-X-XX-X-XXXX)
+    if (cleaned.length === 0) return '';
+    if (cleaned.length <= 3) return cleaned; // C06
+    if (cleaned.length <= 4) return `${cleaned.slice(0, 3)}-${cleaned.slice(3)}`; // C06-M
+    if (cleaned.length <= 6) return `${cleaned.slice(0, 3)}-${cleaned.slice(3, 4)}-${cleaned.slice(4)}`; // C06-M-22
+    if (cleaned.length <= 7) return `${cleaned.slice(0, 3)}-${cleaned.slice(3, 4)}-${cleaned.slice(4, 6)}-${cleaned.slice(6)}`; // C06-M-22-T
+    // C06-M-22-T-0012 (max 13 chars with dashes, or 11 chars without)
+    return `${cleaned.slice(0, 3)}-${cleaned.slice(3, 4)}-${cleaned.slice(4, 6)}-${cleaned.slice(6, 7)}-${cleaned.slice(7, 11)}`;
+  };
+
   // Handle employee code input change
   const handleIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.trim().toUpperCase();
-    setId(value);
-    const role = detectRoleFromCode(value);
+    const inputValue = e.target.value;
+    const formatted = formatEmployeeCode(inputValue);
+    setId(formatted);
+    const role = detectRoleFromCode(formatted);
     setDetectedRole(role);
   };
 

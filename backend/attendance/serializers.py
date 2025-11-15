@@ -7,6 +7,7 @@ from teachers.models import Teacher
 
 class StudentAttendanceSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
+    student_father_name = serializers.CharField(source='student.father_name', read_only=True)
     student_code = serializers.SerializerMethodField()  # Use method to get the best available ID
     student_gender = serializers.CharField(source='student.gender', read_only=True)
     student_photo = serializers.ImageField(source='student.photo', read_only=True)
@@ -19,7 +20,7 @@ class StudentAttendanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentAttendance
         fields = [
-            'id', 'student', 'student_name', 'student_code', 'student_gender', 'student_photo',
+            'id', 'student', 'student_name', 'student_father_name', 'student_code', 'student_gender', 'student_photo',
             'status', 'remarks', 'attendance_date', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']

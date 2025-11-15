@@ -143,6 +143,89 @@ export default function AttendanceReviewPage() {
     return grades.sort();
   };
 
+  // Helper function to normalize grade for sorting (Nursery, KG-I, KG-II, Grade I, etc.)
+  const normalizeGradeForSort = (classroomName: string): { gradeOrder: number; section: string } => {
+    const name = classroomName.trim();
+    
+    // Define grade order (lower number = appears first)
+    const gradeOrderMap: Record<string, number> = {
+      'nursery': 1,
+      'kg-i': 2,
+      'kg-1': 2,
+      'kg1': 2,
+      'kg-ii': 3,
+      'kg-2': 3,
+      'kg2': 3,
+    };
+    
+    // Extract grade and section
+    let gradeOrder = 999; // Default for unknown grades
+    let section = '';
+    
+    // Check for Nursery
+    if (name.toLowerCase().startsWith('nursery')) {
+      gradeOrder = gradeOrderMap['nursery'];
+      const sectionMatch = name.match(/nursery\s*[-]?\s*([a-z])/i);
+      section = sectionMatch ? sectionMatch[1].toUpperCase() : '';
+    }
+    // Check for KG-I
+    else if (name.toLowerCase().includes('kg-i') || name.toLowerCase().includes('kg-1') || name.toLowerCase().includes('kg1')) {
+      gradeOrder = gradeOrderMap['kg-i'];
+      const sectionMatch = name.match(/kg[-]?i\s*[-]?\s*([a-z])/i) || name.match(/kg[-]?1\s*[-]?\s*([a-z])/i);
+      section = sectionMatch ? sectionMatch[1].toUpperCase() : '';
+    }
+    // Check for KG-II
+    else if (name.toLowerCase().includes('kg-ii') || name.toLowerCase().includes('kg-2') || name.toLowerCase().includes('kg2')) {
+      gradeOrder = gradeOrderMap['kg-ii'];
+      const sectionMatch = name.match(/kg[-]?ii\s*[-]?\s*([a-z])/i) || name.match(/kg[-]?2\s*[-]?\s*([a-z])/i);
+      section = sectionMatch ? sectionMatch[1].toUpperCase() : '';
+    }
+    // Check for Grade I, II, III, etc.
+    else {
+      const gradeMatch = name.match(/grade\s+([ivx]+|\d+)/i);
+      if (gradeMatch) {
+        const gradeStr = gradeMatch[1].toUpperCase();
+        // Convert Roman numerals to numbers for sorting
+        const romanToNum: Record<string, number> = {
+          'I': 4, 'II': 5, 'III': 6, 'IV': 7, 'V': 8,
+          'VI': 9, 'VII': 10, 'VIII': 11, 'IX': 12, 'X': 13,
+          'XI': 14, 'XII': 15
+        };
+        const numMatch = gradeStr.match(/^\d+$/);
+        if (numMatch) {
+          gradeOrder = parseInt(gradeStr) + 3; // Grade 1 = 4, Grade 2 = 5, etc.
+        } else {
+          gradeOrder = romanToNum[gradeStr] || 999;
+        }
+        const sectionMatch = name.match(/grade\s+[ivx\d]+\s*[-]?\s*([a-z])/i);
+        section = sectionMatch ? sectionMatch[1].toUpperCase() : '';
+      }
+    }
+    
+    return { gradeOrder, section };
+  };
+
+  // Helper function to batch API calls
+  const batchProcess = async <T, R>(
+    items: T[],
+    processor: (item: T) => Promise<R>,
+    batchSize: number = 5,
+    delayBetweenBatches: number = 100
+  ): Promise<R[]> => {
+    const results: R[] = [];
+    for (let i = 0; i < items.length; i += batchSize) {
+      const batch = items.slice(i, i + batchSize);
+      const batchResults = await Promise.all(batch.map(processor));
+      results.push(...batchResults);
+      
+      // Add delay between batches to avoid overwhelming the server
+      if (i + batchSize < items.length) {
+        await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
+      }
+    }
+    return results;
+  };
+
   // Fetch attendance summary for all classrooms
   const fetchAttendanceSummaryForClassrooms = async (classroomsData: ClassroomData[], date: string) => {
     try {
@@ -159,6 +242,10 @@ export default function AttendanceReviewPage() {
       };
       const normalizedDate = normalizeDate(date);
       
+      // Separate classrooms that are holidays from those that need API calls
+      const classroomsToFetch: ClassroomData[] = [];
+      const holidayClassrooms: Array<{ classroom: ClassroomData; holiday: any }> = [];
+      
       for (const classroom of classroomsData) {
         // Check if this date is a holiday for this classroom's level
         let holidayForClassroom: any = null;
@@ -169,26 +256,34 @@ export default function AttendanceReviewPage() {
           });
         }
 
-        // If it's a holiday, show holiday info instead of attendance
         if (holidayForClassroom) {
-          summary.push({
-            classroom_id: classroom.id,
-            classroom_name: classroom.name,
-            teacher_name: classroom.class_teacher?.name || 'Not Assigned',
-            total_students: classroom.student_count,
-            present_count: 0,
-            absent_count: 0,
-            leave_count: 0,
-            status: 'holiday',
-            marked_by: 'Holiday',
-            attendance_percentage: 0,
-            is_holiday: true,
-            holiday_reason: holidayForClassroom.reason,
-            holiday_id: holidayForClassroom.id
-          });
-          continue;
+          holidayClassrooms.push({ classroom, holiday: holidayForClassroom });
+        } else {
+          classroomsToFetch.push(classroom);
         }
+      }
 
+      // Add holiday classrooms to summary
+      for (const { classroom, holiday } of holidayClassrooms) {
+        summary.push({
+          classroom_id: classroom.id,
+          classroom_name: classroom.name,
+          teacher_name: classroom.class_teacher?.name || 'Not Assigned',
+          total_students: classroom.student_count,
+          present_count: 0,
+          absent_count: 0,
+          leave_count: 0,
+          status: 'holiday',
+          marked_by: 'Holiday',
+          attendance_percentage: 0,
+          is_holiday: true,
+          holiday_reason: holiday.reason,
+          holiday_id: holiday.id
+        });
+      }
+
+      // Process classrooms in batches to avoid overwhelming the server
+      const processClassroom = async (classroom: ClassroomData) => {
         try {
           console.log(`🔍 DEBUG: Fetching attendance for classroom ${classroom.id} (${classroom.name})`);
           const data = await getAttendanceForDate(classroom.id, date);
@@ -219,7 +314,7 @@ export default function AttendanceReviewPage() {
               statusCandidate = 'under_review';
             }
 
-            summary.push({
+            return {
               classroom_id: classroom.id,
               classroom_name: classroom.name,
               teacher_name: classroom.class_teacher?.name || 'Not Assigned',
@@ -232,10 +327,10 @@ export default function AttendanceReviewPage() {
               marked_by: d.marked_by || d.marked_by_name || 'Not Marked',
               attendance_percentage: d.attendance_percentage ?? d.present_pct ?? 0,
               is_holiday: d.is_holiday || false
-            });
+            };
           } else {
             console.log(`   - No attendance data found for ${classroom.name}, using default values`);
-            summary.push({
+            return {
               classroom_id: classroom.id,
               classroom_name: classroom.name,
               teacher_name: classroom.class_teacher?.name || 'Not Assigned',
@@ -246,11 +341,11 @@ export default function AttendanceReviewPage() {
               status: 'not_marked',
               marked_by: 'Not Marked',
               attendance_percentage: 0
-            });
+            };
           }
         } catch (error) {
           console.error(`Error fetching attendance for classroom ${classroom.id}:`, error);
-          summary.push({
+          return {
             classroom_id: classroom.id,
             classroom_name: classroom.name,
             teacher_name: classroom.class_teacher?.name || 'Not Assigned',
@@ -261,9 +356,13 @@ export default function AttendanceReviewPage() {
             status: 'not_marked',
             marked_by: 'Not Marked',
             attendance_percentage: 0
-          });
+          };
         }
-      }
+      };
+
+      // Process classrooms in batches of 5 with 100ms delay between batches
+      const attendanceResults = await batchProcess(classroomsToFetch, processClassroom, 5, 100);
+      summary.push(...attendanceResults);
 
       console.log('🔍 DEBUG: Final attendance summary:', summary);
       setClassroomAttendanceSummary(summary);
@@ -377,25 +476,22 @@ export default function AttendanceReviewPage() {
         const allHolidays: any[] = [];
         const today = new Date().toISOString().split('T')[0];
         
-        // Fetch holidays for selected date (for checking if date is holiday)
-        for (const level of availableLevels) {
+        // Process holidays in batches to avoid overwhelming the server
+        const processHolidayForDate = async (level: { id: number; name: string; shift: string }) => {
           try {
             const data = await getHolidays({
               levelId: level.id,
               startDate: selectedDate,
               endDate: selectedDate,
             });
-            if (Array.isArray(data)) {
-              allHolidays.push(...data);
-            }
+            return Array.isArray(data) ? data : [];
           } catch (error) {
             console.error(`Failed to fetch holidays for level ${level.id}:`, error);
+            return [];
           }
-        }
-        
-        // Also fetch all upcoming holidays (from today onwards) for badge count
-        const upcomingHolidays: any[] = [];
-        for (const level of availableLevels) {
+        };
+
+        const processUpcomingHolidays = async (level: { id: number; name: string; shift: string }) => {
           try {
             const data = await getHolidays({
               levelId: level.id,
@@ -403,16 +499,25 @@ export default function AttendanceReviewPage() {
             });
             if (Array.isArray(data)) {
               // Filter to only future holidays (excluding today)
-              const futureHolidays = data.filter((h: any) => {
+              return data.filter((h: any) => {
                 const holidayDate = h.date.split('T')[0];
                 return holidayDate > today;
               });
-              upcomingHolidays.push(...futureHolidays);
             }
+            return [];
           } catch (error) {
             console.error(`Failed to fetch upcoming holidays for level ${level.id}:`, error);
+            return [];
           }
-        }
+        };
+        
+        // Fetch holidays for selected date in batches
+        const holidayResults = await batchProcess(availableLevels, processHolidayForDate, 5, 100);
+        allHolidays.push(...holidayResults.flat());
+        
+        // Fetch upcoming holidays in batches
+        const upcomingResults = await batchProcess(availableLevels, processUpcomingHolidays, 5, 100);
+        const upcomingHolidays = upcomingResults.flat();
         
         // Store holidays for selected date check
         setHolidays(allHolidays);
@@ -1033,6 +1138,18 @@ export default function AttendanceReviewPage() {
                 const st = summary.status;
                 return st !== 'approved' && st !== 'Approved';
               })
+              .sort((a, b) => {
+                // Sort by grade order first, then by section
+                const aSort = normalizeGradeForSort(a.classroom_name);
+                const bSort = normalizeGradeForSort(b.classroom_name);
+                
+                if (aSort.gradeOrder !== bSort.gradeOrder) {
+                  return aSort.gradeOrder - bSort.gradeOrder;
+                }
+                
+                // If same grade, sort by section (A, B, C, etc.)
+                return aSort.section.localeCompare(bSort.section);
+              })
               .map((summary) => {
               const hasCounts = (summary.present_count || 0) + (summary.absent_count || 0) + (summary.leave_count || 0) > 0;
               const st = summary.status;
@@ -1219,10 +1336,28 @@ export default function AttendanceReviewPage() {
                   </table>
                 </div>
               </div>
-                ) : (
+                ) : loadingAttendance ? (
                   <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-[#a3cef1] bg-[#f8fbff] px-4 py-10 text-center text-gray-600">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[#6096ba]/30 border-t-[#6096ba] animate-spin"></div>
                     <span className="text-sm font-medium">Loading attendance...</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-[#a3cef1] bg-[#f8fbff] px-4 py-10 text-center">
+                    <AlertCircle className="h-12 w-12 text-gray-400" />
+                    <div className="space-y-2">
+                      <p className="text-base font-semibold text-gray-700">No Attendance Marked</p>
+                      <p className="text-sm text-gray-500">
+                        Attendance has not been marked for this class on {new Date(selectedDate).toLocaleDateString('en-US', {
+                          weekday: 'long',
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}.
+                      </p>
+                      <p className="text-xs text-gray-400 mt-2">
+                        Please wait for the teacher to mark attendance before you can review and approve it.
+                      </p>
+                    </div>
                   </div>
                 )}
               </>

@@ -25,7 +25,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Override to handle role-based filtering for list views and stats actions"""
-        queryset = Student.objects.select_related('campus', 'classroom').all()
+        queryset = Student.objects.select_related('campus', 'classroom').filter(is_deleted=False)
         
         # Apply role-based filtering for list views and stats actions
         if self.action in ['list', 'gender_stats', 'campus_stats', 'grade_distribution', 

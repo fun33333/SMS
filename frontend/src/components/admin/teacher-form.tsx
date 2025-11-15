@@ -75,7 +75,10 @@ export function TeacherForm() {
     class_teacher_grade: '',
     class_teacher_section: '',
     assigned_classroom: '',
-    assigned_classrooms: []
+    assigned_classrooms: [],
+    
+    // Coordinator assignment (for non-class teachers)
+    assigned_coordinators: []
   })
   const [invalidFields, setInvalidFields] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -317,6 +320,7 @@ export function TeacherForm() {
         is_class_teacher: Boolean(formData.is_class_teacher || (formData.class_teacher_level && formData.class_teacher_grade && formData.class_teacher_section)),
         assigned_classroom: resolvedAssignedClassroom,
         assigned_classrooms: Array.isArray(formData.assigned_classrooms) ? formData.assigned_classrooms.map((x:any)=> Number(x)) : [],
+        assigned_coordinators: Array.isArray(formData.assigned_coordinators) ? formData.assigned_coordinators.map((x:any)=> Number(x)) : [],
         dob: formData.dob && typeof formData.dob === 'string' && formData.dob.trim() !== '' ? formData.dob : null,
         joining_date: formData.joining_date && typeof formData.joining_date === 'string' && formData.joining_date.trim() !== '' ? formData.joining_date : null,
         experience_from_date: formData.experience_from_date && typeof formData.experience_from_date === 'string' && formData.experience_from_date.trim() !== '' ? formData.experience_from_date : null,

@@ -6,7 +6,7 @@ import { getCurrentUserRole, getCurrentUser } from "@/lib/permissions";
 import { getFilteredStudents, getAllCampuses, getGrades, getClassrooms } from "@/lib/api";
 import { DataTable, PaginationControls } from "@/components/shared";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { User, Search, RefreshCcw, Mail, GraduationCap, MapPin } from 'lucide-react';
+import { User, Search, RefreshCcw, Mail, GraduationCap, MapPin, CheckCircle, XCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,7 @@ interface Student {
   contact_number: string;
   email: string;
   coordinator_names: string[];
+  is_active?: boolean;
 }
 
 interface PaginationInfo {
@@ -71,6 +72,7 @@ export default function StudentListPage() {
   const [userCampus, setUserCampus] = useState<string>("");
   const [campuses, setCampuses] = useState<any[]>([]);
   const [grades, setGrades] = useState<any[]>([]);
+  const [classrooms, setClassrooms] = useState<any[]>([]);
   
   // Edit functionality
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -218,7 +220,19 @@ export default function StudentListPage() {
         return `grade ${num}`; // canonical form
       };
 
-      let results = pageResults;
+      // Sort results: Active students first, then inactive students at the end
+      let results = [...pageResults].sort((a, b) => {
+        const aIsActive = a.is_active !== false; // true if active or undefined
+        const bIsActive = b.is_active !== false;
+        
+        // If both have same status, maintain original order
+        if (aIsActive === bIsActive) {
+          return 0;
+        }
+        
+        // Active students come first (return -1), inactive come last (return 1)
+        return aIsActive ? -1 : 1;
+      });
       if (filters.current_grade) {
         const selectedNorm = normalizeGradeName(filters.current_grade);
         results = results.filter((stu: any) => normalizeGradeName(stu.current_grade) === selectedNorm);
@@ -351,8 +365,28 @@ export default function StudentListPage() {
             enrollment_year: studentData.enrollment_year || '',
             shift: studentData.shift || '',
             is_draft: studentData.is_draft ? 'true' : 'false',
+            is_active: studentData.is_active !== undefined ? studentData.is_active : true,
+            classroom: studentData.classroom || studentData.classroom_id || '',
             photo: studentData.photo || null,
                   };
+                  
+                  // Fetch classrooms for this student's campus and shift
+                  if (studentData.campus) {
+                    const campusId = typeof studentData.campus === 'object' ? studentData.campus.id : studentData.campus;
+                    const studentShift = studentData.shift || '';
+                    try {
+                      const classroomsData: any = await getClassrooms(undefined, undefined, campusId, studentShift);
+                      const classroomsList: any[] = Array.isArray(classroomsData)
+                        ? classroomsData
+                        : Array.isArray(classroomsData?.results)
+                          ? classroomsData.results
+                          : [];
+                      setClassrooms(classroomsList);
+                    } catch (error) {
+                      console.error('Error fetching classrooms:', error);
+                      setClassrooms([]);
+                    }
+                  }
 
                   setEditFormData(formData);
                   setShowEditDialog(true);
@@ -442,11 +476,15 @@ export default function StudentListPage() {
       }
 
       // Prepare update data - send all provided values EXCEPT excluded fields
+      // Note: classroom is NOT excluded - we want to allow classroom updates
       const excludeKeys = new Set(['current_grade', 'section', 'gr_no', 'shift', 'is_draft', 'photo']);
       const updateData: any = {};
       Object.keys(editFormData).forEach(key => {
         if (excludeKeys.has(key)) return;
-        if (editFormData[key] !== '' && editFormData[key] !== null && editFormData[key] !== undefined) {
+        // Include classroom even if it's null (to allow removing assignment)
+        if (key === 'classroom') {
+          updateData[key] = editFormData[key] !== undefined ? (editFormData[key] || null) : undefined;
+        } else if (editFormData[key] !== '' && editFormData[key] !== null && editFormData[key] !== undefined) {
           updateData[key] = editFormData[key];
         }
       });
@@ -596,6 +634,30 @@ export default function StudentListPage() {
           </div>
         </div>
       )
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      icon: <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" />,
+      render: (student: Student) => (
+        <div className="flex items-center space-x-2">
+          {student.is_active !== false ? (
+            <div className="flex items-center space-x-2">
+              <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 flex-shrink-0" />
+              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs sm:text-sm font-medium bg-green-100 text-green-800 border border-green-200">
+                Active
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-2">
+              <XCircle className="h-4 w-4 sm:h-5 sm:w-5 text-red-500 flex-shrink-0" />
+              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs sm:text-sm font-medium bg-red-100 text-red-800 border border-red-200">
+                Inactive
+              </span>
+            </div>
+          )}
+        </div>
+      )
     }
   ];
 
@@ -739,7 +801,7 @@ export default function StudentListPage() {
         isLoading={loading}
         emptyMessage="No students found"
         allowEdit={userRole !== 'superadmin'} // Coordinator and teacher can edit
-        allowDelete={userRole !== 'superadmin'}
+        allowDelete={userRole !== 'superadmin' && userRole !== 'teacher'} // Hide delete for teachers
       />
 
       <PaginationControls
@@ -1096,6 +1158,58 @@ export default function StudentListPage() {
                     onChange={(e) => setEditFormData({...editFormData, to_year: e.target.value})}
                     placeholder="Enter to year"
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Academic Information - Classroom Assignment */}
+            <div className="bg-gray-50 p-4 sm:p-5 rounded-2xl border border-[#e4ecf5] shadow-inner">
+              <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Classroom Assignment</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <Label htmlFor="classroom">Classroom</Label>
+                  <Select 
+                    value={editFormData.classroom ? String(editFormData.classroom) : 'none'} 
+                    onValueChange={(value) => setEditFormData({...editFormData, classroom: value === 'none' ? null : parseInt(value)})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select classroom" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No Classroom</SelectItem>
+                      {classrooms.map((classroom: any) => (
+                        <SelectItem key={classroom.id} value={String(classroom.id)}>
+                          {classroom.grade?.name || classroom.grade_name || 'N/A'} - {classroom.section || 'N/A'} ({classroom.shift || 'N/A'})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Select the correct classroom for this student. This will automatically update the student's class assignment.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* System Information */}
+            <div className="bg-gray-50 p-4 sm:p-5 rounded-2xl border border-[#e4ecf5] shadow-inner">
+              <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>System Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="is_active">Student Status</Label>
+                  <Select 
+                    value={editFormData.is_active !== undefined ? (editFormData.is_active ? 'true' : 'false') : 'true'} 
+                    onValueChange={(value) => setEditFormData({...editFormData, is_active: value === 'true'})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true">Active</SelectItem>
+                      <SelectItem value="false">Inactive (Left)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1 text-xs text-gray-500">Inactive students will not appear in attendance sheets</p>
                 </div>
               </div>
             </div>
