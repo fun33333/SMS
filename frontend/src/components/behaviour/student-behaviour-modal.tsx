@@ -199,38 +199,38 @@ export default function StudentBehaviourModal({ open, onOpenChange, studentId, s
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[92vw] max-w-[900px] md:max-w-[900px]">
-        <DialogHeader className="flex flex-row items-start justify-between">
-          <DialogTitle>Add Student Behaviour</DialogTitle>
-          <div className="text-right space-y-1">
+      <DialogContent className="w-[95vw] sm:w-[92vw] max-w-[900px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader className="flex flex-col sm:flex-row items-start sm:items-start justify-between gap-3 sm:gap-0">
+          <DialogTitle className="text-lg sm:text-xl">Add Student Behaviour</DialogTitle>
+          <div className="text-left sm:text-right space-y-1 w-full sm:w-auto">
             <div>
               <span className="text-xs text-slate-500 mr-2">Student ID</span>
-              <span className="text-base font-semibold tracking-wide">{String(studentCode ?? studentId)}</span>
+              <span className="text-sm sm:text-base font-semibold tracking-wide break-all">{String(studentCode ?? studentId)}</span>
             </div>
             <div>
               <span className="text-xs text-slate-500 mr-2">Student Name</span>
-              <span className="text-base font-semibold tracking-wide">{studentName}</span>
+              <span className="text-sm sm:text-base font-semibold tracking-wide break-words">{studentName}</span>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div className="md:col-span-5 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 sm:gap-4">
+          <div className="md:col-span-5 space-y-3 sm:space-y-4">
             <div className="space-y-1">
-              <Label>Month</Label>
-              <div className="text-sm font-medium">{monthLabel}</div>
+              <Label className="text-sm sm:text-base">Month</Label>
+              <div className="text-xs sm:text-sm font-medium">{monthLabel}</div>
             </div>
             <div className="space-y-2">
-              <Label>Week</Label>
+              <Label className="text-sm sm:text-base">Week</Label>
               <Select value={String(selectedWeek)} onValueChange={(v) => setSelectedWeek(parseInt(v))}>
-                <SelectTrigger className="h-9 w-full md:w-[240px]">
+                <SelectTrigger className="h-9 w-full sm:w-[240px] text-sm">
                   <SelectValue placeholder="Select week" />
                 </SelectTrigger>
                 <SelectContent>
                   {weeks.map((w, i) => {
                     const isFuture = new Date(w.start) > new Date();
                     return (
-                      <SelectItem key={i} value={String(i)} disabled={isFuture}>{`Week ${i+1} (${w.label})`}</SelectItem>
+                      <SelectItem key={i} value={String(i)} disabled={isFuture} className="text-sm">{`Week ${i+1} (${w.label})`}</SelectItem>
                     )
                   })}
                 </SelectContent>
@@ -239,69 +239,74 @@ export default function StudentBehaviourModal({ open, onOpenChange, studentId, s
 
             <Tabs defaultValue="punctuality" className="w-full">
               {readOnly && (
-                <div className="mb-2 text-xs px-3 py-2 rounded-md bg-amber-50 text-amber-700 border border-amber-200">
+                <div className="mb-2 text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 rounded-md bg-amber-50 text-amber-700 border border-amber-200">
                   You already added behaviour for this week. Entries are read-only.
                 </div>
               )}
-              <TabsList className="flex flex-wrap gap-2 w-full bg-slate-50 rounded-md p-1">
+              <TabsList className="flex flex-wrap gap-1.5 sm:gap-2 w-full bg-slate-50 rounded-md p-1 overflow-x-auto">
                 {(Object.keys(METRIC_LABELS) as MetricKey[]).map(k => (
-                  <TabsTrigger key={k} value={k} className="text-xs md:text-sm px-3 py-1 rounded-md data-[state=active]:bg-[#013a63] data-[state=active]:text-white">
+                  <TabsTrigger key={k} value={k} className="text-[10px] sm:text-xs md:text-sm px-2 sm:px-3 py-1 rounded-md data-[state=active]:bg-[#013a63] data-[state=active]:text-white whitespace-nowrap">
                     {TAB_LABELS[k]}
                   </TabsTrigger>
                 ))}
               </TabsList>
               {(Object.keys(METRIC_LABELS) as MetricKey[]).map((k) => (
-                <TabsContent key={k} value={k} className="mt-4 space-y-4">
+                <TabsContent key={k} value={k} className="mt-3 sm:mt-4 space-y-3 sm:space-y-4">
                   <div className="space-y-1">
-                    <Label>
-                      {METRIC_LABELS[k]} <span className="text-xs text-slate-500">(Current: {(k === 'participation' && metrics[k] === 4) ? (eventRecords.length > 0 ? 100 : 90) : (PERCENT_SCALE[metrics[k]] || 0)}%) {readOnly ? '(read-only)' : ''}</span>
+                    <Label className="text-sm sm:text-base">
+                      {METRIC_LABELS[k]} <span className="text-[10px] sm:text-xs text-slate-500">(Current: {(k === 'participation' && metrics[k] === 4) ? (eventRecords.length > 0 ? 100 : 90) : (PERCENT_SCALE[metrics[k]] || 0)}%) {readOnly ? '(read-only)' : ''}</span>
                     </Label>
-                    <div className="flex gap-2 flex-wrap mt-2">
+                    <div className="flex gap-1.5 sm:gap-2 flex-wrap mt-2">
                       {SCORE_OPTIONS.map(opt => (
                         <Button
                           key={opt.value}
                           type="button"
                           variant={metrics[k] === opt.value ? "default" : "outline"}
-                          className={`h-8 px-3 ${metrics[k] === opt.value ? "bg-[#013a63] text-white" : ""}`}
+                          className={`h-8 sm:h-9 px-2 sm:px-3 text-[11px] sm:text-sm ${metrics[k] === opt.value ? "bg-[#013a63] text-white" : ""}`}
                           disabled={readOnly}
                           onClick={() => !readOnly && setMetric(k, opt.value)}
                         >
-                          {opt.label} ({(k === 'participation' && opt.value === 4) ? (eventRecords.length > 0 ? 100 : 90) : (PERCENT_SCALE[opt.value] || 0)}%)
+                          <span className="whitespace-nowrap">{opt.label}</span> <span className="hidden sm:inline">({(k === 'participation' && opt.value === 4) ? (eventRecords.length > 0 ? 100 : 90) : (PERCENT_SCALE[opt.value] || 0)}%)</span>
                         </Button>
                       ))}
                     </div>
                   </div>
 
                   {k === 'participation' ? (
-                    <div className="space-y-3 border-t pt-4">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-sm font-semibold">Event Records</Label>
+                    <div className="space-y-3 border-t pt-3 sm:pt-4">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                        <Label className="text-sm sm:text-base font-semibold">Event Records</Label>
                         {!showEventForm && !readOnly && (
-                          <Button type="button" variant="outline" className="h-8 px-3"
+                          <Button type="button" variant="outline" className="h-8 sm:h-9 px-2 sm:px-3 text-xs sm:text-sm w-full sm:w-auto"
                             onClick={() => setShowEventForm(true)}
                           >
-                            {eventRecords.length > 0 ? 'Add Another Event Record' : 'Add Event Record'}
+                            {eventRecords.length > 0 ? 'Add Another Event' : 'Add Event Record'}
                           </Button>
                         )}
                       </div>
 
                       {showEventForm && !readOnly ? (
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                          <div className="md:col-span-1">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+                          <div className="sm:col-span-1">
                             <Input type="date" value={eventForm.date}
-                              onChange={(e) => setEventForm({ ...eventForm, date: e.target.value })} placeholder="Event Date" />
+                              onChange={(e) => setEventForm({ ...eventForm, date: e.target.value })} 
+                              placeholder="Event Date" 
+                              className="text-sm h-9" />
                           </div>
-                          <div className="md:col-span-1">
+                          <div className="sm:col-span-1">
                             <Input placeholder="Event Name" value={eventForm.name}
-                              onChange={(e) => setEventForm({ ...eventForm, name: e.target.value })} />
+                              onChange={(e) => setEventForm({ ...eventForm, name: e.target.value })} 
+                              className="text-sm h-9" />
                           </div>
-                          <div className="md:col-span-1">
-                            <Input placeholder="Progress (e.g., Participated/Winner)" value={eventForm.progress}
-                              onChange={(e) => setEventForm({ ...eventForm, progress: e.target.value })} />
+                          <div className="sm:col-span-1">
+                            <Input placeholder="Progress" value={eventForm.progress}
+                              onChange={(e) => setEventForm({ ...eventForm, progress: e.target.value })} 
+                              className="text-sm h-9" />
                           </div>
-                          <div className="md:col-span-1">
+                          <div className="sm:col-span-1">
                             <Input placeholder="Award / Remarks (optional)" value={eventForm.award || ''}
-                              onChange={(e) => setEventForm({ ...eventForm, award: e.target.value })} />
+                              onChange={(e) => setEventForm({ ...eventForm, award: e.target.value })} 
+                              className="text-sm h-9" />
                           </div>
                         </div>
                       ) : null}
@@ -327,36 +332,72 @@ export default function StudentBehaviourModal({ open, onOpenChange, studentId, s
                       ) : null}
 
                       {eventRecords.length > 0 && (
-                        <div className="overflow-x-auto border rounded-md">
-                          <table className="min-w-full text-sm">
-                            <thead className="bg-slate-50 text-slate-600">
-                              <tr>
-                                <th className="text-left px-3 py-2">Event</th>
-                                <th className="text-left px-3 py-2">Date</th>
-                                <th className="text-left px-3 py-2">Progress</th>
-                                <th className="text-left px-3 py-2">Award / Remarks</th>
-                                <th className="px-2 py-2">Action</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {eventRecords.map((er, idx) => (
-                                <tr key={idx} className="border-t">
-                                  <td className="px-3 py-2">{er.name}</td>
-                                  <td className="px-3 py-2">{er.date}</td>
-                                  <td className="px-3 py-2">{er.progress}</td>
-                                  <td className="px-3 py-2">{er.award || '—'}</td>
-                                  <td className="px-2 py-2 text-right">
-                                    <Button variant="outline" className="h-7 px-2" disabled={readOnly}
-                                      onClick={() => !readOnly && setEventRecords(prev => prev.filter((_, i) => i !== idx))}
-                                    >
-                                      Remove
-                                    </Button>
-                                  </td>
+                        <>
+                          {/* Desktop Table View */}
+                          <div className="hidden sm:block overflow-x-auto border rounded-md">
+                            <table className="min-w-full text-sm">
+                              <thead className="bg-slate-50 text-slate-600">
+                                <tr>
+                                  <th className="text-left px-3 py-2">Event</th>
+                                  <th className="text-left px-3 py-2">Date</th>
+                                  <th className="text-left px-3 py-2">Progress</th>
+                                  <th className="text-left px-3 py-2">Award / Remarks</th>
+                                  <th className="px-2 py-2">Action</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                              </thead>
+                              <tbody>
+                                {eventRecords.map((er, idx) => (
+                                  <tr key={idx} className="border-t">
+                                    <td className="px-3 py-2">{er.name}</td>
+                                    <td className="px-3 py-2">{er.date}</td>
+                                    <td className="px-3 py-2">{er.progress}</td>
+                                    <td className="px-3 py-2">{er.award || '—'}</td>
+                                    <td className="px-2 py-2 text-right">
+                                      <Button variant="outline" className="h-7 px-2 text-xs" disabled={readOnly}
+                                        onClick={() => !readOnly && setEventRecords(prev => prev.filter((_, i) => i !== idx))}
+                                      >
+                                        Remove
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          
+                          {/* Mobile Card View */}
+                          <div className="sm:hidden space-y-2">
+                            {eventRecords.map((er, idx) => (
+                              <div key={idx} className="border rounded-md p-3 space-y-2 bg-white">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-slate-500 mb-1">Event</div>
+                                    <div className="text-sm font-medium break-words">{er.name}</div>
+                                  </div>
+                                  <Button variant="outline" className="h-7 px-2 text-xs ml-2 flex-shrink-0" disabled={readOnly}
+                                    onClick={() => !readOnly && setEventRecords(prev => prev.filter((_, i) => i !== idx))}
+                                  >
+                                    Remove
+                                  </Button>
+                                </div>
+                                <div>
+                                  <div className="text-xs text-slate-500 mb-1">Date</div>
+                                  <div className="text-sm">{er.date}</div>
+                                </div>
+                                <div>
+                                  <div className="text-xs text-slate-500 mb-1">Progress</div>
+                                  <div className="text-sm">{er.progress}</div>
+                                </div>
+                                {er.award && (
+                                  <div>
+                                    <div className="text-xs text-slate-500 mb-1">Award / Remarks</div>
+                                    <div className="text-sm break-words">{er.award}</div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </>
                       )}
                     </div>
                   ) : null}
@@ -368,9 +409,9 @@ export default function StudentBehaviourModal({ open, onOpenChange, studentId, s
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button onClick={handleSubmit} disabled={readOnly} className={`text-white hover:opacity-95 ${readOnly ? 'bg-slate-400 cursor-not-allowed' : 'bg-[#013a63]'}`}>{readOnly ? 'Already Saved' : 'Save'}</Button>
+        <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0">
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto order-2 sm:order-1">Close</Button>
+          <Button onClick={handleSubmit} disabled={readOnly} className={`w-full sm:w-auto text-white hover:opacity-95 order-1 sm:order-2 ${readOnly ? 'bg-slate-400 cursor-not-allowed' : 'bg-[#013a63]'}`}>{readOnly ? 'Already Saved' : 'Save'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

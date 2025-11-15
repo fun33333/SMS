@@ -319,8 +319,8 @@ def mark_bulk_attendance(request):
                     'is_weekend': True
                 }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get all students in this class
-        all_students = Student.objects.filter(classroom=classroom)
+        # Get all students in this class (only active students)
+        all_students = Student.objects.filter(classroom=classroom, is_deleted=False, is_active=True)
         all_student_ids = list(all_students.values_list('id', flat=True))
         
         with transaction.atomic():
@@ -595,13 +595,14 @@ def get_class_students(request, classroom_id):
         except Teacher.DoesNotExist:
             return Response({'error': 'Teacher profile not found'}, status=status.HTTP_404_NOT_FOUND)
     
-    students = Student.objects.filter(classroom=classroom, is_deleted=False).order_by('name')
+    students = Student.objects.filter(classroom=classroom, is_deleted=False, is_active=True).order_by('name')
     
     student_data = []
     for student in students:
         student_data.append({
             'id': student.id,
             'name': student.name,
+            'father_name': student.father_name,
             'student_code': student.student_code,
             'photo': student.photo.url if student.photo else None,
             'gr_no': student.gr_no,
@@ -1262,7 +1263,22 @@ def get_level_attendance_summary(request, level_id):
             
             avg_percentage = 0
             if classroom_records > 0:
-                avg_percentage = sum(att.attendance_percentage for att in attendances) / classroom_records
+                try:
+                    # Safely get attendance percentages, handling None values
+                    percentages = []
+                    for att in attendances:
+                        try:
+                            pct = att.attendance_percentage
+                            if pct is not None and not (isinstance(pct, float) and (pct != pct)):  # Check for NaN
+                                percentages.append(pct)
+                        except (ZeroDivisionError, TypeError, AttributeError):
+                            continue
+                    
+                    if percentages:
+                        total_percentage = sum(percentages)
+                        avg_percentage = total_percentage / len(percentages)
+                except (ZeroDivisionError, TypeError):
+                    avg_percentage = 0
             
             summary_data.append({
                 'classroom': {
@@ -1292,8 +1308,12 @@ def get_level_attendance_summary(request, level_id):
         
         # Calculate overall statistics
         overall_percentage = 0
-        if total_students > 0:
-            overall_percentage = round((total_present / (total_present + total_absent)) * 100, 2)
+        try:
+            total_attendance = total_present + total_absent
+            if total_attendance > 0:
+                overall_percentage = round((total_present / total_attendance) * 100, 2)
+        except (ZeroDivisionError, TypeError):
+            overall_percentage = 0
         
         return Response({
             'level_id': level_id,

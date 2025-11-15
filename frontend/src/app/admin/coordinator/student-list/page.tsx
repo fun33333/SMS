@@ -1,12 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Users, Search, Phone, Mail, GraduationCap, Building2 } from "lucide-react"
-import { getAllStudents } from "@/lib/api"
+import { getAllStudents, getCoordinatorClasses } from "@/lib/api"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import { useRouter } from "next/navigation"
 import { DataTable } from "@/components/shared/data-table"
@@ -35,8 +37,72 @@ function CoordinatorStudentListContent() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isCoordinator, setIsCoordinator] = useState(false)
+  
+  // Filter states
+  const [selectedShift, setSelectedShift] = useState<string>("all")
+  const [selectedGrade, setSelectedGrade] = useState<string>("all")
+  const [selectedSection, setSelectedSection] = useState<string>("all")
+  
+  // Available options from coordinator classes
+  const [availableShifts, setAvailableShifts] = useState<string[]>([])
+  const [availableGrades, setAvailableGrades] = useState<Array<{name: string, shifts: string[]}>>([])
+  const [availableSections, setAvailableSections] = useState<string[]>([])
+  const [coordinatorClasses, setCoordinatorClasses] = useState<any[]>([])
 
   // Helper function to truncate subjects/grades to max 2 items
+
+  // Fetch coordinator classes to get available shifts, grades, and sections
+  useEffect(() => {
+    async function fetchCoordinatorClasses() {
+      try {
+        const classesData = await getCoordinatorClasses()
+        const classes = Array.isArray(classesData) ? classesData : []
+        setCoordinatorClasses(classes)
+        
+        // Extract unique shifts
+        const shifts = new Set<string>()
+        classes.forEach((cls: any) => {
+          if (cls.shift) {
+            shifts.add(cls.shift.toLowerCase())
+          }
+        })
+        setAvailableShifts(Array.from(shifts).sort())
+        
+        // Extract unique grades with their shifts (a grade can appear in multiple shifts)
+        const gradesMap = new Map<string, Set<string>>()
+        classes.forEach((cls: any) => {
+          if (cls.grade) {
+            const gradeName = typeof cls.grade === 'string' ? cls.grade : cls.grade.name || cls.grade
+            const shift = cls.shift?.toLowerCase() || ''
+            if (!gradesMap.has(gradeName)) {
+              gradesMap.set(gradeName, new Set())
+            }
+            if (shift) {
+              gradesMap.get(gradeName)!.add(shift)
+            }
+          }
+        })
+        // Convert to array format: each grade can have multiple shifts
+        const grades: Array<{name: string, shifts: string[]}> = Array.from(gradesMap.entries()).map(([name, shifts]) => ({ 
+          name, 
+          shifts: Array.from(shifts) 
+        }))
+        setAvailableGrades(grades.sort((a, b) => a.name.localeCompare(b.name)) as any)
+        
+        // Extract unique sections
+        const sections = new Set<string>()
+        classes.forEach((cls: any) => {
+          if (cls.section) {
+            sections.add(cls.section.toUpperCase())
+          }
+        })
+        setAvailableSections(Array.from(sections).sort())
+      } catch (err) {
+        console.error("Error fetching coordinator classes:", err)
+      }
+    }
+    fetchCoordinatorClasses()
+  }, [])
 
   useEffect(() => {
     async function fetchStudents() {
@@ -96,14 +162,197 @@ function CoordinatorStudentListContent() {
     }
     fetchStudents()
   }, [])
+  
+  // Reset grade and section when shift changes
+  useEffect(() => {
+    if (selectedShift === "all") {
+      setSelectedGrade("all")
+      setSelectedSection("all")
+    } else {
+      setSelectedGrade("all")
+      setSelectedSection("all")
+    }
+  }, [selectedShift])
+  
+  // Reset section when grade changes
+  useEffect(() => {
+    setSelectedSection("all")
+  }, [selectedGrade])
+  
+  // Get filtered grades based on selected shift
+  const filteredGrades = useMemo(() => {
+    if (selectedShift === "all") {
+      return availableGrades
+    }
+    return availableGrades.filter(grade => 
+      grade.shifts.includes(selectedShift.toLowerCase())
+    )
+  }, [selectedShift, availableGrades])
+  
+  // Get filtered sections based on selected grade
+  const filteredSections = useMemo(() => {
+    if (selectedGrade === "all") {
+      return availableSections
+    }
+    // Get sections for the selected grade from coordinator classes
+    const sections = new Set<string>()
+    coordinatorClasses.forEach((cls: any) => {
+      const gradeName = typeof cls.grade === 'string' ? cls.grade : cls.grade?.name || cls.grade
+      if (gradeName === selectedGrade && cls.section) {
+        sections.add(cls.section.toUpperCase())
+      }
+    })
+    return Array.from(sections).sort()
+  }, [selectedGrade, coordinatorClasses])
 
-  const filteredStudents = students.filter(student =>
-    student.name.toLowerCase().includes(search.toLowerCase()) ||
-    student.student_code.toLowerCase().includes(search.toLowerCase()) ||
-    student.gr_no.toLowerCase().includes(search.toLowerCase()) ||
-    student.father_name.toLowerCase().includes(search.toLowerCase()) ||
-    student.email.toLowerCase().includes(search.toLowerCase())
-  )
+  const filteredStudents = useMemo(() => {
+    return students.filter(student => {
+      // Search filter (only apply if search has value)
+      if (search.trim()) {
+        const matchesSearch = 
+          student.name.toLowerCase().includes(search.toLowerCase()) ||
+          student.student_code.toLowerCase().includes(search.toLowerCase()) ||
+          student.gr_no.toLowerCase().includes(search.toLowerCase()) ||
+          student.father_name.toLowerCase().includes(search.toLowerCase()) ||
+          student.email.toLowerCase().includes(search.toLowerCase())
+        
+        if (!matchesSearch) return false
+      }
+      
+      // Shift filter
+      if (selectedShift !== "all") {
+        const studentShift = (student.shift || '').toLowerCase()
+        if (studentShift !== selectedShift.toLowerCase()) {
+          return false
+        }
+      }
+      
+      // Grade filter
+      if (selectedGrade !== "all") {
+        const studentGrade = (student.current_grade || '').trim()
+        const filterGrade = selectedGrade.trim()
+        
+        // Normalize grade names for comparison - CRITICAL: Keep KG-I and KG-II STRICTLY separate
+        const normalizeGrade = (grade: string): string => {
+          if (!grade) return ''
+          let normalized = grade.toLowerCase().trim()
+          
+          // CRITICAL: Check for KG-II FIRST (longer match) before any other processing
+          // This ensures "KG-II" doesn't get matched as "KG-I"
+          if (normalized.includes('kg-ii') || normalized === 'kg-2' || normalized === 'kg2') {
+            return 'kg-ii'
+          }
+          
+          // Now check for KG-I (but NOT if it's part of KG-II)
+          if (normalized.includes('kg-i') && !normalized.includes('kg-ii')) {
+            return 'kg-i'
+          }
+          if (normalized === 'kg-1' || normalized === 'kg1') {
+            return 'kg-i'
+          }
+          
+          // For other grades, remove section suffix and normalize
+          normalized = normalized
+            .replace(/\s*-\s*[a-z]$/i, '')  // Remove " - A" suffix
+            .replace(/\s+[a-z]$/i, '')     // Remove " A" suffix
+            .replace(/[a-z]$/i, '')         // Remove single letter suffix at end
+          
+          return normalized.replace(/\s+/g, '-').trim()
+        }
+        
+        // Check if grade matches in current_grade field (with normalization)
+        let gradeMatches = normalizeGrade(studentGrade) === normalizeGrade(filterGrade)
+        
+        // If not matched, try to extract grade from classroom_name
+        if (!gradeMatches && student.classroom_name) {
+          const classroomName = student.classroom_name.trim().toLowerCase()
+          
+          // CRITICAL: Check for KG-II FIRST in classroom name (exact match, not substring)
+          // This prevents "KG-II" from being matched as "KG-I"
+          if (classroomName.includes('kg-ii')) {
+            // This is definitely KG-II, check if filter matches
+            const normalizedExtracted = 'kg-ii'
+            const normalizedFilter = normalizeGrade(filterGrade)
+            gradeMatches = (normalizedExtracted === normalizedFilter)
+          } else if (classroomName.includes('kg-i') && !classroomName.includes('kg-ii')) {
+            // This is KG-I (and NOT KG-II), check if filter matches
+            const normalizedExtracted = 'kg-i'
+            const normalizedFilter = normalizeGrade(filterGrade)
+            gradeMatches = (normalizedExtracted === normalizedFilter)
+          } else {
+            // For other grades, use pattern matching
+            const gradePatterns = [
+              /^(.+?)\s*-\s*([A-Z])/i,         // "KG-I - A" -> "KG-I" (matches "KG-I - A" format)
+              /^(.+?)-([A-Z])$/i,              // "KG-I-A" -> "KG-I" (matches "KG-I-A" format, no space)
+              /^(.+?)\s+([A-Z])$/i,           // "KG-I A" -> "KG-I" (matches "KG-I A" format)
+            ]
+            
+            for (const pattern of gradePatterns) {
+              const match = student.classroom_name.trim().match(pattern)
+              if (match && match[1]) {
+                const extractedGrade = match[1].trim()
+                // Normalize both for comparison - must match exactly
+                const normalizedExtracted = normalizeGrade(extractedGrade)
+                const normalizedFilter = normalizeGrade(filterGrade)
+                
+                // Strict comparison - KG-I should NOT match KG-II
+                if (normalizedExtracted === normalizedFilter) {
+                  gradeMatches = true
+                  break
+                }
+              }
+            }
+          }
+        }
+        
+        if (!gradeMatches) {
+          return false
+        }
+      }
+      
+      // Section filter
+      if (selectedSection !== "all") {
+        // Extract section from classroom_name (e.g., "Nursery - A" -> "A", "KG-I-A" -> "A", "KG-I - A" -> "A")
+        const classroomName = (student.classroom_name || '').trim()
+        
+        // Try multiple patterns: "Grade - Section", "Grade-Section", "GradeSection"
+        // Order matters: check space-dash format first (most common), then no-space dash, then space, then last letter
+        const patterns = [
+          /\s*-\s*([A-Z])$/i,
+          /\s*-\s*([A-Z])/i,           
+          /-([A-Z])$/i,
+          /-\s*([A-Z])/i,              
+          /\s+([A-Z])$/i,              
+          /([A-Z])$/i,                 
+        ]
+        
+        let studentSection = ''
+        for (const pattern of patterns) {
+          const match = classroomName.match(pattern)
+          if (match && match[1]) {
+            studentSection = match[1].toUpperCase()
+            break
+          }
+        }
+        
+        // Debug log for section matching
+        if (selectedSection === "A" && studentSection !== selectedSection.toUpperCase()) {
+          console.log('🔍 Section Mismatch:', {
+            classroomName,
+            extractedSection: studentSection,
+            selectedSection: selectedSection.toUpperCase(),
+            match: studentSection === selectedSection.toUpperCase()
+          })
+        }
+        
+        if (studentSection !== selectedSection.toUpperCase()) {
+          return false
+        }
+      }
+      
+      return true
+    })
+  }, [students, search, selectedShift, selectedGrade, selectedSection])
 
   const columns = [
     {
@@ -200,20 +449,87 @@ function CoordinatorStudentListContent() {
           </p>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col gap-3 sm:gap-4 mb-6 sm:mb-8 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 w-full lg:max-w-lg">
-              <div className="relative flex-1 min-w-0">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                <Input
-                  placeholder="Search students by name, ID, or father's name..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-10 w-full"
-                />
+          {/* Filters */}
+          <div className="flex flex-col gap-3 sm:gap-4 mb-6 sm:mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              {/* Shift Filter */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Shift</Label>
+                <Select value={selectedShift} onValueChange={setSelectedShift}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select shift" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Shifts</SelectItem>
+                    {availableShifts.map((shift) => (
+                      <SelectItem key={shift} value={shift}>
+                        {shift.charAt(0).toUpperCase() + shift.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {/* Grade Filter */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Grade</Label>
+                <Select 
+                  value={selectedGrade} 
+                  onValueChange={setSelectedGrade}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select grade" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Grades</SelectItem>
+                    {filteredGrades.map((grade) => (
+                      <SelectItem key={grade.name} value={grade.name}>
+                        {grade.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {/* Section Filter */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Section</Label>
+                <Select 
+                  value={selectedSection} 
+                  onValueChange={setSelectedSection}
+                  disabled={selectedGrade === "all"}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={selectedGrade === "all" ? "Select grade first" : "Select section"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Sections</SelectItem>
+                    {filteredSections.map((section) => (
+                      <SelectItem key={section} value={section}>
+                        {section}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {/* Search */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Search</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                  <Input
+                    placeholder="Search students..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-10 w-full"
+                  />
+                </div>
               </div>
             </div>
-            <div className="text-sm text-gray-500 text-left sm:text-right">
-              {filteredStudents.length} of {students.length} Students
+            
+            <div className="text-sm text-gray-500 text-left">
+              Showing {filteredStudents.length} of {students.length} Students
             </div>
           </div>
 

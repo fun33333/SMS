@@ -108,6 +108,39 @@ def notify_student_operations(sender, instance, created, **kwargs):
         # Existing student - check if classroom changed
         if hasattr(instance, '_previous_classroom') and instance._previous_classroom != instance.classroom:
             logger.info(f"Student {instance.name} classroom changed from {instance._previous_classroom} to {instance.classroom}")
+            
+            # Notify old classroom teacher (if exists)
+            old_classroom = instance._previous_classroom
+            if old_classroom and old_classroom.class_teacher:
+                old_teacher = old_classroom.class_teacher
+                if old_teacher.user:
+                    verb = f"Student {instance.name} has been moved"
+                    target_text = f"from your class ({old_classroom.grade.name if old_classroom.grade else 'N/A'} - {old_classroom.section})"
+                    create_notification(
+                        recipient=old_teacher.user,
+                        actor=actor,
+                        verb=verb,
+                        target_text=target_text,
+                        data={"student_id": instance.id, "student_name": instance.name, "old_classroom_id": old_classroom.id}
+                    )
+                    logger.info(f"[OK] Sent classroom change notification to old teacher {old_teacher.full_name} for student {instance.name}")
+            
+            # Notify new classroom teacher (if exists)
+            new_classroom = instance.classroom
+            if new_classroom and new_classroom.class_teacher:
+                new_teacher = new_classroom.class_teacher
+                if new_teacher.user:
+                    verb = f"Student {instance.name} has been assigned"
+                    target_text = f"to your class ({new_classroom.grade.name if new_classroom.grade else 'N/A'} - {new_classroom.section})"
+                    create_notification(
+                        recipient=new_teacher.user,
+                        actor=actor,
+                        verb=verb,
+                        target_text=target_text,
+                        data={"student_id": instance.id, "student_name": instance.name, "new_classroom_id": new_classroom.id}
+                    )
+                    logger.info(f"[OK] Sent classroom assignment notification to new teacher {new_teacher.full_name} for student {instance.name}")
+            
             assign_student_to_teacher_and_coordinator(instance)
 
 @receiver(post_delete, sender=Student)

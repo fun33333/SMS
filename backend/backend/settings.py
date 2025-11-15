@@ -122,6 +122,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',  # CORS middleware should be as high as possible
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -195,23 +196,19 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # http://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
-# Where collectstatic will put compiled static files in production
+STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Media files (User uploads)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
-# Default primary key field type
-# http://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Custom User Model
 AUTH_USER_MODEL = 'users.User'
 
-# JWT Authentication Settings
 from datetime import timedelta
 
 REST_FRAMEWORK = {
@@ -307,21 +304,6 @@ CORS_ALLOW_ALL_HEADERS = True
 CORS_ALLOW_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 
 
-
-# GraphQL Configuration
-GRAPHENE = {
-    'SCHEMA': 'backend.schema.schema',
-    # 'MIDDLEWARE': [
-    #     'graphql_jwt.middleware.JSONWebTokenMiddleware',
-    # ],
-}
-
-
-
-# Superuser credentials (use environment variables in production)
-SUPERUSER_USERNAME = os.getenv('SUPERUSER_USERNAME', 'admin')
-SUPERUSER_PASSWORD = os.getenv('SUPERUSER_PASSWORD', 'admin123')
-SUPERUSER_EMAIL = os.getenv('SUPERUSER_EMAIL', 'admin@example.com')
 
 # Email Configuration
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'  # Using SMTP with updated credentials

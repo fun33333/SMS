@@ -74,6 +74,11 @@ class StudentFilter(django_filters.FilterSet):
         help_text="Filter by deletion status"
     )
     
+    is_active = django_filters.BooleanFilter(
+        field_name='is_active',
+        help_text="Filter by active status (active students appear in attendance)"
+    )
+    
     # Search functionality
     search = django_filters.CharFilter(
         method='filter_search',
@@ -98,5 +103,5 @@ class StudentFilter(django_filters.FilterSet):
         fields = [
             'campus', 'current_grade', 'section',  
             'gender', 'shift', 'classroom', 'enrollment_year',
-            'created_after', 'created_before', 'is_draft', 'is_deleted'
+            'created_after', 'created_before', 'is_draft', 'is_deleted', 'is_active'
         ]

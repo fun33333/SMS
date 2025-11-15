@@ -5,11 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
 import { Users, Search, Eye, Edit, User, Mail, Phone, GraduationCap, MapPin, Calendar, Award } from "lucide-react"
-import { getAllTeachers, getCoordinatorTeachers, getCurrentUserProfile } from "@/lib/api"
+import { getAllTeachers, getCoordinatorTeachers, getCurrentUserProfile, getApiBaseUrl } from "@/lib/api"
 import { useRouter } from "next/navigation"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 
 function CoordinatorTeacherListContent() {
   const router = useRouter()
@@ -17,6 +20,12 @@ function CoordinatorTeacherListContent() {
   const [teachers, setTeachers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  
+  // Edit functionality
+  const [editingTeacher, setEditingTeacher] = useState<any | null>(null)
+  const [showEditDialog, setShowEditDialog] = useState(false)
+  const [editFormData, setEditFormData] = useState<any>({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Helper function to truncate subjects/grades to max 2 items
   const truncateList = (listString: string, maxItems: number = 2) => {
@@ -91,10 +100,193 @@ function CoordinatorTeacherListContent() {
   }, [])
 
    const filteredTeachers = teachers.filter(teacher =>
-     teacher.name.toLowerCase().includes(search.toLowerCase()) ||
-     teacher.subject.toLowerCase().includes(search.toLowerCase()) ||
-     teacher.email.toLowerCase().includes(search.toLowerCase())
-   )
+    teacher.name.toLowerCase().includes(search.toLowerCase()) ||
+    teacher.subject.toLowerCase().includes(search.toLowerCase()) ||
+    teacher.email.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const handleEdit = async (teacher: any) => {
+    try {
+      setEditingTeacher(teacher);
+      
+      // Fetch full teacher data
+      const baseForRead = getApiBaseUrl();
+      const cleanBaseForRead = baseForRead.endsWith('/') ? baseForRead.slice(0, -1) : baseForRead;
+      const response = await fetch(`${cleanBaseForRead}/api/teachers/${teacher.id}/`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('sis_access_token')}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const teacherData = await response.json();
+        setEditFormData({
+          full_name: teacherData.full_name || '',
+          email: teacherData.email || '',
+          contact_number: teacherData.contact_number || '',
+          dob: teacherData.dob || '',
+          gender: teacherData.gender || '',
+          permanent_address: teacherData.permanent_address || '',
+          marital_status: teacherData.marital_status || '',
+          cnic: teacherData.cnic || '',
+          education_level: teacherData.education_level || '',
+          institution_name: teacherData.institution_name || '',
+          year_of_passing: teacherData.year_of_passing || '',
+          education_subjects: teacherData.education_subjects || '',
+          education_grade: teacherData.education_grade || '',
+          previous_institution_name: teacherData.previous_institution_name || '',
+          previous_position: teacherData.previous_position || '',
+          experience_from_date: teacherData.experience_from_date || '',
+          experience_to_date: teacherData.experience_to_date || '',
+          total_experience_years: teacherData.total_experience_years || '',
+          joining_date: teacherData.joining_date || '',
+          current_role_title: teacherData.current_role_title || '',
+          shift: teacherData.shift || '',
+          is_currently_active: teacherData.is_currently_active ? 'true' : 'false',
+          current_subjects: teacherData.current_subjects || '',
+          current_classes_taught: teacherData.current_classes_taught || '',
+        });
+        setShowEditDialog(true);
+      } else {
+        console.error('Failed to fetch teacher data');
+        setError('Failed to load teacher data for editing');
+      }
+    } catch (err: any) {
+      console.error('Error fetching teacher data:', err);
+      setError(err.message || 'Failed to load teacher data');
+    }
+  };
+
+  const handleEditClose = () => {
+    setEditingTeacher(null);
+    setShowEditDialog(false);
+    setEditFormData({});
+  };
+
+  const handleEditSubmit = async () => {
+    if (!editingTeacher) return;
+    
+    setIsSubmitting(true);
+    try {
+      // Prepare update data - only send fields that exist in the model and have values
+      const updateData: any = {};
+      
+      // List of valid fields that exist in the Teacher model
+      const validFields = [
+        'full_name', 'email', 'contact_number', 'dob', 'gender', 'permanent_address', 
+        'marital_status', 'cnic', 'education_level', 'institution_name', 
+        'year_of_passing', 'education_subjects', 'education_grade', 'previous_institution_name', 
+        'previous_position', 'experience_from_date', 'experience_to_date', 'total_experience_years',
+        'joining_date', 'current_role_title', 'shift', 'is_currently_active',
+        'current_subjects', 'current_classes_taught'
+      ];
+      
+      // Only add valid fields that have values
+      validFields.forEach(key => {
+        const value = editFormData[key];
+        if (value !== '' && value !== null && value !== undefined) {
+          updateData[key] = value;
+        }
+      });
+      
+      // Handle required fields - don't send null for required fields, keep existing value
+      // dob, gender, full_name, contact_number, email, cnic are required
+      // If they're empty, we should not include them in update (PATCH allows partial updates)
+      
+      // Fix date fields - send null only for optional date fields
+      if (editFormData.joining_date === '' || editFormData.joining_date === null || editFormData.joining_date === undefined) {
+        if (editFormData.joining_date === '') {
+          updateData.joining_date = null;
+        }
+      }
+      if (editFormData.experience_from_date === '' || editFormData.experience_from_date === null || editFormData.experience_from_date === undefined) {
+        if (editFormData.experience_from_date === '') {
+          updateData.experience_from_date = null;
+        }
+      }
+      if (editFormData.experience_to_date === '' || editFormData.experience_to_date === null || editFormData.experience_to_date === undefined) {
+        if (editFormData.experience_to_date === '') {
+          updateData.experience_to_date = null;
+        }
+      }
+      
+      // Convert specific fields
+      if (updateData.year_of_passing) {
+        updateData.year_of_passing = parseInt(updateData.year_of_passing);
+      }
+      if (updateData.total_experience_years) {
+        updateData.total_experience_years = parseFloat(updateData.total_experience_years);
+      }
+      if (updateData.is_currently_active === 'true') {
+        updateData.is_currently_active = true;
+      } else if (updateData.is_currently_active === 'false') {
+        updateData.is_currently_active = false;
+      }
+      
+      // Convert gender to lowercase if provided
+      if (updateData.gender) {
+        updateData.gender = updateData.gender.toLowerCase();
+      }
+      
+      console.log('Updating teacher with data:', updateData);
+      
+      const baseForRead = getApiBaseUrl();
+      const cleanBaseForRead = baseForRead.endsWith('/') ? baseForRead.slice(0, -1) : baseForRead;
+      const response = await fetch(`${cleanBaseForRead}/api/teachers/${editingTeacher.id}/`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('sis_access_token')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updateData),
+      });
+      
+      if (response.ok) {
+        // Refresh teacher list
+        const userProfile = await getCurrentUserProfile() as any;
+        const coordinatorId = userProfile?.coordinator_id;
+        if (coordinatorId) {
+          const response = await getCoordinatorTeachers(coordinatorId) as any;
+          const teachersData = response.teachers || [];
+          const mappedTeachers = teachersData.map((teacher: any) => ({
+            id: teacher.id,
+            name: teacher.full_name || 'Unknown',
+            subject: teacher.current_subjects || 'Not Assigned',
+            classes: teacher.current_classes_taught || 'Not Assigned',
+            email: teacher.email || 'Not provided',
+            phone: teacher.contact_number || 'Not provided',
+            joining_date: teacher.joining_date || 'Not provided',
+            experience: teacher.total_experience_years ? `${teacher.total_experience_years} years` : 'Not provided',
+            employee_code: teacher.employee_code,
+            shift: teacher.shift,
+            is_class_teacher: teacher.is_class_teacher
+          }));
+          setTeachers(mappedTeachers);
+        }
+        handleEditClose();
+      } else {
+        const errorText = await response.text();
+        let errorMessage = 'Failed to update teacher';
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
+        } catch {
+          errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`;
+        }
+        console.error('Error updating teacher:', errorMessage);
+        setError(errorMessage);
+        alert(`❌ Error updating teacher: ${errorMessage}`);
+      }
+    } catch (err: any) {
+      console.error('Error updating teacher:', err);
+      const errorMsg = err.message || 'Failed to update teacher';
+      setError(errorMsg);
+      alert(`❌ Error updating teacher: ${errorMsg}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="px-2 sm:px-3 md:px-4 lg:px-6 py-3 sm:py-4 md:py-6 space-y-3 sm:space-y-4 md:space-y-6 overflow-x-hidden">
@@ -226,6 +418,7 @@ function CoordinatorTeacherListContent() {
                             size="sm" 
                             variant="outline" 
                             style={{ borderColor: '#6096ba', color: '#274c77' }}
+                            onClick={() => handleEdit(teacher)}
                             className="text-xs px-2 py-1"
                           >
                             <Edit className="h-3 w-3 sm:h-4 sm:w-4 mr-0.5 sm:mr-1" />
@@ -320,6 +513,7 @@ function CoordinatorTeacherListContent() {
                         size="sm" 
                         variant="outline" 
                         style={{ borderColor: '#6096ba', color: '#274c77' }}
+                        onClick={() => handleEdit(teacher)}
                         className="flex-1 text-xs py-1"
                       >
                         <Edit className="h-3 w-3 mr-1" />
@@ -333,6 +527,324 @@ function CoordinatorTeacherListContent() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit Teacher Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto w-[95vw]">
+          <DialogHeader>
+            <DialogTitle className="text-xl sm:text-2xl font-bold" style={{ color: '#274c77' }}>
+              Edit Teacher - {editingTeacher?.name}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 sm:space-y-6">
+            {/* Personal Information */}
+            <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
+              <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4" style={{ color: '#274c77' }}>Personal Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <Label htmlFor="full_name">Full Name</Label>
+                  <Input
+                    id="full_name"
+                    value={editFormData.full_name || ''}
+                    onChange={(e) => setEditFormData({...editFormData, full_name: e.target.value})}
+                    placeholder="Enter full name"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={editFormData.email || ''}
+                    onChange={(e) => setEditFormData({...editFormData, email: e.target.value})}
+                    placeholder="Enter email"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="contact_number">Contact Number</Label>
+                  <Input
+                    id="contact_number"
+                    value={editFormData.contact_number || ''}
+                    onChange={(e) => setEditFormData({...editFormData, contact_number: e.target.value})}
+                    placeholder="Enter contact number"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="dob">Date of Birth</Label>
+                  <Input
+                    id="dob"
+                    type="date"
+                    value={editFormData.dob || ''}
+                    onChange={(e) => setEditFormData({...editFormData, dob: e.target.value})}
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="gender">Gender</Label>
+                  <Select value={editFormData.gender || ''} onValueChange={(value) => setEditFormData({...editFormData, gender: value})}>
+                    <SelectTrigger className="text-sm">
+                      <SelectValue placeholder="Select gender" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="male">Male</SelectItem>
+                      <SelectItem value="female">Female</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="marital_status">Marital Status</Label>
+                  <Input
+                    id="marital_status"
+                    value={editFormData.marital_status || ''}
+                    onChange={(e) => setEditFormData({...editFormData, marital_status: e.target.value})}
+                    placeholder="Enter marital status"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cnic">CNIC</Label>
+                  <Input
+                    id="cnic"
+                    value={editFormData.cnic || ''}
+                    onChange={(e) => setEditFormData({...editFormData, cnic: e.target.value})}
+                    placeholder="Enter CNIC"
+                    className="text-sm"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Label htmlFor="permanent_address">Permanent Address</Label>
+                  <Textarea
+                    id="permanent_address"
+                    value={editFormData.permanent_address || ''}
+                    onChange={(e) => setEditFormData({...editFormData, permanent_address: e.target.value})}
+                    placeholder="Enter permanent address"
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Education Information */}
+            <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
+              <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4" style={{ color: '#274c77' }}>Education Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <Label htmlFor="education_level">Education Level</Label>
+                  <Input
+                    id="education_level"
+                    value={editFormData.education_level || ''}
+                    onChange={(e) => setEditFormData({...editFormData, education_level: e.target.value})}
+                    placeholder="Enter education level"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="institution_name">Institution Name</Label>
+                  <Input
+                    id="institution_name"
+                    value={editFormData.institution_name || ''}
+                    onChange={(e) => setEditFormData({...editFormData, institution_name: e.target.value})}
+                    placeholder="Enter institution name"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="year_of_passing">Year of Passing</Label>
+                  <Input
+                    id="year_of_passing"
+                    type="number"
+                    value={editFormData.year_of_passing || ''}
+                    onChange={(e) => setEditFormData({...editFormData, year_of_passing: e.target.value})}
+                    placeholder="Enter year of passing"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="education_subjects">Education Subjects</Label>
+                  <Input
+                    id="education_subjects"
+                    value={editFormData.education_subjects || ''}
+                    onChange={(e) => setEditFormData({...editFormData, education_subjects: e.target.value})}
+                    placeholder="Enter education subjects"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="education_grade">Education Grade</Label>
+                  <Input
+                    id="education_grade"
+                    value={editFormData.education_grade || ''}
+                    onChange={(e) => setEditFormData({...editFormData, education_grade: e.target.value})}
+                    placeholder="Enter education grade"
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Experience Information */}
+            <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
+              <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4" style={{ color: '#274c77' }}>Experience Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <Label htmlFor="previous_institution_name">Previous Institution</Label>
+                  <Input
+                    id="previous_institution_name"
+                    value={editFormData.previous_institution_name || ''}
+                    onChange={(e) => setEditFormData({...editFormData, previous_institution_name: e.target.value})}
+                    placeholder="Enter previous institution"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="previous_position">Previous Position</Label>
+                  <Input
+                    id="previous_position"
+                    value={editFormData.previous_position || ''}
+                    onChange={(e) => setEditFormData({...editFormData, previous_position: e.target.value})}
+                    placeholder="Enter previous position"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="experience_from_date">Experience From Date</Label>
+                  <Input
+                    id="experience_from_date"
+                    type="date"
+                    value={editFormData.experience_from_date || ''}
+                    onChange={(e) => setEditFormData({...editFormData, experience_from_date: e.target.value})}
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="experience_to_date">Experience To Date</Label>
+                  <Input
+                    id="experience_to_date"
+                    type="date"
+                    value={editFormData.experience_to_date || ''}
+                    onChange={(e) => setEditFormData({...editFormData, experience_to_date: e.target.value})}
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="total_experience_years">Total Experience Years</Label>
+                  <Input
+                    id="total_experience_years"
+                    type="number"
+                    step="0.1"
+                    value={editFormData.total_experience_years || ''}
+                    onChange={(e) => setEditFormData({...editFormData, total_experience_years: e.target.value})}
+                    placeholder="Enter total experience years"
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Current Role Information */}
+            <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
+              <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4" style={{ color: '#274c77' }}>Current Role Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <Label htmlFor="joining_date">Joining Date</Label>
+                  <Input
+                    id="joining_date"
+                    type="date"
+                    value={editFormData.joining_date || ''}
+                    onChange={(e) => setEditFormData({...editFormData, joining_date: e.target.value})}
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="current_role_title">Current Role Title</Label>
+                  <Input
+                    id="current_role_title"
+                    value={editFormData.current_role_title || ''}
+                    onChange={(e) => setEditFormData({...editFormData, current_role_title: e.target.value})}
+                    placeholder="Enter current role title"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="shift">Shift</Label>
+                  <Select value={editFormData.shift || ''} onValueChange={(value) => setEditFormData({...editFormData, shift: value})}>
+                    <SelectTrigger className="text-sm">
+                      <SelectValue placeholder="Select shift" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="morning">Morning</SelectItem>
+                      <SelectItem value="afternoon">Afternoon</SelectItem>
+                      <SelectItem value="both">Both</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="is_currently_active">Is Currently Active</Label>
+                  <Select value={editFormData.is_currently_active || ''} onValueChange={(value) => setEditFormData({...editFormData, is_currently_active: value})}>
+                    <SelectTrigger className="text-sm">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true">Yes</SelectItem>
+                      <SelectItem value="false">No</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="md:col-span-2">
+                  <Label htmlFor="current_subjects">Current Subjects</Label>
+                  <Input
+                    id="current_subjects"
+                    value={editFormData.current_subjects || ''}
+                    onChange={(e) => setEditFormData({...editFormData, current_subjects: e.target.value})}
+                    placeholder="Enter current subjects"
+                    className="text-sm"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Label htmlFor="current_classes_taught">Current Classes Taught</Label>
+                  <Input
+                    id="current_classes_taught"
+                    value={editFormData.current_classes_taught || ''}
+                    onChange={(e) => setEditFormData({...editFormData, current_classes_taught: e.target.value})}
+                    placeholder="Enter current classes taught"
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 mt-4 sm:mt-6 pt-4 border-t">
+            <Button
+              onClick={handleEditClose}
+              variant="outline"
+              className="w-full sm:w-auto px-4 sm:px-6 text-sm"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleEditSubmit}
+              disabled={isSubmitting}
+              className="w-full sm:w-auto px-4 sm:px-6 text-sm"
+              style={{ backgroundColor: '#6096ba' }}
+            >
+              {isSubmitting ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Updating...
+                </>
+              ) : (
+                'Update Teacher'
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

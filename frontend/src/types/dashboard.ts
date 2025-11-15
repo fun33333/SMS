@@ -138,6 +138,7 @@ export type Student = {
   photo?: string;
   current_state: string;
   is_draft: boolean;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 };
