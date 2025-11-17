@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentUserRole, getCurrentUser } from "@/lib/permissions";
-import { getFilteredStudents, getAllCampuses, getGrades, getClassrooms } from "@/lib/api";
+import { getFilteredStudents, getAllCampuses, getGrades, getClassrooms, getCurrentUserProfile } from "@/lib/api";
 import { DataTable, PaginationControls } from "@/components/shared";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { User, Search, RefreshCcw, Mail, GraduationCap, MapPin, CheckCircle, XCircle } from 'lucide-react';
@@ -64,15 +64,22 @@ export default function StudentListPage() {
     current_state: "",
     gender: "",
     shift: "",
-    ordering: "-created_at"
+    ordering: "name"
   });
   
   // User role and campus info
   const [userRole, setUserRole] = useState<string>("");
   const [userCampus, setUserCampus] = useState<string>("");
+  const [userCampusId, setUserCampusId] = useState<number | null>(null);
   const [campuses, setCampuses] = useState<any[]>([]);
   const [grades, setGrades] = useState<any[]>([]);
   const [classrooms, setClassrooms] = useState<any[]>([]);
+  const [teacherShifts, setTeacherShifts] = useState<string[]>([]);
+  const [showShiftFilter, setShowShiftFilter] = useState(true);
+  const [teacherSections, setTeacherSections] = useState<string[]>([]);
+  const [showSectionFilter, setShowSectionFilter] = useState(true);
+  const [teacherGrades, setTeacherGrades] = useState<string[]>([]);
+  const [showGradeFilter, setShowGradeFilter] = useState(true);
   
   // Edit functionality
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -110,16 +117,155 @@ export default function StudentListPage() {
     setUserRole(role);
     
     // Get user campus info
-          const user = getCurrentUser() as any;
-          if (user?.campus?.campus_name) {
-            setUserCampus(user.campus.campus_name);
+    const user = getCurrentUser() as any;
+    if (user?.campus?.campus_name) {
+      setUserCampus(user.campus.campus_name);
+    }
+    if (user?.campus?.id) {
+      setUserCampusId(user.campus.id);
+    }
+    
+    // For teachers, fetch their profile and classrooms to determine shifts
+    if (role === 'teacher') {
+      try {
+        const profile: any = await getCurrentUserProfile();
+        if (profile) {
+          // Get teacher's campus ID
+          const teacherCampusId = profile.campus?.id || profile.campus_id || user?.campus?.id;
+          if (teacherCampusId) {
+            setUserCampusId(teacherCampusId);
+            // Pre-fill campus filter for teachers
+            setFilters(prev => ({ ...prev, campus: String(teacherCampusId) }));
+          }
+          
+          // Get teacher's assigned classrooms from profile
+          // Handle both assigned_classrooms (array) and assigned_classroom (single object)
+          let classroomsList: any[] = [];
+          
+          if (profile.assigned_classrooms && Array.isArray(profile.assigned_classrooms) && profile.assigned_classrooms.length > 0) {
+            classroomsList = profile.assigned_classrooms;
+          } else if (profile.assigned_classroom) {
+            // Fallback to singular assigned_classroom if assigned_classrooms is empty
+            classroomsList = [profile.assigned_classroom];
+          } else if (profile.classrooms && Array.isArray(profile.classrooms)) {
+            classroomsList = profile.classrooms;
+          }
+          
+          console.log('Teacher Profile:', profile);
+          console.log('Teacher Classrooms List:', classroomsList);
+          
+          if (classroomsList.length > 0) {
+            // Get unique shifts, sections, and grades from teacher's classrooms
+            const shifts = new Set<string>();
+            const sections = new Set<string>();
+            const grades = new Set<string>();
+            
+            classroomsList.forEach((classroom: any) => {
+              console.log('Processing classroom:', classroom);
+              if (classroom.shift) {
+                shifts.add(classroom.shift.toLowerCase());
+              }
+              if (classroom.section) {
+                sections.add(classroom.section.toUpperCase());
+              }
+              // Backend returns grade as string in 'grade' field
+              if (classroom.grade) {
+                if (typeof classroom.grade === 'string') {
+                  grades.add(classroom.grade);
+                } else if (classroom.grade?.name) {
+                  grades.add(classroom.grade.name);
+                }
+              } else if (classroom.grade_name) {
+                grades.add(classroom.grade_name);
+              }
+            });
+            
+            const shiftsArray = Array.from(shifts);
+            const sectionsArray = Array.from(sections);
+            const gradesArray = Array.from(grades);
+            
+            console.log('Extracted - Shifts:', shiftsArray, 'Sections:', sectionsArray, 'Grades:', gradesArray);
+            
+            setTeacherShifts(shiftsArray);
+            setTeacherSections(sectionsArray);
+            setTeacherGrades(gradesArray);
+            
+            // Auto-fill and hide filters if teacher has only one option
+            const newFilters: any = {};
+            
+            // Shift filter logic
+            if (shiftsArray.length === 1) {
+              newFilters.shift = shiftsArray[0];
+              setShowShiftFilter(false);
+              console.log('Hiding shift filter, auto-filling:', shiftsArray[0]);
+            } else {
+              setShowShiftFilter(true);
+            }
+            
+            // Section filter logic
+            if (sectionsArray.length === 1) {
+              newFilters.section = sectionsArray[0];
+              setShowSectionFilter(false);
+              console.log('Hiding section filter, auto-filling:', sectionsArray[0]);
+            } else {
+              setShowSectionFilter(true);
+            }
+            
+            // Grade filter logic
+            if (gradesArray.length === 1) {
+              newFilters.current_grade = gradesArray[0];
+              setShowGradeFilter(false);
+              console.log('Hiding grade filter, auto-filling:', gradesArray[0]);
+            } else {
+              setShowGradeFilter(true);
+            }
+            
+            // Apply all filters at once
+            if (Object.keys(newFilters).length > 0) {
+              console.log('Applying filters:', newFilters);
+              setFilters(prev => ({ ...prev, ...newFilters }));
+            }
+          } else {
+            // Fallback: Get all classrooms from campus if teacher classrooms not in profile
+            if (teacherCampusId) {
+              const allClassrooms: any = await getClassrooms(undefined, undefined, teacherCampusId);
+              const allClassroomsList = Array.isArray(allClassrooms) 
+                ? allClassrooms 
+                : Array.isArray(allClassrooms?.results) 
+                  ? allClassrooms.results 
+                  : [];
+              
+              // Get unique shifts from all classrooms
+              const shifts = new Set<string>();
+              allClassroomsList.forEach((classroom: any) => {
+                if (classroom.shift) {
+                  shifts.add(classroom.shift.toLowerCase());
+                }
+              });
+              
+              const shiftsArray = Array.from(shifts);
+              setTeacherShifts(shiftsArray);
+              
+              // If teacher teaches only one shift, auto-filter by that shift and hide filter
+              if (shiftsArray.length === 1) {
+                setFilters(prev => ({ ...prev, shift: shiftsArray[0] }));
+                setShowShiftFilter(false);
+              } else {
+                setShowShiftFilter(true);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching teacher profile:', error);
+      }
     }
     
     // Fetch campuses for filter dropdown
     try {
       const campusesData = await getAllCampuses();
       setCampuses(Array.isArray(campusesData) ? campusesData : []);
-        } catch (error) {
+    } catch (error) {
       console.error('Error fetching campuses:', error);
     }
   };
@@ -221,13 +367,16 @@ export default function StudentListPage() {
       };
 
       // Sort results: Active students first, then inactive students at the end
+      // Within each group, sort by name in ascending order
       let results = [...pageResults].sort((a, b) => {
         const aIsActive = a.is_active !== false; // true if active or undefined
         const bIsActive = b.is_active !== false;
         
-        // If both have same status, maintain original order
+        // If both have same status, sort by name in ascending order
         if (aIsActive === bIsActive) {
-          return 0;
+          const nameA = (a.name || '').toLowerCase();
+          const nameB = (b.name || '').toLowerCase();
+          return nameA.localeCompare(nameB);
         }
         
         // Active students come first (return -1), inactive come last (return 1)
@@ -292,7 +441,7 @@ export default function StudentListPage() {
       current_state: "",
       gender: "",
       shift: "",
-      ordering: "-created_at"
+      ordering: "name"
     });
     setSearchQuery("");
     setCurrentPage(1);
@@ -722,8 +871,15 @@ export default function StudentListPage() {
                  <select
               value={filters.campus}
               onChange={(e) => handleFilterChange('campus', e.target.value)}
+              disabled={userRole === 'teacher' && userCampusId !== null}
               className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
-              style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
+              style={{ 
+                borderColor: '#a3cef1', 
+                minHeight: '44px', 
+                maxWidth: '100%',
+                backgroundColor: userRole === 'teacher' && userCampusId !== null ? '#f3f4f6' : 'white',
+                cursor: userRole === 'teacher' && userCampusId !== null ? 'not-allowed' : 'pointer'
+              }}
             >
               <option value="">All Campuses</option>
               {campuses.map((campus) => (
@@ -735,6 +891,7 @@ export default function StudentListPage() {
                </div>
                
           {/* Grade Filter */}
+               {showGradeFilter && (
                <div>
             <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
               Grade
@@ -743,19 +900,27 @@ export default function StudentListPage() {
               value={filters.current_grade}
               onChange={(e) => handleFilterChange('current_grade', e.target.value)}
               className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
-              disabled={!filters.shift}
+              disabled={!filters.shift && userRole !== 'teacher'}
               style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
             >
-              <option value="" disabled={!filters.shift}>
-                {filters.shift ? 'All Grades' : 'Select shift first'}
+              <option value="" disabled={!filters.shift && userRole !== 'teacher'}>
+                {filters.shift || userRole === 'teacher' ? 'All Grades' : 'Select shift first'}
               </option>
-              {grades.map((g: any) => (
-                <option key={g.id} value={g.name}>{g.name}</option>
-              ))}
+              {userRole === 'teacher' && teacherGrades.length > 0 ? (
+                teacherGrades.map((grade: string) => (
+                  <option key={grade} value={grade}>{grade}</option>
+                ))
+              ) : (
+                grades.map((g: any) => (
+                  <option key={g.id} value={g.name}>{g.name}</option>
+                ))
+              )}
                  </select>
                </div>
+               )}
                
           {/* Section Filter */}
+               {showSectionFilter && (
                <div>
             <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
               Section
@@ -767,12 +932,22 @@ export default function StudentListPage() {
               style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
             >
               <option value="">All Sections</option>
-              <option value="A">A</option>
-              <option value="B">B</option>
-              <option value="C">C</option>
-              <option value="D">D</option>
+              {userRole === 'teacher' && teacherSections.length > 0 ? (
+                teacherSections.map((section: string) => (
+                  <option key={section} value={section}>{section}</option>
+                ))
+              ) : (
+                <>
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                  <option value="C">C</option>
+                  <option value="D">D</option>
+                </>
+              )}
             </select>
                </div>
+               )}
+               {showShiftFilter && (
                <div>
             <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
               Shift
@@ -784,10 +959,21 @@ export default function StudentListPage() {
               style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
             >
               <option value="">All Shifts</option>
-              <option value="morning">Morning</option>
-              <option value="afternoon">Afternoon</option>
+              {teacherShifts.length > 0 ? (
+                teacherShifts.map((shift) => (
+                  <option key={shift} value={shift}>
+                    {shift.charAt(0).toUpperCase() + shift.slice(1)}
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="morning">Morning</option>
+                  <option value="afternoon">Afternoon</option>
+                </>
+              )}
                  </select>
                </div>
+               )}
              </div>
              </div>
 

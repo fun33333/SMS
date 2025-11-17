@@ -564,7 +564,7 @@ function StudentProfileContent() {
       const pct = total ? Math.round((value / total) * 100) : 0
       const color = name === 'Present' ? '#22c55e' : (name === 'Absent' ? '#ef4444' : (name === 'No Record' ? '#cbd5e1' : '#1d4ed8'))
       return (
-        <div className="rounded-lg border bg-white/95 shadow p-2 text-xs">
+        <div className="rounded-lg border bg-white shadow-lg p-2 text-xs z-[9999]" style={{ position: 'relative', zIndex: 9999 }}>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
             <span className="font-medium text-slate-700">{name === 'Sundays' ? 'Sunday (Holiday)' : name}</span>
@@ -827,8 +827,18 @@ function StudentProfileContent() {
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Age</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{age}</div>
-            </div>
-
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">House Ownership</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm capitalize">
+                          {(() => {
+                            const owned = (student as any)?.house_owned;
+                            if (owned === true) return 'Yes';
+                            if (owned === false) return 'No';
+                            return '—';
+                          })()}
+                        </div>
+                      </div>
                           </div>
                     <div className="w-full rounded-lg border bg-white divide-y text-sm">
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
@@ -846,7 +856,11 @@ function StudentProfileContent() {
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Zakat Status</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm capitalize">{(student as any)?.zakat_status || '—'}</div>
-                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Family Income</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{(student as any)?.family_income ? `PKR ${(student as any).family_income}` : '—'}</div>
+                      </div>
                       </div>
                   </div>
                 </TabsContent>
@@ -876,6 +890,10 @@ function StudentProfileContent() {
                           || '—'
                         }</div>
                       </div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Last Class Passed</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{(student as any)?.last_class_passed || '—'}</div>
+                      </div>
                       </div>
                     <div className="w-full rounded-lg border bg-white divide-y text-sm">
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
@@ -893,7 +911,11 @@ function StudentProfileContent() {
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">GR No</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.gr_no || '—'}</div>
-                    </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Last School</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.last_school_name || '—'}</div>
+                      </div>
                   </div>
             </div>
           </TabsContent>
@@ -917,6 +939,10 @@ function StudentProfileContent() {
                         <p className="text-xs text-gray-500">Father Profession</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.father_profession || '—'}</div>
                       </div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Guardian Name</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.guardian_name || '—'}</div>
+                      </div>
                         </div>
                     <div className="w-full rounded-lg border bg-white divide-y text-sm">
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
@@ -934,7 +960,11 @@ function StudentProfileContent() {
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Address</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.address || '—'}</div>
-                          </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
+                        <p className="text-xs text-gray-500">Emergency Contact</p>
+                        <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{(student as any)?.emergency_contact || '—'}</div>
+                      </div>
                         </div>
                     </div>
                 </TabsContent>
@@ -943,7 +973,7 @@ function StudentProfileContent() {
               </Card>
             </div>        {/* Donut + Subject Progress (same row, equal width) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 md:gap-6 mb-6 md:mb-8 items-stretch">
-          <Card className="bg-white border shadow-sm h-auto md:h-[380px] lg:h-[420px] overflow-hidden">
+          <Card className="bg-white border shadow-sm h-auto md:h-[380px] lg:h-[420px] overflow-visible">
             <CardHeader className="pb-2 sm:pb-3 md:pb-4">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3">
                 <CardTitle className="text-lg sm:text-xl md:text-2xl text-[#013a63]">Attendance</CardTitle>
@@ -995,8 +1025,8 @@ function StudentProfileContent() {
                           </div>
                           </div>
             </CardHeader>
-            <CardContent className="h-auto md:h-[calc(100%-4.5rem)] pb-2 sm:pb-3 md:pb-4">
-              <div className="relative h-64 md:h-full">
+            <CardContent className="h-auto md:h-[calc(100%-4.5rem)] pb-2 sm:pb-3 md:pb-4 overflow-visible">
+              <div className="relative h-64 md:h-full overflow-visible">
                 <ResponsiveContainer width="100%" height="100%">
                   <RechartsPieChart>
                     <defs>
@@ -1013,7 +1043,7 @@ function StudentProfileContent() {
                     </Pie>
                     {/* thin accent ring */}
                     <Pie data={[{ value: 100 }]} dataKey="value" cx="50%" cy="50%" innerRadius="73%" outerRadius="75%" startAngle={90} endAngle={-270} fill="none" stroke="#ef4444" strokeWidth={2} />
-                    <Tooltip content={<DonutTooltip />} />
+                    <Tooltip content={<DonutTooltip />} wrapperStyle={{ zIndex: 9999 }} />
                   </RechartsPieChart>
                 </ResponsiveContainer>
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">

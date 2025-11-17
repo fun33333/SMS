@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import type { ChartData } from "@/types/dashboard"
@@ -16,6 +17,17 @@ const GENDER_COLORS: Record<string, string> = {
 }
 
 export function GenderDistributionChart({ data }: GenderDistributionChartProps) {
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 640)
+    }
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload
@@ -47,18 +59,23 @@ export function GenderDistributionChart({ data }: GenderDistributionChartProps) 
         <CardTitle className="text-xl font-bold text-[#274c77]">Gender Distribution</CardTitle>
         <CardDescription className="text-gray-600">Student enrollment by gender</CardDescription>
       </CardHeader>
-      <CardContent className="pt-6">
-        <div className="h-80">
+      <CardContent className="pt-4 sm:pt-6">
+        <div className="h-64 sm:h-72 md:h-80 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie 
                 data={dataWithTotal} 
                 cx="50%" 
-                cy="45%" 
-                outerRadius={100} 
+                cy="50%" 
+                outerRadius="70%" 
+                innerRadius={0}
                 dataKey="value"
-                label={(props: any) => `${props.name}: ${((props.percent ?? 0) * 100).toFixed(0)}%`}
-                labelLine={true}
+                label={(props: any) => {
+                  // Hide labels on very small screens, show on larger
+                  if (isMobile) return ''
+                  return `${props.name}: ${((props.percent ?? 0) * 100).toFixed(0)}%`
+                }}
+                labelLine={!isMobile}
               >
                 {dataWithTotal.map((entry: any, index: number) => {
                   const key = (entry?.name ?? '').toString().trim().toLowerCase()
@@ -71,7 +88,8 @@ export function GenderDistributionChart({ data }: GenderDistributionChartProps) 
               <Legend
                 verticalAlign="bottom"
                 height={36}
-                formatter={(value, entry) => <span style={{ color: entry.color, fontWeight: 500 }}>{value}</span>}
+                wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
+                formatter={(value, entry) => <span style={{ color: entry.color, fontWeight: 500, fontSize: '12px' }}>{value}</span>}
               />
             </PieChart>
           </ResponsiveContainer>
