@@ -104,6 +104,7 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
       if (editingGrade) {
         await updateGrade(editingGrade.id, formData)
       } else {
+        console.log('Creating grade with data:', formData)
         await createGrade(formData)
       }
       
@@ -112,6 +113,12 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to save grade. Please try again.'
       
+      // Only log as error if it's not a validation error (400 status)
+      if (error?.status !== 400) {
+        console.error('Failed to save grade:', error)
+      } else {
+        console.warn('Grade validation:', errorMessage)
+      }
       
       alert(errorMessage)
     } finally {
@@ -128,6 +135,7 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
       await deleteGrade(grade.id)
       fetchData()
     } catch (error) {
+      console.error('Failed to delete grade:', error)
       alert('Failed to delete grade. It may have associated classrooms.')
     }
   }
@@ -165,29 +173,33 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
       </div>
 
       {/* Level Filter */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 bg-gray-50 p-3 sm:p-4 rounded-lg">
-        <Label className="font-semibold text-sm">Filter by Level:</Label>
-        <Select value={selectedLevel} onValueChange={setSelectedLevel}>
-          <SelectTrigger className="w-full sm:w-[200px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Levels</SelectItem>
-            {levels.map((level) => (
-              <SelectItem key={level.id} value={level.id.toString()}>
-                {level.name} ({String(level.shift || '').replace(/\b\w/g, (c: string) => c.toUpperCase())}) ({grades.filter(g => String(g.level) === String(level.id)).length})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <div className="sm:ml-2 inline-flex items-center">
-          <span className="px-3 py-1 rounded-full text-xs sm:text-sm font-medium" style={{ backgroundColor: '#E3F2FD', color: '#1976D2' }}>
-            Total: {grades.length}
-          </span>
+      <div className="flex flex-col gap-3 sm:gap-4 bg-gray-50 p-3 sm:p-4 rounded-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2 flex-1 sm:flex-initial">
+            <Label className="font-semibold text-sm whitespace-nowrap">Filter by Level:</Label>
+            <Select value={selectedLevel} onValueChange={setSelectedLevel}>
+              <SelectTrigger className="w-full sm:w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Levels</SelectItem>
+                {levels.map((level) => (
+                  <SelectItem key={level.id} value={level.id.toString()}>
+                    {level.name} ({String(level.shift || '').replace(/\b\w/g, (c: string) => c.toUpperCase())}) ({grades.filter(g => String(g.level) === String(level.id)).length})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap" style={{ backgroundColor: '#E3F2FD', color: '#1976D2' }}>
+              Total: {grades.length}
+            </span>
+          </div>
         </div>
         
         {levels.length === 0 && (
-          <p className="text-sm text-amber-600">
+          <p className="text-xs sm:text-sm text-amber-600">
             No levels found. Create a level first to add grades.
           </p>
         )}
@@ -235,7 +247,7 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
 
         {/* Desktop table */}
         <div className="hidden sm:block overflow-x-auto -mx-4 sm:mx-0">
-        <Table className="min-w-[640px] sm:min-w-full">
+        <Table className="min-w-[640px]">
           <TableHeader>
             <TableRow style={{ backgroundColor: '#1976D2' }}>
               <TableHead className="text-white font-semibold">Grade Name</TableHead>

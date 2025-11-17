@@ -404,7 +404,7 @@ export default function MainDashboardPage() {
   const [weeklyAttendanceData, setWeeklyAttendanceData] = useState<any[]>([]) // Weekly attendance data
   const [, setIsRefreshing] = useState<boolean>(false) // Refresh state
   const [shiftFilter, setShiftFilter] = useState<string>("all");
-  
+
   // Progressive loading states for different sections
   const [kpisLoading, setKpisLoading] = useState(true)
   const [chartsLoading, setChartsLoading] = useState(true)
@@ -425,8 +425,8 @@ export default function MainDashboardPage() {
     let loaderTimeout: NodeJS.Timeout;
     
     async function fetchData() {
-      if (!userRole) return;
-      
+    if (!userRole) return;
+
       try {
         // PHASE 1: Fetch essential KPIs first (fast, parallel) - Show UI immediately
         setKpisLoading(true)
@@ -434,26 +434,26 @@ export default function MainDashboardPage() {
         // For principals, we need campus-filtered count, for superadmin use total stats
         const countPromise = userRole === 'principal' && userCampus
           ? (async () => {
-              try {
+          try {
                 // Get campus ID first
                 const campuses = await getAllCampuses().catch(() => [])
                 const campusArray = Array.isArray(campuses) ? campuses : (Array.isArray((campuses as any)?.results) ? (campuses as any).results : [])
-                const principalCampus = campusArray.find((c: any) => {
-                  if (!c) return false;
-                  return c.campus_name === userCampus || 
-                         c.name === userCampus ||
-                         c.campus_code === userCampus ||
-                         String(c.id) === String(userCampus);
+            const principalCampus = campusArray.find((c: any) => {
+              if (!c) return false;
+              return c.campus_name === userCampus || 
+                     c.name === userCampus ||
+                     c.campus_code === userCampus ||
+                     String(c.id) === String(userCampus);
                 })
                 
-                if (principalCampus) {
+            if (principalCampus) {
                   // Get count with campus filter
                   const countResp: any = await getFilteredStudents({ 
                     page: 1, 
                     page_size: 1, 
                     current_state: 'active', 
                     campus: Number(principalCampus.id),
-                    shift: shiftFilter !== 'all' ? shiftFilter : undefined
+          shift: shiftFilter !== 'all' ? shiftFilter : undefined
                   })
                   return countResp?.count || 0
                 }
@@ -467,7 +467,7 @@ export default function MainDashboardPage() {
         const [studentsCount, teachersResponse, attendanceResponse] = await Promise.all([
           countPromise,
           (async () => {
-            try {
+        try {
               const q = shiftFilter && shiftFilter !== 'all' ? `?shift=${encodeURIComponent(shiftFilter)}` : ''
               const response: any = await apiGet(`/api/teachers/${q}`)
               return Array.isArray(response) ? response : (Array.isArray(response?.results) ? response.results : [])
@@ -485,35 +485,35 @@ export default function MainDashboardPage() {
         setKpisLoading(false)
         
         // Process weekly attendance (non-blocking)
-        const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+          const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
         if (Array.isArray(attendanceResponse)) {
-          const last7Days = Array.from({ length: 7 }, (_, i) => {
-            const date = new Date()
-            date.setDate(date.getDate() - (6 - i))
-            return date
-          })
-          
-          const weekData = last7Days.map((date) => {
-            const dayName = daysOfWeek[date.getDay() === 0 ? 6 : date.getDay() - 1]
-            const dateStr = date.toISOString().split('T')[0]
-            const dayRecords = attendanceResponse.filter((record: any) => 
-              record.date === dateStr || record.date?.startsWith(dateStr)
-            )
-            
-            let present = 0
-            let absent = 0
-            dayRecords.forEach((record: any) => {
-              if (record.present_count) present += record.present_count
-              if (record.absent_count) absent += record.absent_count
+            const last7Days = Array.from({ length: 7 }, (_, i) => {
+              const date = new Date()
+              date.setDate(date.getDate() - (6 - i))
+              return date
             })
             
-            return { day: dayName, present, absent }
-          })
-          setWeeklyAttendanceData(weekData)
+            const weekData = last7Days.map((date) => {
+              const dayName = daysOfWeek[date.getDay() === 0 ? 6 : date.getDay() - 1]
+              const dateStr = date.toISOString().split('T')[0]
+              const dayRecords = attendanceResponse.filter((record: any) => 
+                record.date === dateStr || record.date?.startsWith(dateStr)
+              )
+              
+              let present = 0
+              let absent = 0
+              dayRecords.forEach((record: any) => {
+                if (record.present_count) present += record.present_count
+                if (record.absent_count) absent += record.absent_count
+              })
+              
+              return { day: dayName, present, absent }
+            })
+            setWeeklyAttendanceData(weekData)
         } else {
           setWeeklyAttendanceData(daysOfWeek.map(day => ({ day, present: 0, absent: 0 })))
         }
-        
+
         // PHASE 2: Fetch chart data using optimized endpoints (parallel, fast)
         setChartsLoading(true)
         const chartParams: any = {
@@ -574,7 +574,7 @@ export default function MainDashboardPage() {
             const age = item.age
             const name = item.name || (age !== undefined ? `Age ${age}` : 'Unknown')
             const value = item.value || item.count || 0
-            return {
+              return {
               name: String(name),
               value: Number(value)
             }
@@ -613,55 +613,55 @@ export default function MainDashboardPage() {
               page_size: 100, // Just enough for filter options
               current_state: 'active'
             }).catch(() => ({ results: [], count: 0, next: null, previous: null }))
-          ])
-          
+        ])
+
           const studentsArray = filterStudentsResponse.results || []
           const campusArray = Array.isArray(campuses) ? campuses : (Array.isArray((campuses as any)?.results) ? (campuses as any).results : [])
           
           // Map minimal student data for filters
-          const idToCampusCode = new Map<string, string>(
-            campusArray.map((c: any) => [String(c.id), String(c.campus_code || c.code || '')])
-          )
-          
-          const mapped: DashboardStudent[] = studentsArray.map((item: any, idx: number) => {
-            const createdAt = typeof item?.created_at === "string" ? item.created_at : ""
-            const year = createdAt ? Number(createdAt.split("-")[0]) : new Date().getFullYear()
-            const genderRaw = (item?.gender ?? "").toString().trim()
-            const campusCode = (() => {
-              const raw = item?.campus
-              if (raw && typeof raw === 'object') return String(raw?.campus_code || raw?.code || 'Unknown').trim()
-              if (typeof raw === 'number' || typeof raw === 'string') {
-                const hit = idToCampusCode.get(String(raw))
-                if (hit) return hit
-              }
-              return 'Unknown'
-            })()
-            const gradeName = (item?.current_grade ?? "Unknown").toString().trim()
-            const motherTongue = (item?.mother_tongue ?? "Other").toString().trim()
-            const religion = (item?.religion ?? "Other").toString().trim()
-            return {
-              rawData: item,
-              studentId: String(item?.gr_no || item?.id || idx + 1),
-              name: item?.name || "Unknown",
-              academicYear: isNaN(year) ? new Date().getFullYear() : year,
-              campus: campusCode,
-              grade: gradeName,
-              current_grade: gradeName,
-              gender: genderRaw || "Unknown",
-              motherTongue: motherTongue,
-              religion: religion,
-              attendancePercentage: 0,
-              averageScore: 0,
-              retentionFlag: (item?.current_state || "").toLowerCase() === "active",
-              enrollmentDate: createdAt ? new Date(createdAt) : new Date(),
+        const idToCampusCode = new Map<string, string>(
+          campusArray.map((c: any) => [String(c.id), String(c.campus_code || c.code || '')])
+        )
+
+        const mapped: DashboardStudent[] = studentsArray.map((item: any, idx: number) => {
+          const createdAt = typeof item?.created_at === "string" ? item.created_at : ""
+          const year = createdAt ? Number(createdAt.split("-")[0]) : new Date().getFullYear()
+          const genderRaw = (item?.gender ?? "").toString().trim()
+          const campusCode = (() => {
+            const raw = item?.campus
+            if (raw && typeof raw === 'object') return String(raw?.campus_code || raw?.code || 'Unknown').trim()
+            if (typeof raw === 'number' || typeof raw === 'string') {
+              const hit = idToCampusCode.get(String(raw))
+              if (hit) return hit
             }
-          })
-          
-          setStudents(mapped)
-        } catch (error) {
+            return 'Unknown'
+          })()
+          const gradeName = (item?.current_grade ?? "Unknown").toString().trim()
+          const motherTongue = (item?.mother_tongue ?? "Other").toString().trim()
+          const religion = (item?.religion ?? "Other").toString().trim()
+          return {
+            rawData: item,
+            studentId: String(item?.gr_no || item?.id || idx + 1),
+            name: item?.name || "Unknown",
+            academicYear: isNaN(year) ? new Date().getFullYear() : year,
+            campus: campusCode,
+            grade: gradeName,
+            current_grade: gradeName,
+            gender: genderRaw || "Unknown",
+            motherTongue: motherTongue,
+            religion: religion,
+            attendancePercentage: 0,
+            averageScore: 0,
+            retentionFlag: (item?.current_state || "").toLowerCase() === "active",
+            enrollmentDate: createdAt ? new Date(createdAt) : new Date(),
+          }
+        })
+        
+        setStudents(mapped)
+      } catch (error) {
           console.error('Error fetching filter data:', error)
-          setStudents([])
-        } finally {
+        setStudents([])
+      } finally {
           setFiltersLoading(false)
         }
       } catch (error) {
@@ -671,13 +671,13 @@ export default function MainDashboardPage() {
         setFiltersLoading(false)
       }
     }
-    
+
     // Only fetch if userRole is set
     if (userRole) {
       fetchData()
     }
   }, [userRole, userCampus, shiftFilter])
-  
+
   // Refetch charts when filters change (so charts always reflect selected filters)
   useEffect(() => {
     let cancelled = false
@@ -1430,38 +1430,38 @@ export default function MainDashboardPage() {
             ))
           ) : (
             <>
-              <KpiCard 
-                title={userRole === 'principal' && userCampus ? `${userCampus} Students` : "Total Students"} 
+          <KpiCard 
+            title={userRole === 'principal' && userCampus ? `${userCampus} Students` : "Total Students"} 
                 value={metrics.totalStudents} 
-                description={userRole === 'principal' && userCampus ? "Campus enrollments" : "Active enrollments"} 
-                icon={Users} 
-                bgColor="#274C77" 
-                textColor="text-white" 
-              />
-              <KpiCard 
-                title="Avg Attendance" 
+            description={userRole === 'principal' && userCampus ? "Campus enrollments" : "Active enrollments"} 
+            icon={Users} 
+            bgColor="#274C77" 
+            textColor="text-white" 
+          />
+          <KpiCard 
+            title="Avg Attendance" 
                 value={`${metrics.averageAttendance}`} 
-                description="Daily average present students" 
-                icon={Users} 
-                bgColor="#adb5bd" 
-                textColor="text-white" 
-              />
-              <KpiCard 
-                title="Total Teachers" 
+            description="Daily average present students" 
+            icon={Users} 
+            bgColor="#adb5bd" 
+            textColor="text-white" 
+          />
+          <KpiCard 
+            title="Total Teachers" 
                 value={metrics.teachersCount} 
-                description="Active teaching staff" 
-                icon={GraduationCap} 
-                bgColor="#669bbc" 
-                textColor="text-white" 
-              />
-              <KpiCard 
-                title="Teacher:Student Ratio" 
+            description="Active teaching staff" 
+            icon={GraduationCap} 
+            bgColor="#669bbc" 
+            textColor="text-white" 
+          />
+          <KpiCard 
+            title="Teacher:Student Ratio" 
                 value={`1:${metrics.teacherStudentRatio}`} 
-                description="Students per teacher" 
-                icon={UsersRound} 
-                bgColor="#BDC3C7" 
-                textColor="text-white" 
-              />
+            description="Students per teacher" 
+            icon={UsersRound} 
+            bgColor="#BDC3C7" 
+            textColor="text-white" 
+          />
             </>
           )}
         </div>

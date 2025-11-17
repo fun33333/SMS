@@ -88,6 +88,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
       const students = await getUnassignedStudents(userCampusId || undefined)
       setUnassignedStudents(students)
     } catch (error) {
+      console.error('Failed to fetch unassigned students:', error)
       setUnassignedStudents([])
     }
   }
@@ -152,6 +153,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
       setLevels(levelsArray)
       setAvailableTeachers(teachersArray)
     } catch (error) {
+      console.error('Failed to fetch data:', error)
     } finally {
       setLoading(false)
     }
@@ -216,6 +218,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
       setIsDialogOpen(false)
       fetchData()
     } catch (error: any) {
+      console.error('Failed to save classroom:', error)
       const errorMessage = error?.message || 'Failed to save classroom. Please try again.'
       alert(errorMessage)
     } finally {
@@ -243,6 +246,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
         fetchUnassignedStudents()
       }, 1500)
     } catch (error: any) {
+      console.error('Failed to delete classroom:', error)
       const errorMessage = error?.message || 'Failed to delete classroom. It may have assigned students.'
       alert(errorMessage)
     }
@@ -320,6 +324,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
         fetchUnassignedStudents()
       }, 1500)
     } catch (error: any) {
+      console.error('Bulk delete error:', error)
       alert('An error occurred during bulk delete')
     } finally {
       setSaving(false)
@@ -377,7 +382,13 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
           const name = student ? student.name : `Student ${result.id}`
           errors.push(`${name}: ${result.error}`)
         } else {
-          successCount.count++
+          // Check if result has classroom field to confirm update
+          if (result.classroom || result.classroom_data) {
+            successCount.count++
+          } else {
+            // Still count as success if no error
+            successCount.count++
+          }
         }
       })
 
@@ -404,6 +415,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
         fetchUnassignedStudents()
       }, 3000)
     } catch (error: any) {
+      console.error('Bulk assign error:', error)
       alert('An error occurred during bulk assignment')
     } finally {
       setSaving(false)
@@ -419,8 +431,9 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
       const teachersData = await getAvailableTeachers(userCampusId || undefined, shift)
       const teachersArray = (teachersData as any)?.results || (Array.isArray(teachersData) ? teachersData : [])
       setAvailableTeachers(teachersArray)
-      } catch (e) {
-      }
+    } catch (e) {
+      console.error('Failed to load available teachers by shift', e)
+    }
     setIsTeacherDialogOpen(true)
   }
 
@@ -452,7 +465,15 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
       } catch {}
       
     } catch (error: any) {
+      // The handleApiError function now properly extracts the specific error message
       const errorMessage = error?.message || 'Failed to assign teacher. Please try again.'
+      
+      // Only log as error if it's not a validation error (400 status)
+      if (error?.status !== 400) {
+        console.error('Failed to assign teacher:', error)
+      } else {
+        console.warn('Teacher assignment validation:', errorMessage)
+      }
       
       alert(errorMessage)
     } finally {
@@ -492,6 +513,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
 
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:gap-4 bg-gray-50 p-3 sm:p-4 rounded-lg">
+        {/* First Row: Filters */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
           {/* Shift Filter */}
           <div className="flex items-center gap-2 flex-1 sm:flex-initial">
@@ -535,6 +557,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
             </Select>
           </div>
 
+          {/* Total Count and Bulk Delete */}
           <div className="flex items-center gap-2 flex-wrap">
             <span className="px-3 py-1 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap" style={{ backgroundColor: '#E3F2FD', color: '#1976D2' }}>
               Total: {classrooms.length}
@@ -544,33 +567,39 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                 variant="destructive"
                 size="sm"
                 onClick={() => setIsBulkDeleteDialogOpen(true)}
-                className="gap-2 w-full sm:w-auto"
+                className="gap-2 whitespace-nowrap"
               >
                 <Trash2 className="h-4 w-4" />
-                <span className="hidden sm:inline">Delete Selected ({selectedClassrooms.size})</span>
-                <span className="sm:hidden">Delete ({selectedClassrooms.size})</span>
+                <span className="hidden sm:inline">Delete Selected</span>
+                <span className="sm:hidden">Delete</span>
+                <span>({selectedClassrooms.size})</span>
               </Button>
             )}
           </div>
         </div>
         
-        {grades.length === 0 && (
-          <p className="text-sm text-amber-600">
-            No grades found. Create a grade first to add classrooms.
-          </p>
-        )}
+        {/* Second Row: Messages and Unassigned Button */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          {grades.length === 0 && (
+            <p className="text-xs sm:text-sm text-amber-600">
+              No grades found. Create a grade first to add classrooms.
+            </p>
+          )}
 
-        {/* Unassigned Students Button */}
-        <div className="mt-4">
-          <Button
-            variant="outline"
-            onClick={() => setShowUnassignedSection(true)}
-            className="w-full sm:w-auto border-amber-300 text-amber-700 hover:bg-amber-100 bg-amber-50"
-            disabled={unassignedStudents.length === 0}
-          >
-            <Users className="h-4 w-4 mr-2" />
-            See Students without Classrooms ({unassignedStudents.length})
-          </Button>
+          {/* Unassigned Students Button */}
+          <div className={grades.length === 0 ? "w-full sm:w-auto" : "w-full sm:ml-auto"}>
+            <Button
+              variant="outline"
+              onClick={() => setShowUnassignedSection(true)}
+              className="w-full sm:w-auto border-amber-300 text-amber-700 hover:bg-amber-100 bg-amber-50"
+              disabled={unassignedStudents.length === 0}
+            >
+              <Users className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">See Students without Classrooms</span>
+              <span className="sm:hidden">Unassigned Students</span>
+              <span className="ml-1">({unassignedStudents.length})</span>
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -617,18 +646,15 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                   <div className="text-[10px] text-gray-500 mt-1">By {classroom.assigned_by_name}{classroom.assigned_at ? ` on ${new Date(classroom.assigned_at).toLocaleDateString()}` : ''}</div>
                 )}
               </div>
-              <div className="mt-3 flex justify-end gap-2 flex-wrap">
-                <Button variant="outline" size="sm" onClick={() => handleAssignTeacher(classroom)} title="Assign Teacher" className="flex-1 sm:flex-initial">
-                  <UserPlus className="h-4 w-4 mr-1" />
-                  <span className="text-xs">Assign</span>
+              <div className="mt-3 flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => handleAssignTeacher(classroom)} title="Assign Teacher">
+                  <UserPlus className="h-4 w-4" />
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => handleEdit(classroom)} className="text-gray-700 hover:text-gray-900 flex-1 sm:flex-initial">
-                  <Edit className="h-4 w-4 mr-1" />
-                  <span className="text-xs">Edit</span>
+                <Button variant="outline" size="sm" onClick={() => handleEdit(classroom)} className="text-gray-700 hover:text-gray-900">
+                  <Edit className="h-4 w-4" />
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => handleDelete(classroom)} className="text-red-600 hover:text-red-800 flex-1 sm:flex-initial">
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  <span className="text-xs">Delete</span>
+                <Button variant="outline" size="sm" onClick={() => handleDelete(classroom)} className="text-red-600 hover:text-red-800">
+                  <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
             </div>
@@ -637,7 +663,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
 
         {/* Desktop table */}
         <div className="hidden sm:block overflow-x-auto -mx-4 sm:mx-0">
-        <Table className="min-w-[880px] sm:min-w-full">
+        <Table className="min-w-[880px]">
           <TableHeader>
             <TableRow style={{ backgroundColor: '#1976D2' }}>
               <TableHead className="text-white font-semibold w-12">
@@ -647,15 +673,15 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                   className="border-white"
                 />
               </TableHead>
-              <TableHead className="text-white font-semibold text-xs sm:text-sm">Classroom</TableHead>
-              <TableHead className="text-white font-semibold text-xs sm:text-sm hidden md:table-cell">Code</TableHead>
-              <TableHead className="text-white font-semibold text-xs sm:text-sm hidden lg:table-cell">Grade</TableHead>
-              <TableHead className="text-white font-semibold text-xs sm:text-sm hidden lg:table-cell">Section</TableHead>
-              <TableHead className="text-white font-semibold text-xs sm:text-sm hidden md:table-cell">Shift</TableHead>
-              <TableHead className="text-white font-semibold text-xs sm:text-sm">Students</TableHead>
-              <TableHead className="text-white font-semibold text-xs sm:text-sm">Class Teacher</TableHead>
-              <TableHead className="text-white font-semibold text-xs sm:text-sm hidden lg:table-cell">Assigned By</TableHead>
-              <TableHead className="text-right text-white font-semibold text-xs sm:text-sm">Actions</TableHead>
+              <TableHead className="text-white font-semibold">Classroom</TableHead>
+              <TableHead className="text-white font-semibold">Code</TableHead>
+              <TableHead className="text-white font-semibold">Grade</TableHead>
+              <TableHead className="text-white font-semibold">Section</TableHead>
+              <TableHead className="text-white font-semibold">Shift</TableHead>
+              <TableHead className="text-white font-semibold">Students</TableHead>
+              <TableHead className="text-white font-semibold">Class Teacher</TableHead>
+              <TableHead className="text-white font-semibold">Assigned By</TableHead>
+              <TableHead className="text-right text-white font-semibold">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -667,20 +693,20 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                     onCheckedChange={(checked) => handleSelectClassroom(classroom.id, checked as boolean)}
                   />
                 </TableCell>
-                <TableCell className="font-medium text-xs sm:text-sm">
+                <TableCell className="font-medium">
                   {classroom.grade_name} - {classroom.section}
                 </TableCell>
-                <TableCell className="hidden md:table-cell">
+                <TableCell>
                   <span className="px-2 py-1 bg-gray-100 rounded text-xs sm:text-sm font-mono">
                     {classroom.code}
                   </span>
                 </TableCell>
-                <TableCell className="hidden lg:table-cell text-xs sm:text-sm">{classroom.grade_name}</TableCell>
-                <TableCell className="hidden lg:table-cell text-xs sm:text-sm">{classroom.section}</TableCell>
-                <TableCell className="hidden md:table-cell text-xs sm:text-sm">
+                <TableCell>{classroom.grade_name}</TableCell>
+                <TableCell>{classroom.section}</TableCell>
+                <TableCell>
                   {classroom.shift ? (classroom.shift.charAt(0).toUpperCase() + classroom.shift.slice(1)) : '-'}
                 </TableCell>
-                <TableCell className="text-xs sm:text-sm">
+                <TableCell>
                   {(() => {
                     const key = String(classroom.id)
                     // Prefer the fetched count map, fall back to classroom fields commonly used by API
@@ -692,19 +718,19 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                     return finalCount !== undefined ? `${finalCount} students` : <span className="text-gray-400">-</span>
                   })()}
                 </TableCell>
-                <TableCell className="text-xs sm:text-sm">
+                <TableCell>
                   {classroom.class_teacher_name ? (
                     <div>
-                      <div className="text-xs sm:text-sm font-medium">{classroom.class_teacher_name}</div>
+                      <div className="text-sm sm:font-medium">{classroom.class_teacher_name}</div>
                       <div className="text-[10px] sm:text-xs text-gray-500">
                         {classroom.class_teacher_code}
                       </div>
                     </div>
                   ) : (
-                    <span className="text-gray-400 text-xs sm:text-sm">Not Assigned</span>
+                    <span className="text-gray-400">Not Assigned</span>
                   )}
                 </TableCell>
-                <TableCell className="hidden lg:table-cell text-xs sm:text-sm">
+                <TableCell>
                   {classroom.assigned_by_name ? (
                     <div>
                       <div className="text-xs sm:text-sm">{classroom.assigned_by_name}</div>
@@ -720,34 +746,30 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                   )}
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex justify-end gap-1 sm:gap-2 flex-wrap">
+                  <div className="flex justify-end gap-2">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleAssignTeacher(classroom)}
                       title="Assign Teacher"
-                      className="h-8 w-8 sm:h-9 sm:w-auto p-0 sm:px-3"
                     >
-                      <UserPlus className="h-3 w-3 sm:h-4 sm:w-4" />
-                      <span className="hidden sm:inline ml-1">Assign</span>
+                      <UserPlus className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleEdit(classroom)}
-                      className="text-gray-700 hover:text-gray-900 h-8 w-8 sm:h-9 sm:w-auto p-0 sm:px-3"
+                      className="text-gray-700 hover:text-gray-900"
                     >
-                      <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
-                      <span className="hidden sm:inline ml-1">Edit</span>
+                      <Edit className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleDelete(classroom)}
-                      className="text-red-600 hover:text-red-800 h-8 w-8 sm:h-9 sm:w-auto p-0 sm:px-3"
+                      className="text-red-600 hover:text-red-800"
                     >
-                      <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
-                      <span className="hidden sm:inline ml-1">Delete</span>
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </TableCell>
@@ -761,7 +783,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
 
       {/* Create/Edit Classroom Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-[95vw] sm:max-w-md">
+        <DialogContent className="max-w-[95vw] sm:max-w-md md:max-w-lg">
           <DialogHeader>
             <DialogTitle>
               {editingClassroom ? 'Edit Classroom' : 'Create New Classroom'}
@@ -1101,7 +1123,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
           }, 300)
         }
       }}>
-        <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl md:max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Students without Classrooms ({unassignedStudents.length})</DialogTitle>
             <DialogDescription>

@@ -74,10 +74,10 @@ export default function CampusManagementPage() {
 
       {/* Management Tabs */}
       <Card className="border-0 shadow-lg">
-        <CardContent className="p-4 sm:p-6">
+        <CardContent className="p-3 sm:p-4 md:p-6">
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
-            <div className="overflow-x-auto -mx-4 sm:mx-0 pb-2">
-              <TabsList className="hidden sm:grid w-full grid-cols-3 mb-4 sm:mb-6 bg-gray-100">
+            <div className="overflow-x-auto -mx-3 sm:-mx-4 md:-mx-6 pb-2">
+              <TabsList className="hidden sm:grid w-full grid-cols-3 mb-3 sm:mb-4 md:mb-6 bg-gray-100 h-auto">
               <TabsTrigger 
                 value="levels" 
                 className="flex items-center gap-2 text-sm sm:text-base data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm"
