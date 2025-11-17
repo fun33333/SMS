@@ -112,8 +112,6 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
           ...formData,
           campus: userCampusId
         }
-        console.log('Creating level with data:', dataWithCampus)
-        console.log('User campus ID:', userCampusId)
         await createLevel(dataWithCampus)
       }
       
@@ -122,12 +120,6 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to save level. Please try again.'
       
-      // Only log as error if it's not a validation error (400 status)
-      if (error?.status !== 400) {
-        console.error('Failed to save level:', error)
-      } else {
-        console.warn('Level validation:', errorMessage)
-      }
       
       alert(errorMessage)
     } finally {
@@ -144,7 +136,6 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
       await deleteLevel(level.id)
       fetchLevels()
     } catch (error) {
-      console.error('Failed to delete level:', error)
       alert('Failed to delete level. It may have associated grades.')
     }
   }
@@ -163,11 +154,9 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
       if (Array.isArray(coordinators)) {
         setAvailableCoordinators(coordinators)
       } else {
-        console.warn('getAvailableCoordinators returned non-array:', coordinators)
         setAvailableCoordinators([])
       }
     } catch (error) {
-      console.error('Failed to fetch coordinators:', error)
       setAvailableCoordinators([]) // Set empty array on error
       alert('Failed to load coordinators')
     } finally {
@@ -185,7 +174,6 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
       alert('Coordinator assigned successfully!')
       fetchLevels() // Refresh the list
     } catch (error) {
-      console.error('Failed to assign coordinator:', error)
       alert('Failed to assign coordinator. Please try again.')
     } finally {
       setAssigning(false)
@@ -269,8 +257,8 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
         </div>
 
         {/* Desktop table */}
-        <div className={(mobileOpen ? 'hidden' : 'hidden') + ' sm:block overflow-x-auto -mx-4 sm:mx-0'}>
-        <Table className="min-w-[720px] sm:min-w-0">
+        <div className="hidden sm:block overflow-x-auto -mx-4 sm:mx-0">
+        <Table className="min-w-[720px] sm:min-w-full">
           <TableHeader>
             <TableRow style={{ backgroundColor: '#1976D2' }}>
               <TableHead className="text-white font-semibold">Name</TableHead>
@@ -337,7 +325,7 @@ export default function LevelManagement({ campusId }: LevelManagementProps) {
 
       {/* Create/Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
               {editingLevel ? 'Edit Level' : 'Create New Level'}

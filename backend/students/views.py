@@ -25,7 +25,8 @@ class StudentViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Override to handle role-based filtering for list views and stats actions"""
-        queryset = Student.objects.select_related('campus', 'classroom').filter(is_deleted=False)
+        # Use all() to bypass custom manager's default filter, then apply is_deleted=False explicitly
+        queryset = Student.objects.all().filter(is_deleted=False).select_related('campus', 'classroom')
         
         # Apply role-based filtering for list views and stats actions
         if self.action in ['list', 'gender_stats', 'campus_stats', 'grade_distribution', 

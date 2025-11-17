@@ -1303,6 +1303,43 @@ export async function getClassStudents(classroomId: number) {
   }
 }
 
+export async function getUnassignedStudents(campusId?: number) {
+  try {
+    // Add timestamp to prevent caching
+    const timestamp = new Date().getTime();
+    let url = `${API_ENDPOINTS.STUDENTS}?classroom__isnull=true&is_draft=false&is_deleted=false&_t=${timestamp}`;
+    if (campusId) {
+      url += `&campus=${campusId}`;
+    }
+    const data = await apiGet(url);
+    const students = Array.isArray(data) ? data : (data && Array.isArray((data as any).results) ? (data as any).results : []);
+    return students;
+  } catch (error) {
+    return [];
+  }
+}
+
+export async function bulkAssignStudentsToClassroom(studentIds: number[], classroomId: number) {
+  try {
+    // Update each student's classroom field
+    const updates = await Promise.all(
+      studentIds.map(async (studentId) => {
+        try {
+          const response = await apiPatch(`${API_ENDPOINTS.STUDENTS}${studentId}/`, {
+            classroom: classroomId
+          });
+          return response;
+        } catch (error: any) {
+          return { id: studentId, error: error?.message || 'Failed to assign' };
+        }
+      })
+    );
+    return updates;
+  } catch (error) {
+    throw error;
+  }
+}
+
 export async function markBulkAttendance(data: {
   classroom_id: number;
   date: string;
