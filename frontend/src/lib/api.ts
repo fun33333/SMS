@@ -1315,6 +1315,7 @@ export async function getUnassignedStudents(campusId?: number) {
     const students = Array.isArray(data) ? data : (data && Array.isArray((data as any).results) ? (data as any).results : []);
     return students;
   } catch (error) {
+    console.error('Failed to fetch unassigned students:', error);
     return [];
   }
 }
@@ -1336,6 +1337,7 @@ export async function bulkAssignStudentsToClassroom(studentIds: number[], classr
     );
     return updates;
   } catch (error) {
+    console.error('Failed to bulk assign students:', error);
     throw error;
   }
 }
