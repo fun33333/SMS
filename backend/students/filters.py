@@ -27,16 +27,30 @@ class StudentFilter(django_filters.FilterSet):
         help_text="Filter by section"
     )
     
-    
-    gender = django_filters.ChoiceFilter(
-        choices=Student._meta.get_field('gender').choices,
-        help_text="Filter by gender"
+    # Accept 'male', 'female', 'other' (and case-insensitive) instead of strict DB choices
+    gender = django_filters.CharFilter(
+        field_name='gender',
+        lookup_expr='iexact',
+        help_text="Filter by gender (male/female/other)"
     )
     
     shift = django_filters.CharFilter(
         field_name='shift',
         lookup_expr='icontains',
         help_text="Filter by shift"
+    )
+    
+    # Add missing filters so stats respect these params
+    mother_tongue = django_filters.CharFilter(
+        field_name='mother_tongue',
+        lookup_expr='icontains',
+        help_text="Filter by mother tongue"
+    )
+    
+    religion = django_filters.CharFilter(
+        field_name='religion',
+        lookup_expr='icontains',
+        help_text="Filter by religion"
     )
     
     classroom = django_filters.ModelChoiceFilter(
@@ -103,5 +117,6 @@ class StudentFilter(django_filters.FilterSet):
         fields = [
             'campus', 'current_grade', 'section',  
             'gender', 'shift', 'classroom', 'enrollment_year',
+            'mother_tongue', 'religion',
             'created_after', 'created_before', 'is_draft', 'is_deleted', 'is_active'
         ]

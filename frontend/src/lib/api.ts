@@ -422,19 +422,51 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   }
 }
 
-// Fetch chart data from backend (aggregated for all students)
-export async function getDashboardChartData() {
+// Fetch chart data from backend (aggregated for all students), with optional filters
+export async function getDashboardChartData(params?: {
+  enrollment_year?: number | number[]
+  campus?: string | number | Array<string | number>
+  current_grade?: string | string[]
+  gender?: string | string[]
+  mother_tongue?: string | string[]
+  religion?: string | string[]
+  shift?: string
+}) {
   try {
+    const buildQuery = () => {
+      if (!params) return '';
+      const qp = new URLSearchParams();
+      const appendMulti = (key: string, value?: any) => {
+        if (value === undefined || value === null) return;
+        if (Array.isArray(value)) {
+          value
+            .filter(v => v !== undefined && v !== null && String(v).trim() !== '')
+            .forEach(v => qp.append(key, String(v)));
+        } else {
+          qp.append(key, String(value));
+        }
+      };
+      appendMulti('enrollment_year', params.enrollment_year);
+      appendMulti('campus', params.campus);
+      appendMulti('current_grade', params.current_grade);
+      appendMulti('gender', params.gender);
+      appendMulti('mother_tongue', params.mother_tongue);
+      appendMulti('religion', params.religion);
+      appendMulti('shift', params.shift);
+      const qs = qp.toString();
+      return qs ? `?${qs}` : '';
+    };
+    const qs = buildQuery();
     const [gradeDistribution, genderDistribution, enrollmentTrend, motherTongueDistribution, religionDistribution, campusStats, ageDistribution, zakatStatus, houseOwnership] = await Promise.all([
-      apiGet<Array<{ grade: string; count: number }>>(API_ENDPOINTS.STUDENTS_GRADE_DISTRIBUTION),
-      apiGet<{ male: number; female: number; other: number }>(API_ENDPOINTS.STUDENTS_GENDER_STATS),
-      apiGet<Array<{ year: number; count: number }>>(API_ENDPOINTS.STUDENTS_ENROLLMENT_TREND),
-      apiGet<Array<{ name: string; value: number }>>(API_ENDPOINTS.STUDENTS_MOTHER_TONGUE_DISTRIBUTION),
-      apiGet<Array<{ name: string; value: number }>>(API_ENDPOINTS.STUDENTS_RELIGION_DISTRIBUTION),
-      apiGet<Array<{ campus: string; count: number }>>(API_ENDPOINTS.STUDENTS_CAMPUS_STATS),
-      apiGet<Array<{ age: number; count: number }>>(API_ENDPOINTS.STUDENTS_AGE_DISTRIBUTION),
-      apiGet<Array<{ status: string; count: number }>>(API_ENDPOINTS.STUDENTS_ZAKAT_STATUS),
-      apiGet<Array<{ status: string; count: number }>>(API_ENDPOINTS.STUDENTS_HOUSE_OWNERSHIP)
+      apiGet<Array<{ grade: string; count: number }>>(`${API_ENDPOINTS.STUDENTS_GRADE_DISTRIBUTION}${qs}`),
+      apiGet<{ male: number; female: number; other: number }>(`${API_ENDPOINTS.STUDENTS_GENDER_STATS}${qs}`),
+      apiGet<Array<{ year: number; count: number }>>(`${API_ENDPOINTS.STUDENTS_ENROLLMENT_TREND}${qs}`),
+      apiGet<Array<{ name: string; value: number }>>(`${API_ENDPOINTS.STUDENTS_MOTHER_TONGUE_DISTRIBUTION}${qs}`),
+      apiGet<Array<{ name: string; value: number }>>(`${API_ENDPOINTS.STUDENTS_RELIGION_DISTRIBUTION}${qs}`),
+      apiGet<Array<{ campus: string; count: number }>>(`${API_ENDPOINTS.STUDENTS_CAMPUS_STATS}${qs}`),
+      apiGet<Array<{ age: number; count: number }>>(`${API_ENDPOINTS.STUDENTS_AGE_DISTRIBUTION}${qs}`),
+      apiGet<Array<{ status: string; count: number }>>(`${API_ENDPOINTS.STUDENTS_ZAKAT_STATUS}${qs}`),
+      apiGet<Array<{ status: string; count: number }>>(`${API_ENDPOINTS.STUDENTS_HOUSE_OWNERSHIP}${qs}`)
     ]);
 
     // Format gender distribution

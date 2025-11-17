@@ -61,6 +61,13 @@ interface ProfileData {
     section: string
     shift: string
   }
+  assigned_classrooms?: Array<{
+    id: number
+    name: string
+    grade: string
+    section: string
+    shift: string
+  }>
   current_campus?: {
     id: number
     campus_name: string
@@ -407,11 +414,39 @@ export default function UnifiedProfile() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-0">
                   <InfoField 
                     label="Class Teacher" 
-                    value={profile.is_class_teacher ? 'Yes' : 'No'} 
+                    value={
+                      profile.is_class_teacher || 
+                      (profile.assigned_classrooms && profile.assigned_classrooms.length > 0) ||
+                      profile.assigned_classroom
+                        ? 'Yes' 
+                        : 'No'
+                    } 
                   />
                   <InfoField 
                     label="Assigned Classroom" 
-                    value={profile.assigned_classroom ? `${profile.assigned_classroom.grade} - ${profile.assigned_classroom.section} (${profile.assigned_classroom.shift})` : 'Not assigned'} 
+                    value={
+                      (() => {
+                        // Check assigned_classrooms array first (multiple classrooms)
+                        if (profile.assigned_classrooms && Array.isArray(profile.assigned_classrooms) && profile.assigned_classrooms.length > 0) {
+                          return profile.assigned_classrooms
+                            .map((c: any) => {
+                              const grade = typeof c.grade === 'string' ? c.grade : c.grade?.name || ''
+                              const section = c.section || ''
+                              const shift = c.shift || ''
+                              return `${grade} - ${section}${shift ? ` (${shift})` : ''}`
+                            })
+                            .join(', ')
+                        }
+                        // Fallback to assigned_classroom (single classroom)
+                        if (profile.assigned_classroom) {
+                          const grade = profile.assigned_classroom.grade || ''
+                          const section = profile.assigned_classroom.section || ''
+                          const shift = profile.assigned_classroom.shift || ''
+                          return `${grade} - ${section}${shift ? ` (${shift})` : ''}`
+                        }
+                        return 'Not assigned'
+                      })()
+                    } 
                   />
                   <InfoField 
                     label="Current Campus" 

@@ -1326,7 +1326,7 @@ function TeacherAttendanceContent() {
             <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 text-sm sm:text-base lg:text-lg">
               <div className="flex items-center space-x-2">
                 <Users className="h-4 w-4 sm:h-5 sm:w-5" />
-                <span className="truncate">{classInfo?.name} - {classInfo?.section}</span>
+                <span className="truncate">{classInfo?.name}</span>
               </div>
               <div className="flex items-center space-x-2 flex-wrap">
                 <Calendar className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -1669,7 +1669,7 @@ function TeacherAttendanceContent() {
             )}
             
             {/* Attendance History Button */}
-            <Button
+            {/* <Button
               onClick={fetchAttendanceHistory}
               variant="outline"
               className="border-purple-500 text-purple-500 hover:bg-purple-50 text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2"
@@ -1677,7 +1677,7 @@ function TeacherAttendanceContent() {
               <History className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
               <span className="hidden sm:inline">Attendance History</span>
               <span className="sm:hidden">History</span>
-            </Button>
+            </Button> */}
           </div>
         </CardContent>
       </Card>
@@ -2011,7 +2011,7 @@ function TeacherAttendanceContent() {
       </Dialog>
 
       {/* Attendance History Modal */}
-      <Dialog open={showHistoryModal} onOpenChange={setShowHistoryModal}>
+      {/* <Dialog open={showHistoryModal} onOpenChange={setShowHistoryModal}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-[#274c77] flex items-center text-base sm:text-lg">
@@ -2134,7 +2134,7 @@ function TeacherAttendanceContent() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog> */}
 
 		</div>
 	);

@@ -64,6 +64,8 @@ export default function TeacherClassDashboard() {
   const [absenteesToday, setAbsenteesToday] = useState<Array<{ id: number; name: string; code?: string; gender?: string }>>([])
   const [atRisk, setAtRisk] = useState<AtRiskStudent[]>([])
   const [recentSubmissions, setRecentSubmissions] = useState<any[]>([])
+  const [classroomOptions, setClassroomOptions] = useState<Array<{ id: number; name: string; grade?: string; section?: string; shift?: string }>>([])
+  const [selectedClassroomId, setSelectedClassroomId] = useState<number | null>(null)
 
   const formatAlertDate = (value?: string) => {
     if (!value) return ""
@@ -91,341 +93,373 @@ export default function TeacherClassDashboard() {
         if (role === 'teacher') {
           // Get teacher's classroom data
           const teacherProfile = await getCurrentUserProfile() as any
-          if (teacherProfile?.assigned_classroom?.id) {
-            const classroomId = teacherProfile.assigned_classroom.id
-            
-            // Fetch all data in parallel for better performance
-            const [classroomData, todayAttendance, weeklyAttendance, monthlyTrend, last30DaysHistory] = await Promise.all([
-              getClassroomStudents(classroomId, teacherProfile.teacher_id) as any,
-              getTeacherTodayAttendance(classroomId),
-              getTeacherWeeklyAttendance(classroomId),
-              getTeacherMonthlyTrend(classroomId),
-              (async () => {
-                const end = new Date()
-                const start = new Date()
-                start.setDate(end.getDate() - 30)
-                const s = start.toISOString().split('T')[0]
-                const e = end.toISOString().split('T')[0]
-                return await getAttendanceHistory(classroomId, s, e)
-              })(),
-            ])
-            
-            // Handle different response formats
-            let students = []
-            if (Array.isArray(classroomData)) {
-              // Direct array response from get_class_students API
-              students = classroomData
-            } else if (classroomData && Array.isArray(classroomData.students)) {
-              // Object with students property
-              students = classroomData.students
-            } else {
-              students = []
-            }
-            
-            // Calculate statistics
-            const boys = students.filter((s: any) => s.gender === 'male').length
-            const girls = students.filter((s: any) => s.gender === 'female').length
-            
-            // Process today's attendance
-            let attendanceToday = { present: 0, absent: 0, leave: 0 }
-            if (todayAttendance && typeof todayAttendance === 'object') {
-              attendanceToday = {
-                present: (todayAttendance as any).present_count || 0,
-                absent: (todayAttendance as any).absent_count || 0,
-                leave: (todayAttendance as any).leave_count || 0
-              }
-              try {
-                const studentAttendance = (todayAttendance as any).student_attendance || []
-                const abs = studentAttendance
-                  .filter((r: any) => r.status === 'absent')
-                  .map((r: any) => ({ id: r.student_id, name: r.student_name, code: r.student_code, gender: r.student_gender }))
-                setAbsenteesToday(abs)
-              } catch {}
-            }
-            
-            // Process weekly attendance data
-            let attendanceData = []
-            
-            if (weeklyAttendance && Array.isArray(weeklyAttendance) && weeklyAttendance.length > 0) {
-              // Group by day of week
-              const dayMap: { [key: string]: { present: number; absent: number } } = {}
-              
-              weeklyAttendance.forEach((record: any) => {
-                const date = new Date(record.date)
-                const dayName = date.toLocaleDateString('en-US', { weekday: 'short' })
-                
-                if (!dayMap[dayName]) {
-                  dayMap[dayName] = { present: 0, absent: 0 }
-                }
-                dayMap[dayName].present += record.present_count || 0
-                dayMap[dayName].absent += record.absent_count || 0
-              })
-              
-              // Ensure we have data for all weekdays including Saturday
-              const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-              attendanceData = weekdays.map(day => ({
-                day,
-                present: dayMap[day]?.present || 0,
-                absent: dayMap[day]?.absent || 0
-              }))
-            } else {
-              // Use today's attendance data for all days if no weekly data
-              const todayPresent = attendanceToday.present
-              const todayAbsent = attendanceToday.absent
-              
-              attendanceData = [
-                { day: 'Mon', present: todayPresent, absent: todayAbsent },
-                { day: 'Tue', present: todayPresent, absent: todayAbsent },
-                { day: 'Wed', present: todayPresent, absent: todayAbsent },
-                { day: 'Thu', present: todayPresent, absent: todayAbsent },
-                { day: 'Fri', present: todayPresent, absent: todayAbsent },
-                { day: 'Sat', present: todayPresent, absent: todayAbsent },
-              ]
-            }
-            
-            // Process monthly trend data
-            let monthlyTrendData = []
-            if (monthlyTrend && Array.isArray(monthlyTrend)) {
-              // Group by month
-              const monthMap: { [key: string]: number } = {}
-              
-              monthlyTrend.forEach((record: any) => {
-                const date = new Date(record.date)
-                const monthName = date.toLocaleDateString('en-US', { month: 'short' })
-                
-                if (!monthMap[monthName]) {
-                  monthMap[monthName] = 0
-                }
-                monthMap[monthName] += record.present_count || 0
-              })
-              
-              monthlyTrendData = Object.entries(monthMap).map(([month, count]) => ({
-                month,
-                students: count
-              }))
-            } else {
-              // Fallback to mock data
-              monthlyTrendData = [
-                { month: 'Jan', students: Math.floor(students.length * 0.8) },
-                { month: 'Feb', students: Math.floor(students.length * 0.85) },
-                { month: 'Mar', students: Math.floor(students.length * 0.9) },
-                { month: 'Apr', students: Math.floor(students.length * 0.95) },
-                { month: 'May', students: students.length },
-              ]
-            }
-            
-            // Mock grade distribution (since we don't have grades API yet)
-            const gradeDistribution = [
-              { grade: 'A+', count: Math.floor(students.length * 0.15) },
-              { grade: 'A', count: Math.floor(students.length * 0.25) },
-              { grade: 'B+', count: Math.floor(students.length * 0.30) },
-              { grade: 'B', count: Math.floor(students.length * 0.20) },
-              { grade: 'C', count: Math.floor(students.length * 0.10) },
-            ]
-            
-            // Compute at-risk students combining low attendance and consecutive absence alerts
-            try {
-              const buildStudentKey = (record: any) => {
-                const base =
-                  record.student_id ??
-                  record.student_code ??
-                  record.student_gr_no ??
-                  record.student_name ??
-                  Math.random().toString(36).slice(2)
-                return String(base)
-              }
-
-              const deriveIdValue = (record: any): number | string => {
-                if (record.student_id !== undefined && record.student_id !== null) return record.student_id
-                if (record.student_code) return record.student_code
-                if (record.student_gr_no) return record.student_gr_no
-                return record.student_name || "unknown"
-              }
-
-              const perStudent: Record<string, { name: string; code?: string; present: number; total: number; history: Array<{ date?: string; status: string }>; idValue: number | string }> = {}
-              if (Array.isArray(last30DaysHistory)) {
-                last30DaysHistory.forEach((sheet: any) => {
-                  const arr = sheet.student_attendance || []
-                  const sheetDateRaw = sheet?.date ?? sheet?.attendance_date ?? sheet?.created_at
-                  let sheetDate: string | undefined
-                  if (typeof sheetDateRaw === 'string') {
-                    sheetDate = sheetDateRaw
-                  } else if (sheetDateRaw) {
-                    try {
-                      sheetDate = new Date(sheetDateRaw).toISOString().split('T')[0]
-                    } catch {
-                      sheetDate = undefined
-                    }
-                  }
-
-                  arr.forEach((r: any) => {
-                    const key = buildStudentKey(r)
-                    const studentCode = r.student_code || r.student_id || r.student_gr_no
-                    if (!perStudent[key]) {
-                      perStudent[key] = {
-                        name: r.student_name || String(key),
-                        code: studentCode,
-                        present: 0,
-                        total: 0,
-                        history: [],
-                        idValue: deriveIdValue(r),
-                      }
-                    } else if (!perStudent[key].code && studentCode) {
-                      perStudent[key].code = studentCode
-                    }
-                    perStudent[key].total += 1
-                    if (r.status === 'present') perStudent[key].present += 1
-                    perStudent[key].history.push({ date: sheetDate, status: r.status })
-                  })
-                })
-              }
-
-              const lowAttendanceList = Object.entries(perStudent)
-                .map(([key, v]) => ({
-                  key,
-                  idValue: v.idValue ?? key,
-                  name: v.name,
-                  code: v.code,
-                  attendanceRate: v.total ? Math.round((v.present / v.total) * 100) : 0,
-                }))
-                .filter(x => x.attendanceRate < 80)
-
-              const riskMap = new Map<string, AtRiskStudent>()
-
-              const ensureRiskEntry = (key: string, idValue: number | string, name: string, code?: string) => {
-                if (!riskMap.has(key)) {
-                  riskMap.set(key, { id: idValue, name, code, reasons: [] })
-                }
-                const entry = riskMap.get(key)!
-                if (code && !entry.code) entry.code = code
-                return entry
-              }
-
-              lowAttendanceList.forEach((student) => {
-                const entry = ensureRiskEntry(String(student.key), student.idValue, student.name, student.code)
-                entry.reasons.push({ type: 'low_attendance', attendanceRate: student.attendanceRate })
-              })
-
-              const consecutiveAbsenceList = Object.entries(perStudent)
-                .map(([key, info]) => {
-                  const sortedHistory = [...info.history].filter((record) => record.status && record.date).sort((a, b) => {
-                    if (!a.date || !b.date) return 0
-                    return new Date(b.date).getTime() - new Date(a.date).getTime()
-                  })
-                  let streak = 0
-                  let lastAbsentOn: string | undefined
-                  let streakStart: string | undefined
-                  let previousDate: Date | undefined
-
-                  for (const record of sortedHistory) {
-                    if (!record.date) break
-                    const current = new Date(record.date)
-                    if (isNaN(current.getTime())) break
-
-                    if (record.status === 'absent') {
-                      if (!previousDate) {
-                        streak = 1
-                        lastAbsentOn = record.date
-                        streakStart = record.date
-                        previousDate = current
-                        continue
-                      }
-
-                      const diffDays = Math.round((previousDate.getTime() - current.getTime()) / 86400000)
-                      if (diffDays !== 1) {
-                        break
-                      }
-                      streak += 1
-                      previousDate = current
-                      streakStart = record.date || streakStart
-                    } else if (record.status === 'leave') {
-                      streak = 0
-                      break
-                    } else {
-                      break
-                    }
-                  }
-
-                  return {
-                    key,
-                    idValue: info.idValue ?? key,
-                    name: info.name,
-                    code: info.code,
-                    streakLength: streak,
-                    startedOn: streak >= 1 ? streakStart : undefined,
-                    lastAbsentOn: streak >= 1 ? lastAbsentOn : undefined,
-                  }
-                })
-                .filter((item) => item.streakLength >= 3)
-
-              consecutiveAbsenceList.forEach((student) => {
-                const entry = ensureRiskEntry(String(student.key), student.idValue, student.name, student.code)
-                entry.reasons.push({
-                  type: 'consecutive_absence',
-                  streakLength: student.streakLength,
-                  startedOn: student.startedOn,
-                  lastAbsentOn: student.lastAbsentOn,
-                })
-              })
-
-
-              const getMaxStreak = (student: AtRiskStudent) =>
-                student.reasons.reduce((max, reason) => {
-                  if (reason.type === 'consecutive_absence') {
-                    return Math.max(max, reason.streakLength)
-                  }
-                  return max
-                }, 0)
-
-              const getAttendanceRate = (student: AtRiskStudent) => {
-                const attendanceReason = student.reasons.find((reason) => reason.type === 'low_attendance') as
-                  | { type: 'low_attendance'; attendanceRate: number }
-                  | undefined
-                return attendanceReason ? attendanceReason.attendanceRate : 101
-              }
-
-              const riskList = Array.from(riskMap.values())
-                .sort((a, b) => {
-                  const streakDiff = getMaxStreak(b) - getMaxStreak(a)
-                  if (streakDiff !== 0) return streakDiff
-                  return getAttendanceRate(a) - getAttendanceRate(b)
-                })
-                .slice(0, 8)
-
-              setAtRisk(riskList)
-            } catch {}
-
-            // Recent submissions (last 6 records)
-            try {
-              const recent = Array.isArray(last30DaysHistory) ? last30DaysHistory.slice(0, 6) : []
-              setRecentSubmissions(recent)
-            } catch {}
-
-            const finalClassInfo = {
-              name: teacherProfile.assigned_classroom.name || "Unknown Class",
-              section: teacherProfile.assigned_classroom.section || "",
-              totalStudents: students.length,
-              boys: boys,
-              girls: girls,
-              attendanceToday,
-              topStudents: students.slice(0, 3).map((s: any, i: number) => ({
-                name: s.name,
-                marks: 95 - (i * 2) // Mock marks for now
-              })),
-              recentActivity: [
-                { text: `Class ${teacherProfile.assigned_classroom.name} loaded`, color: "bg-green-500" },
-                { text: `${students.length} students in class`, color: "bg-blue-500" },
-                { text: `Today's attendance: ${attendanceToday.present}/${students.length}`, color: "bg-purple-500" },
-              ],
-              attendanceData,
-              gradeDistribution,
-              monthlyTrend: monthlyTrendData,
-            }
-            
-            setClassInfo(finalClassInfo)
-          } else {
+          
+          // Get all assigned classrooms (support both assigned_classrooms array and assigned_classroom single)
+          const multi = Array.isArray(teacherProfile?.assigned_classrooms) ? teacherProfile.assigned_classrooms : []
+          const single = teacherProfile?.assigned_classroom ? [teacherProfile.assigned_classroom] : []
+          const allClassrooms = multi.length > 0 ? multi : single
+          
+          if (allClassrooms.length === 0) {
             setError("No classroom assigned to you. Please contact administrator.")
+            setLoading(false)
+            return
           }
+          
+          // Set classroom options
+          const options = allClassrooms.map((c: any) => {
+            const gradeName = typeof c.grade === 'string' ? c.grade : c.grade?.name || ''
+            const section = c.section || ''
+            const displayName = c.name || `${gradeName} - ${section}`.trim() || 'Unknown Class'
+            return {
+              id: c.id,
+              name: displayName,
+              grade: gradeName,
+              section: section,
+              shift: c.shift
+            }
+          })
+          setClassroomOptions(options)
+          
+          // Set selected classroom (use first one if not already selected)
+          const classroomToUse = selectedClassroomId 
+            ? options.find(c => c.id === selectedClassroomId) || options[0]
+            : options[0]
+          
+          if (!selectedClassroomId) {
+            setSelectedClassroomId(classroomToUse.id)
+          }
+          
+          const classroomId = classroomToUse.id
+          
+          // Fetch all data in parallel for better performance
+          const [classroomData, todayAttendance, weeklyAttendance, monthlyTrend, last30DaysHistory] = await Promise.all([
+            getClassroomStudents(classroomId, teacherProfile.teacher_id) as any,
+            getTeacherTodayAttendance(classroomId),
+            getTeacherWeeklyAttendance(classroomId),
+            getTeacherMonthlyTrend(classroomId),
+            (async () => {
+              const end = new Date()
+              const start = new Date()
+              start.setDate(end.getDate() - 30)
+              const s = start.toISOString().split('T')[0]
+              const e = end.toISOString().split('T')[0]
+              return await getAttendanceHistory(classroomId, s, e)
+            })(),
+          ])
+          
+          // Handle different response formats
+          let students = []
+          if (Array.isArray(classroomData)) {
+            // Direct array response from get_class_students API
+            students = classroomData
+          } else if (classroomData && Array.isArray(classroomData.students)) {
+            // Object with students property
+            students = classroomData.students
+          } else {
+            students = []
+          }
+          
+          // Calculate statistics
+          const boys = students.filter((s: any) => s.gender === 'male').length
+          const girls = students.filter((s: any) => s.gender === 'female').length
+          
+          // Process today's attendance
+          let attendanceToday = { present: 0, absent: 0, leave: 0 }
+          if (todayAttendance && typeof todayAttendance === 'object') {
+            attendanceToday = {
+              present: (todayAttendance as any).present_count || 0,
+              absent: (todayAttendance as any).absent_count || 0,
+              leave: (todayAttendance as any).leave_count || 0
+            }
+            try {
+              const studentAttendance = (todayAttendance as any).student_attendance || []
+              const abs = studentAttendance
+                .filter((r: any) => r.status === 'absent')
+                .map((r: any) => ({ id: r.student_id, name: r.student_name, code: r.student_code, gender: r.student_gender }))
+              setAbsenteesToday(abs)
+            } catch {}
+          }
+          
+          // Process weekly attendance data
+          let attendanceData = []
+          
+          if (weeklyAttendance && Array.isArray(weeklyAttendance) && weeklyAttendance.length > 0) {
+            // Group by day of week
+            const dayMap: { [key: string]: { present: number; absent: number } } = {}
+            
+            weeklyAttendance.forEach((record: any) => {
+              const date = new Date(record.date)
+              const dayName = date.toLocaleDateString('en-US', { weekday: 'short' })
+              
+              if (!dayMap[dayName]) {
+                dayMap[dayName] = { present: 0, absent: 0 }
+              }
+              dayMap[dayName].present += record.present_count || 0
+              dayMap[dayName].absent += record.absent_count || 0
+            })
+            
+            // Ensure we have data for all weekdays including Saturday
+            const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+            attendanceData = weekdays.map(day => ({
+              day,
+              present: dayMap[day]?.present || 0,
+              absent: dayMap[day]?.absent || 0
+            }))
+          } else {
+            // Use today's attendance data for all days if no weekly data
+            const todayPresent = attendanceToday.present
+            const todayAbsent = attendanceToday.absent
+            
+            attendanceData = [
+              { day: 'Mon', present: todayPresent, absent: todayAbsent },
+              { day: 'Tue', present: todayPresent, absent: todayAbsent },
+              { day: 'Wed', present: todayPresent, absent: todayAbsent },
+              { day: 'Thu', present: todayPresent, absent: todayAbsent },
+              { day: 'Fri', present: todayPresent, absent: todayAbsent },
+              { day: 'Sat', present: todayPresent, absent: todayAbsent },
+            ]
+          }
+          
+          // Process monthly trend data
+          let monthlyTrendData = []
+          if (monthlyTrend && Array.isArray(monthlyTrend)) {
+            // Group by month
+            const monthMap: { [key: string]: number } = {}
+            
+            monthlyTrend.forEach((record: any) => {
+              const date = new Date(record.date)
+              const monthName = date.toLocaleDateString('en-US', { month: 'short' })
+              
+              if (!monthMap[monthName]) {
+                monthMap[monthName] = 0
+              }
+              monthMap[monthName] += record.present_count || 0
+            })
+            
+            monthlyTrendData = Object.entries(monthMap).map(([month, count]) => ({
+              month,
+              students: count
+            }))
+          } else {
+            // Fallback to mock data
+            monthlyTrendData = [
+              { month: 'Jan', students: Math.floor(students.length * 0.8) },
+              { month: 'Feb', students: Math.floor(students.length * 0.85) },
+              { month: 'Mar', students: Math.floor(students.length * 0.9) },
+              { month: 'Apr', students: Math.floor(students.length * 0.95) },
+              { month: 'May', students: students.length },
+            ]
+          }
+          
+          // Mock grade distribution (since we don't have grades API yet)
+          const gradeDistribution = [
+            { grade: 'A+', count: Math.floor(students.length * 0.15) },
+            { grade: 'A', count: Math.floor(students.length * 0.25) },
+            { grade: 'B+', count: Math.floor(students.length * 0.30) },
+            { grade: 'B', count: Math.floor(students.length * 0.20) },
+            { grade: 'C', count: Math.floor(students.length * 0.10) },
+          ]
+          
+          // Compute at-risk students combining low attendance and consecutive absence alerts
+          try {
+            const buildStudentKey = (record: any) => {
+              const base =
+                record.student_id ??
+                record.student_code ??
+                record.student_gr_no ??
+                record.student_name ??
+                Math.random().toString(36).slice(2)
+              return String(base)
+            }
+
+            const deriveIdValue = (record: any): number | string => {
+              if (record.student_id !== undefined && record.student_id !== null) return record.student_id
+              if (record.student_code) return record.student_code
+              if (record.student_gr_no) return record.student_gr_no
+              return record.student_name || "unknown"
+            }
+
+            const perStudent: Record<string, { name: string; code?: string; present: number; total: number; history: Array<{ date?: string; status: string }>; idValue: number | string }> = {}
+            if (Array.isArray(last30DaysHistory)) {
+              last30DaysHistory.forEach((sheet: any) => {
+                const arr = sheet.student_attendance || []
+                const sheetDateRaw = sheet?.date ?? sheet?.attendance_date ?? sheet?.created_at
+                let sheetDate: string | undefined
+                if (typeof sheetDateRaw === 'string') {
+                  sheetDate = sheetDateRaw
+                } else if (sheetDateRaw) {
+                  try {
+                    sheetDate = new Date(sheetDateRaw).toISOString().split('T')[0]
+                  } catch {
+                    sheetDate = undefined
+                  }
+                }
+
+                arr.forEach((r: any) => {
+                  const key = buildStudentKey(r)
+                  const studentCode = r.student_code || r.student_id || r.student_gr_no
+                  if (!perStudent[key]) {
+                    perStudent[key] = {
+                      name: r.student_name || String(key),
+                      code: studentCode,
+                      present: 0,
+                      total: 0,
+                      history: [],
+                      idValue: deriveIdValue(r),
+                    }
+                  } else if (!perStudent[key].code && studentCode) {
+                    perStudent[key].code = studentCode
+                  }
+                  perStudent[key].total += 1
+                  if (r.status === 'present') perStudent[key].present += 1
+                  perStudent[key].history.push({ date: sheetDate, status: r.status })
+                })
+              })
+            }
+
+            const lowAttendanceList = Object.entries(perStudent)
+              .map(([key, v]) => ({
+                key,
+                idValue: v.idValue ?? key,
+                name: v.name,
+                code: v.code,
+                attendanceRate: v.total ? Math.round((v.present / v.total) * 100) : 0,
+              }))
+              .filter(x => x.attendanceRate < 80)
+
+            const riskMap = new Map<string, AtRiskStudent>()
+
+            const ensureRiskEntry = (key: string, idValue: number | string, name: string, code?: string) => {
+              if (!riskMap.has(key)) {
+                riskMap.set(key, { id: idValue, name, code, reasons: [] })
+              }
+              const entry = riskMap.get(key)!
+              if (code && !entry.code) entry.code = code
+              return entry
+            }
+
+            lowAttendanceList.forEach((student) => {
+              const entry = ensureRiskEntry(String(student.key), student.idValue, student.name, student.code)
+              entry.reasons.push({ type: 'low_attendance', attendanceRate: student.attendanceRate })
+            })
+
+            const consecutiveAbsenceList = Object.entries(perStudent)
+              .map(([key, info]) => {
+                const sortedHistory = [...info.history].filter((record) => record.status && record.date).sort((a, b) => {
+                  if (!a.date || !b.date) return 0
+                  return new Date(b.date).getTime() - new Date(a.date).getTime()
+                })
+                let streak = 0
+                let lastAbsentOn: string | undefined
+                let streakStart: string | undefined
+                let previousDate: Date | undefined
+
+                for (const record of sortedHistory) {
+                  if (!record.date) break
+                  const current = new Date(record.date)
+                  if (isNaN(current.getTime())) break
+
+                  if (record.status === 'absent') {
+                    if (!previousDate) {
+                      streak = 1
+                      lastAbsentOn = record.date
+                      streakStart = record.date
+                      previousDate = current
+                      continue
+                    }
+
+                    const diffDays = Math.round((previousDate.getTime() - current.getTime()) / 86400000)
+                    if (diffDays !== 1) {
+                      break
+                    }
+                    streak += 1
+                    previousDate = current
+                    streakStart = record.date || streakStart
+                  } else if (record.status === 'leave') {
+                    streak = 0
+                    break
+                  } else {
+                    break
+                  }
+                }
+
+                return {
+                  key,
+                  idValue: info.idValue ?? key,
+                  name: info.name,
+                  code: info.code,
+                  streakLength: streak,
+                  startedOn: streak >= 1 ? streakStart : undefined,
+                  lastAbsentOn: streak >= 1 ? lastAbsentOn : undefined,
+                }
+              })
+              .filter((item) => item.streakLength >= 3)
+
+            consecutiveAbsenceList.forEach((student) => {
+              const entry = ensureRiskEntry(String(student.key), student.idValue, student.name, student.code)
+              entry.reasons.push({
+                type: 'consecutive_absence',
+                streakLength: student.streakLength,
+                startedOn: student.startedOn,
+                lastAbsentOn: student.lastAbsentOn,
+              })
+            })
+
+
+            const getMaxStreak = (student: AtRiskStudent) =>
+              student.reasons.reduce((max, reason) => {
+                if (reason.type === 'consecutive_absence') {
+                  return Math.max(max, reason.streakLength)
+                }
+                return max
+              }, 0)
+
+            const getAttendanceRate = (student: AtRiskStudent) => {
+              const attendanceReason = student.reasons.find((reason) => reason.type === 'low_attendance') as
+                | { type: 'low_attendance'; attendanceRate: number }
+                | undefined
+              return attendanceReason ? attendanceReason.attendanceRate : 101
+            }
+
+            const riskList = Array.from(riskMap.values())
+              .sort((a, b) => {
+                const streakDiff = getMaxStreak(b) - getMaxStreak(a)
+                if (streakDiff !== 0) return streakDiff
+                return getAttendanceRate(a) - getAttendanceRate(b)
+              })
+              .slice(0, 8)
+
+            setAtRisk(riskList)
+          } catch {}
+
+          // Recent submissions (last 6 records)
+          try {
+            const recent = Array.isArray(last30DaysHistory) ? last30DaysHistory.slice(0, 6) : []
+            setRecentSubmissions(recent)
+          } catch {}
+
+          const finalClassInfo = {
+            name: classroomToUse.name || "Unknown Class",
+            section: classroomToUse.section || "",
+            totalStudents: students.length,
+            boys: boys,
+            girls: girls,
+            attendanceToday,
+            topStudents: students.slice(0, 3).map((s: any, i: number) => ({
+              name: s.name,
+              marks: 95 - (i * 2) // Mock marks for now
+            })),
+            recentActivity: [
+              { text: `Class ${classroomToUse.name} loaded`, color: "bg-green-500" },
+              { text: `${students.length} students in class`, color: "bg-blue-500" },
+              { text: `Today's attendance: ${attendanceToday.present}/${students.length}`, color: "bg-purple-500" },
+            ],
+            attendanceData,
+            gradeDistribution,
+            monthlyTrend: monthlyTrendData,
+          }
+          
+          setClassInfo(finalClassInfo)
         } else {
           // For non-teachers, show placeholder data
           setClassInfo({
@@ -453,7 +487,7 @@ export default function TeacherClassDashboard() {
     }
 
     fetchClassData()
-  }, [])
+  }, [selectedClassroomId])
 
   if (loading) {
     return (
@@ -489,11 +523,38 @@ export default function TeacherClassDashboard() {
     )
   }
 
+  const handleClassroomChange = (classroomId: string) => {
+    setSelectedClassroomId(parseInt(classroomId))
+  }
+
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-3xl font-extrabold text-[#274c77] mb-2 tracking-wide">Class Dashboard</h2>
-        <p className="text-gray-600 text-lg">Welcome! Here is an overview of your class <span className="font-bold text-[#6096ba]">{classInfo.name}</span></p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-3xl font-extrabold text-[#274c77] mb-2 tracking-wide">Class Dashboard</h2>
+            <p className="text-gray-600 text-lg">Welcome! Here is an overview of your class <span className="font-bold text-[#6096ba]">{classInfo.name}</span></p>
+          </div>
+          {classroomOptions.length > 1 && (
+            <div className="flex items-center gap-2">
+              <label htmlFor="classroom-select" className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                Select Class:
+              </label>
+              <select
+                id="classroom-select"
+                value={selectedClassroomId || ''}
+                onChange={(e) => handleClassroomChange(e.target.value)}
+                className="px-4 py-2 border-2 border-[#6096ba] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6096ba] bg-white text-[#274c77] font-medium min-w-[200px]"
+              >
+                {classroomOptions.map((classroom) => (
+                  <option key={classroom.id} value={classroom.id}>
+                    {classroom.name} {classroom.shift ? `(${classroom.shift})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Stats Cards */}

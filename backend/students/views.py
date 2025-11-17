@@ -394,14 +394,14 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='total')
     def total_students(self, request):
         """Get total student count"""
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
         total = queryset.count()
         return Response({'totalStudents': total})
     
     @action(detail=False, methods=['get'], url_path='gender_stats')
     def gender_stats(self, request):
         """Get gender distribution stats"""
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
         
         stats = queryset.aggregate(
             male=Count('id', filter=Q(gender='male')),
@@ -414,7 +414,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='campus_stats')
     def campus_stats(self, request):
         """Get campus-wise student distribution"""
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
         
         campus_data = queryset.values('campus__campus_name').annotate(
             count=Count('id')
@@ -433,7 +433,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='grade_distribution')
     def grade_distribution(self, request):
         """Get grade-wise student distribution"""
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
         
         grade_data = queryset.values('current_grade').annotate(
             count=Count('id')
@@ -521,7 +521,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='mother_tongue_distribution')
     def mother_tongue_distribution(self, request):
         """Get mother tongue distribution"""
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
         
         tongue_data = queryset.values('mother_tongue').annotate(
             count=Count('id')
@@ -540,7 +540,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='religion_distribution')
     def religion_distribution(self, request):
         """Get religion distribution"""
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
         
         religion_data = queryset.values('religion').annotate(
             count=Count('id')
@@ -559,7 +559,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='age_distribution')
     def age_distribution(self, request):
         """Get age distribution"""
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
         
         # Calculate age from date of birth using a simpler approach
         from django.db.models import Case, When, Value, IntegerField
@@ -592,7 +592,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='zakat_status')
     def zakat_status(self, request):
         """Get zakat status distribution"""
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
         
         zakat_data = queryset.values('zakat_status').annotate(
             count=Count('id')
@@ -611,7 +611,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='house_ownership')
     def house_ownership(self, request):
         """Get house ownership distribution"""
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
         
         house_data = queryset.values('house_owned').annotate(
             count=Count('id')
