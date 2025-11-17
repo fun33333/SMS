@@ -59,6 +59,29 @@ class StudentFilter(django_filters.FilterSet):
         help_text="Filter by classroom"
     )
     
+    # Filter for unassigned students (classroom is null)
+    # Using CharFilter with method to handle 'true'/'false' strings from URL
+    classroom__isnull = django_filters.CharFilter(
+        method='filter_classroom_isnull',
+        help_text="Filter students with no classroom assignment (pass 'true' or '1')"
+    )
+    
+    def filter_classroom_isnull(self, queryset, name, value):
+        """Custom filter method for classroom__isnull"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if value and value.lower() in ('true', '1', 'yes'):
+            # Force evaluation to ensure we're working with fresh data
+            filtered = queryset.filter(classroom__isnull=True)
+            logger.info(f"Filtering for unassigned students (classroom__isnull=True)")
+            return filtered
+        elif value and value.lower() in ('false', '0', 'no'):
+            filtered = queryset.filter(classroom__isnull=False)
+            logger.info(f"Filtering for assigned students (classroom__isnull=False)")
+            return filtered
+        return queryset
+    
     # Date range filters
     enrollment_year = django_filters.NumberFilter(
         field_name='enrollment_year',

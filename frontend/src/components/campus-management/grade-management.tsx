@@ -104,7 +104,6 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
       if (editingGrade) {
         await updateGrade(editingGrade.id, formData)
       } else {
-        console.log('Creating grade with data:', formData)
         await createGrade(formData)
       }
       
@@ -113,12 +112,6 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to save grade. Please try again.'
       
-      // Only log as error if it's not a validation error (400 status)
-      if (error?.status !== 400) {
-        console.error('Failed to save grade:', error)
-      } else {
-        console.warn('Grade validation:', errorMessage)
-      }
       
       alert(errorMessage)
     } finally {
@@ -135,7 +128,6 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
       await deleteGrade(grade.id)
       fetchData()
     } catch (error) {
-      console.error('Failed to delete grade:', error)
       alert('Failed to delete grade. It may have associated classrooms.')
     }
   }
@@ -242,8 +234,8 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
         </div>
 
         {/* Desktop table */}
-        <div className={(mobileOpen ? 'hidden' : 'hidden') + ' sm:block overflow-x-auto -mx-4 sm:mx-0'}>
-        <Table className="min-w-[640px] sm:min-w-0">
+        <div className="hidden sm:block overflow-x-auto -mx-4 sm:mx-0">
+        <Table className="min-w-[640px] sm:min-w-full">
           <TableHeader>
             <TableRow style={{ backgroundColor: '#1976D2' }}>
               <TableHead className="text-white font-semibold">Grade Name</TableHead>
@@ -292,7 +284,7 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
 
       {/* Create/Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
               {editingGrade ? 'Edit Grade' : 'Create New Grade'}

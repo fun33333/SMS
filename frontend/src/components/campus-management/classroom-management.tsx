@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Plus, Edit, Trash2, Users, UserPlus, Clock } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
 import { 
   getClassrooms, 
   getClassroomStudents,
@@ -33,7 +34,9 @@ import {
   getAvailableTeachers,
   assignTeacherToClassroom,
   unassignTeacherFromClassroom,
-  getUserCampusId
+  getUserCampusId,
+  getUnassignedStudents,
+  bulkAssignStudentsToClassroom
 } from "@/lib/api"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 
@@ -64,13 +67,30 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
   const [selectedGrade, setSelectedGrade] = useState<string>('all')
   const [selectedShift, setSelectedShift] = useState<string>('all')
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [selectedClassrooms, setSelectedClassrooms] = useState<Set<number>>(new Set())
+  const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false)
+  const [unassignedStudents, setUnassignedStudents] = useState<any[]>([])
+  const [selectedStudents, setSelectedStudents] = useState<Set<number>>(new Set())
+  const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false)
+  const [selectedClassroomForAssign, setSelectedClassroomForAssign] = useState<string>('')
+  const [showUnassignedSection, setShowUnassignedSection] = useState(false)
   
   // Get campus ID from localStorage if not provided
   const userCampusId = campusId || getUserCampusId()
 
   useEffect(() => {
     fetchData()
+    fetchUnassignedStudents()
   }, [userCampusId, selectedGrade, selectedShift])
+
+  async function fetchUnassignedStudents() {
+    try {
+      const students = await getUnassignedStudents(userCampusId || undefined)
+      setUnassignedStudents(students)
+    } catch (error) {
+      setUnassignedStudents([])
+    }
+  }
 
   async function fetchData() {
     setLoading(true)
@@ -132,7 +152,6 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
       setLevels(levelsArray)
       setAvailableTeachers(teachersArray)
     } catch (error) {
-      console.error('Failed to fetch data:', error)
     } finally {
       setLoading(false)
     }
@@ -197,7 +216,6 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
       setIsDialogOpen(false)
       fetchData()
     } catch (error: any) {
-      console.error('Failed to save classroom:', error)
       const errorMessage = error?.message || 'Failed to save classroom. Please try again.'
       alert(errorMessage)
     } finally {
@@ -212,11 +230,183 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
 
     try {
       await deleteClassroom(classroom.id)
-      fetchData()
+      // Small delay to ensure database updates are complete
+      await new Promise(resolve => setTimeout(resolve, 800))
+      // Refresh both data and unassigned students count
+      await Promise.all([
+        fetchData(),
+        fetchUnassignedStudents()
+      ])
+      setSelectedClassrooms(new Set())
+      // Force another refresh after a short delay to ensure count is updated
+      setTimeout(() => {
+        fetchUnassignedStudents()
+      }, 1500)
     } catch (error: any) {
-      console.error('Failed to delete classroom:', error)
       const errorMessage = error?.message || 'Failed to delete classroom. It may have assigned students.'
       alert(errorMessage)
+    }
+  }
+
+  function handleSelectClassroom(classroomId: number, checked: boolean) {
+    const newSelected = new Set(selectedClassrooms)
+    if (checked) {
+      newSelected.add(classroomId)
+    } else {
+      newSelected.delete(classroomId)
+    }
+    setSelectedClassrooms(newSelected)
+  }
+
+  function handleSelectAll(checked: boolean) {
+    if (checked) {
+      setSelectedClassrooms(new Set(classrooms.map(c => c.id)))
+    } else {
+      setSelectedClassrooms(new Set())
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedClassrooms.size === 0) {
+      alert('Please select at least one classroom to delete')
+      return
+    }
+
+    const selectedNames = classrooms
+      .filter(c => selectedClassrooms.has(c.id))
+      .map(c => `${c.grade_name} - ${c.section}`)
+      .join(', ')
+
+    if (!confirm(`Are you sure you want to delete ${selectedClassrooms.size} classroom(s)?\n\n${selectedNames}`)) {
+      return
+    }
+
+    setSaving(true)
+    const errors: string[] = []
+    const successCount = { count: 0 }
+
+    try {
+      // Delete classrooms in parallel
+      await Promise.all(
+        Array.from(selectedClassrooms).map(async (id) => {
+          try {
+            await deleteClassroom(id)
+            successCount.count++
+          } catch (error: any) {
+            const classroom = classrooms.find(c => c.id === id)
+            const name = classroom ? `${classroom.grade_name} - ${classroom.section}` : `Classroom ${id}`
+            errors.push(`${name}: ${error?.message || 'Failed to delete'}`)
+          }
+        })
+      )
+
+      if (errors.length > 0) {
+        alert(`Deleted ${successCount.count} classroom(s) successfully.\n\nFailed to delete:\n${errors.join('\n')}`)
+      } else {
+        alert(`Successfully deleted ${successCount.count} classroom(s)`)
+      }
+
+      setSelectedClassrooms(new Set())
+      setIsBulkDeleteDialogOpen(false)
+      // Small delay to ensure database updates are complete
+      await new Promise(resolve => setTimeout(resolve, 800))
+      // Refresh both data and unassigned students count
+      await Promise.all([
+        fetchData(),
+        fetchUnassignedStudents()
+      ])
+      // Force another refresh after a short delay to ensure count is updated
+      setTimeout(() => {
+        fetchUnassignedStudents()
+      }, 1500)
+    } catch (error: any) {
+      alert('An error occurred during bulk delete')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleSelectStudent(studentId: number, checked: boolean) {
+    const newSelected = new Set(selectedStudents)
+    if (checked) {
+      newSelected.add(studentId)
+    } else {
+      newSelected.delete(studentId)
+    }
+    setSelectedStudents(newSelected)
+  }
+
+  function handleSelectAllStudents(checked: boolean) {
+    if (checked) {
+      setSelectedStudents(new Set(unassignedStudents.map(s => s.id)))
+    } else {
+      setSelectedStudents(new Set())
+    }
+  }
+
+  async function handleBulkAssignStudents() {
+    if (selectedStudents.size === 0) {
+      alert('Please select at least one student to assign')
+      return
+    }
+
+    if (!selectedClassroomForAssign) {
+      alert('Please select a classroom')
+      return
+    }
+
+    const classroomId = parseInt(selectedClassroomForAssign)
+    if (isNaN(classroomId)) {
+      alert('Invalid classroom selected')
+      return
+    }
+
+    setSaving(true)
+    const errors: string[] = []
+    const successCount = { count: 0 }
+
+    try {
+      const results = await bulkAssignStudentsToClassroom(
+        Array.from(selectedStudents),
+        classroomId
+      )
+
+      results.forEach((result: any) => {
+        if (result.error) {
+          const student = unassignedStudents.find(s => s.id === result.id)
+          const name = student ? student.name : `Student ${result.id}`
+          errors.push(`${name}: ${result.error}`)
+        } else {
+          successCount.count++
+        }
+      })
+
+      if (errors.length > 0) {
+        alert(`Assigned ${successCount.count} student(s) successfully.\n\nFailed to assign:\n${errors.join('\n')}`)
+      } else {
+        alert(`Successfully assigned ${successCount.count} student(s) to classroom`)
+      }
+
+      setSelectedStudents(new Set())
+      setIsAssignDialogOpen(false)
+      setSelectedClassroomForAssign('')
+      // Close the main unassigned students modal as well
+      setShowUnassignedSection(false)
+      // Longer delay to ensure database transaction is committed
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      // Refresh both unassigned students and classroom data
+      await Promise.all([
+        fetchUnassignedStudents(),
+        fetchData()
+      ])
+      // Force another refresh after a longer delay to ensure count is updated
+      setTimeout(() => {
+        fetchUnassignedStudents()
+      }, 3000)
+    } catch (error: any) {
+      alert('An error occurred during bulk assignment')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -229,9 +419,8 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
       const teachersData = await getAvailableTeachers(userCampusId || undefined, shift)
       const teachersArray = (teachersData as any)?.results || (Array.isArray(teachersData) ? teachersData : [])
       setAvailableTeachers(teachersArray)
-    } catch (e) {
-      console.error('Failed to load available teachers by shift', e)
-    }
+      } catch (e) {
+      }
     setIsTeacherDialogOpen(true)
   }
 
@@ -263,15 +452,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
       } catch {}
       
     } catch (error: any) {
-      // The handleApiError function now properly extracts the specific error message
       const errorMessage = error?.message || 'Failed to assign teacher. Please try again.'
-      
-      // Only log as error if it's not a validation error (400 status)
-      if (error?.status !== 400) {
-        console.error('Failed to assign teacher:', error)
-      } else {
-        console.warn('Teacher assignment validation:', errorMessage)
-      }
       
       alert(errorMessage)
     } finally {
@@ -310,53 +491,67 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 bg-gray-50 p-3 sm:p-4 rounded-lg">
-        {/* Shift Filter */}
-        <div className="flex items-center gap-2">
-          <Label className="font-semibold text-sm">Shift:</Label>
-          <Select value={selectedShift} onValueChange={setSelectedShift}>
-            <SelectTrigger className="w-full sm:w-[140px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Shifts</SelectItem>
-              <SelectItem value="morning">Morning</SelectItem>
-              <SelectItem value="afternoon">Afternoon</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+      <div className="flex flex-col gap-3 sm:gap-4 bg-gray-50 p-3 sm:p-4 rounded-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+          {/* Shift Filter */}
+          <div className="flex items-center gap-2 flex-1 sm:flex-initial">
+            <Label className="font-semibold text-sm whitespace-nowrap">Shift:</Label>
+            <Select value={selectedShift} onValueChange={setSelectedShift}>
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Shifts</SelectItem>
+                <SelectItem value="morning">Morning</SelectItem>
+                <SelectItem value="afternoon">Afternoon</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-        {/* Grade Filter */}
-        <div className="flex items-center gap-2">
-          <Label className="font-semibold text-sm">Grade:</Label>
-          <Select value={selectedGrade} onValueChange={setSelectedGrade}>
-            <SelectTrigger className="w-full sm:w-[200px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Grades</SelectItem>
-              {grades
-                .filter(grade => {
-                  if (selectedShift === 'all') return true;
-                  // Find the level for this grade
-                  const level = levels.find(l => String(l.id) === String(grade.level));
-                  // Only show grades whose level matches the selected shift
-                  return level?.shift === selectedShift;
-                })
-                .map((grade) => (
-                  <SelectItem key={grade.id} value={grade.id.toString()}>
-                    {grade.name} ({classrooms.filter(c => String(c.grade) === String(grade.id)).length})
-                  </SelectItem>
-                ))
-              }
-            </SelectContent>
-          </Select>
-        </div>
+          {/* Grade Filter */}
+          <div className="flex items-center gap-2 flex-1 sm:flex-initial">
+            <Label className="font-semibold text-sm whitespace-nowrap">Grade:</Label>
+            <Select value={selectedGrade} onValueChange={setSelectedGrade}>
+              <SelectTrigger className="w-full sm:w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Grades</SelectItem>
+                {grades
+                  .filter(grade => {
+                    if (selectedShift === 'all') return true;
+                    // Find the level for this grade
+                    const level = levels.find(l => String(l.id) === String(grade.level));
+                    // Only show grades whose level matches the selected shift
+                    return level?.shift === selectedShift;
+                  })
+                  .map((grade) => (
+                    <SelectItem key={grade.id} value={grade.id.toString()}>
+                      {grade.name} ({classrooms.filter(c => String(c.grade) === String(grade.id)).length})
+                    </SelectItem>
+                  ))
+                }
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className="sm:ml-2 inline-flex items-center">
-          <span className="px-3 py-1 rounded-full text-xs sm:text-sm font-medium" style={{ backgroundColor: '#E3F2FD', color: '#1976D2' }}>
-            Total: {classrooms.length}
-          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="px-3 py-1 rounded-full text-xs sm:text-sm font-medium whitespace-nowrap" style={{ backgroundColor: '#E3F2FD', color: '#1976D2' }}>
+              Total: {classrooms.length}
+            </span>
+            {selectedClassrooms.size > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setIsBulkDeleteDialogOpen(true)}
+                className="gap-2 w-full sm:w-auto"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span className="hidden sm:inline">Delete Selected ({selectedClassrooms.size})</span>
+                <span className="sm:hidden">Delete ({selectedClassrooms.size})</span>
+              </Button>
+            )}
+          </div>
         </div>
         
         {grades.length === 0 && (
@@ -364,6 +559,19 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
             No grades found. Create a grade first to add classrooms.
           </p>
         )}
+
+        {/* Unassigned Students Button */}
+        <div className="mt-4">
+          <Button
+            variant="outline"
+            onClick={() => setShowUnassignedSection(true)}
+            className="w-full sm:w-auto border-amber-300 text-amber-700 hover:bg-amber-100 bg-amber-50"
+            disabled={unassignedStudents.length === 0}
+          >
+            <Users className="h-4 w-4 mr-2" />
+            See Students without Classrooms ({unassignedStudents.length})
+          </Button>
+        </div>
       </div>
 
       {classrooms.length === 0 ? (
@@ -387,8 +595,13 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
         <div className={(mobileOpen ? 'grid' : 'hidden') + ' sm:hidden grid-cols-1 gap-3'}>
           {classrooms.map((classroom) => (
             <div key={classroom.id} className="rounded-lg border p-4 shadow-sm bg-white">
-              <div className="flex items-start justify-between">
-                <div>
+              <div className="flex items-start justify-between gap-2">
+                <Checkbox
+                  checked={selectedClassrooms.has(classroom.id)}
+                  onCheckedChange={(checked) => handleSelectClassroom(classroom.id, checked as boolean)}
+                  className="mt-1"
+                />
+                <div className="flex-1">
                   <div className="text-base font-semibold">{classroom.grade_name} - {classroom.section}</div>
                   
                 </div>
@@ -404,15 +617,18 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                   <div className="text-[10px] text-gray-500 mt-1">By {classroom.assigned_by_name}{classroom.assigned_at ? ` on ${new Date(classroom.assigned_at).toLocaleDateString()}` : ''}</div>
                 )}
               </div>
-              <div className="mt-3 flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => handleAssignTeacher(classroom)} title="Assign Teacher">
-                  <UserPlus className="h-4 w-4" />
+              <div className="mt-3 flex justify-end gap-2 flex-wrap">
+                <Button variant="outline" size="sm" onClick={() => handleAssignTeacher(classroom)} title="Assign Teacher" className="flex-1 sm:flex-initial">
+                  <UserPlus className="h-4 w-4 mr-1" />
+                  <span className="text-xs">Assign</span>
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => handleEdit(classroom)} className="text-gray-700 hover:text-gray-900">
-                  <Edit className="h-4 w-4" />
+                <Button variant="outline" size="sm" onClick={() => handleEdit(classroom)} className="text-gray-700 hover:text-gray-900 flex-1 sm:flex-initial">
+                  <Edit className="h-4 w-4 mr-1" />
+                  <span className="text-xs">Edit</span>
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => handleDelete(classroom)} className="text-red-600 hover:text-red-800">
-                  <Trash2 className="h-4 w-4" />
+                <Button variant="outline" size="sm" onClick={() => handleDelete(classroom)} className="text-red-600 hover:text-red-800 flex-1 sm:flex-initial">
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  <span className="text-xs">Delete</span>
                 </Button>
               </div>
             </div>
@@ -420,38 +636,51 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
         </div>
 
         {/* Desktop table */}
-        <div className={(mobileOpen ? 'hidden' : 'hidden') + ' sm:block overflow-x-auto -mx-4 sm:mx-0'}>
-        <Table className="min-w-[880px] sm:min-w-0">
+        <div className="hidden sm:block overflow-x-auto -mx-4 sm:mx-0">
+        <Table className="min-w-[880px] sm:min-w-full">
           <TableHeader>
             <TableRow style={{ backgroundColor: '#1976D2' }}>
-              <TableHead className="text-white font-semibold">Classroom</TableHead>
-              <TableHead className="text-white font-semibold">Code</TableHead>
-              <TableHead className="text-white font-semibold">Grade</TableHead>
-              <TableHead className="text-white font-semibold">Section</TableHead>
-              <TableHead className="text-white font-semibold">Shift</TableHead>
-              <TableHead className="text-white font-semibold">Students</TableHead>
-              <TableHead className="text-white font-semibold">Class Teacher</TableHead>
-              <TableHead className="text-white font-semibold">Assigned By</TableHead>
-              <TableHead className="text-right text-white font-semibold">Actions</TableHead>
+              <TableHead className="text-white font-semibold w-12">
+                <Checkbox
+                  checked={classrooms.length > 0 && selectedClassrooms.size === classrooms.length}
+                  onCheckedChange={handleSelectAll}
+                  className="border-white"
+                />
+              </TableHead>
+              <TableHead className="text-white font-semibold text-xs sm:text-sm">Classroom</TableHead>
+              <TableHead className="text-white font-semibold text-xs sm:text-sm hidden md:table-cell">Code</TableHead>
+              <TableHead className="text-white font-semibold text-xs sm:text-sm hidden lg:table-cell">Grade</TableHead>
+              <TableHead className="text-white font-semibold text-xs sm:text-sm hidden lg:table-cell">Section</TableHead>
+              <TableHead className="text-white font-semibold text-xs sm:text-sm hidden md:table-cell">Shift</TableHead>
+              <TableHead className="text-white font-semibold text-xs sm:text-sm">Students</TableHead>
+              <TableHead className="text-white font-semibold text-xs sm:text-sm">Class Teacher</TableHead>
+              <TableHead className="text-white font-semibold text-xs sm:text-sm hidden lg:table-cell">Assigned By</TableHead>
+              <TableHead className="text-right text-white font-semibold text-xs sm:text-sm">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {classrooms.map((classroom) => (
               <TableRow key={classroom.id}>
-                <TableCell className="font-medium">
+                <TableCell>
+                  <Checkbox
+                    checked={selectedClassrooms.has(classroom.id)}
+                    onCheckedChange={(checked) => handleSelectClassroom(classroom.id, checked as boolean)}
+                  />
+                </TableCell>
+                <TableCell className="font-medium text-xs sm:text-sm">
                   {classroom.grade_name} - {classroom.section}
                 </TableCell>
-                <TableCell>
+                <TableCell className="hidden md:table-cell">
                   <span className="px-2 py-1 bg-gray-100 rounded text-xs sm:text-sm font-mono">
                     {classroom.code}
                   </span>
                 </TableCell>
-                <TableCell>{classroom.grade_name}</TableCell>
-                <TableCell>{classroom.section}</TableCell>
-                <TableCell>
+                <TableCell className="hidden lg:table-cell text-xs sm:text-sm">{classroom.grade_name}</TableCell>
+                <TableCell className="hidden lg:table-cell text-xs sm:text-sm">{classroom.section}</TableCell>
+                <TableCell className="hidden md:table-cell text-xs sm:text-sm">
                   {classroom.shift ? (classroom.shift.charAt(0).toUpperCase() + classroom.shift.slice(1)) : '-'}
                 </TableCell>
-                <TableCell>
+                <TableCell className="text-xs sm:text-sm">
                   {(() => {
                     const key = String(classroom.id)
                     // Prefer the fetched count map, fall back to classroom fields commonly used by API
@@ -463,19 +692,19 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                     return finalCount !== undefined ? `${finalCount} students` : <span className="text-gray-400">-</span>
                   })()}
                 </TableCell>
-                <TableCell>
+                <TableCell className="text-xs sm:text-sm">
                   {classroom.class_teacher_name ? (
                     <div>
-                      <div className="text-sm sm:font-medium">{classroom.class_teacher_name}</div>
+                      <div className="text-xs sm:text-sm font-medium">{classroom.class_teacher_name}</div>
                       <div className="text-[10px] sm:text-xs text-gray-500">
                         {classroom.class_teacher_code}
                       </div>
                     </div>
                   ) : (
-                    <span className="text-gray-400">Not Assigned</span>
+                    <span className="text-gray-400 text-xs sm:text-sm">Not Assigned</span>
                   )}
                 </TableCell>
-                <TableCell>
+                <TableCell className="hidden lg:table-cell text-xs sm:text-sm">
                   {classroom.assigned_by_name ? (
                     <div>
                       <div className="text-xs sm:text-sm">{classroom.assigned_by_name}</div>
@@ -491,30 +720,34 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                   )}
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
+                  <div className="flex justify-end gap-1 sm:gap-2 flex-wrap">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleAssignTeacher(classroom)}
                       title="Assign Teacher"
+                      className="h-8 w-8 sm:h-9 sm:w-auto p-0 sm:px-3"
                     >
-                      <UserPlus className="h-4 w-4" />
+                      <UserPlus className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <span className="hidden sm:inline ml-1">Assign</span>
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleEdit(classroom)}
-                      className="text-gray-700 hover:text-gray-900"
+                      className="text-gray-700 hover:text-gray-900 h-8 w-8 sm:h-9 sm:w-auto p-0 sm:px-3"
                     >
-                      <Edit className="h-4 w-4" />
+                      <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <span className="hidden sm:inline ml-1">Edit</span>
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleDelete(classroom)}
-                      className="text-red-600 hover:text-red-800"
+                      className="text-red-600 hover:text-red-800 h-8 w-8 sm:h-9 sm:w-auto p-0 sm:px-3"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <span className="hidden sm:inline ml-1">Delete</span>
                     </Button>
                   </div>
                 </TableCell>
@@ -528,7 +761,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
 
       {/* Create/Edit Classroom Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
               {editingClassroom ? 'Edit Classroom' : 'Create New Classroom'}
@@ -714,7 +947,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
 
       {/* Assign Teacher Dialog */}
       <Dialog open={isTeacherDialogOpen} onOpenChange={setIsTeacherDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Assign Class Teacher</DialogTitle>
             <DialogDescription>
@@ -811,6 +1044,222 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
               style={{ backgroundColor: '#2196F3', color: 'white' }}
             >
               {saving ? 'Assigning...' : 'Assign Teacher'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
+        <DialogContent className="max-w-[95vw] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Multiple Classrooms</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {selectedClassrooms.size} selected classroom(s)? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-60 overflow-y-auto py-4">
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              {classrooms
+                .filter(c => selectedClassrooms.has(c.id))
+                .map(c => (
+                  <li key={c.id}>
+                    {c.grade_name} - {c.section} ({c.code})
+                  </li>
+                ))}
+            </ul>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsBulkDeleteDialogOpen(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={saving}
+            >
+              {saving ? 'Deleting...' : `Delete ${selectedClassrooms.size} Classroom(s)`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unassigned Students Modal */}
+      <Dialog open={showUnassignedSection} onOpenChange={(open) => {
+        setShowUnassignedSection(open)
+        if (open) {
+          // Refresh data when modal opens to get latest count
+          fetchUnassignedStudents()
+        } else {
+          // Also refresh when modal closes to update the button count
+          setTimeout(() => {
+            fetchUnassignedStudents()
+          }, 300)
+        }
+      }}>
+        <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Students without Classrooms ({unassignedStudents.length})</DialogTitle>
+            <DialogDescription>
+              Select students and assign them to a classroom. Students without classroom assignment are listed below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3 pb-2 border-b">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  checked={unassignedStudents.length > 0 && selectedStudents.size === unassignedStudents.length}
+                  onCheckedChange={handleSelectAllStudents}
+                />
+                <span className="text-xs sm:text-sm text-gray-700">Select All</span>
+              </div>
+              {selectedStudents.size > 0 && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => {
+                    setShowUnassignedSection(false)
+                    setIsAssignDialogOpen(true)
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto"
+                >
+                  Assign Selected ({selectedStudents.size})
+                </Button>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto min-h-0">
+              {/* Mobile Cards View */}
+              <div className="sm:hidden space-y-2">
+                {unassignedStudents.map((student) => (
+                  <div key={student.id} className="rounded-lg border border-gray-200 p-3 bg-white">
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        checked={selectedStudents.has(student.id)}
+                        onCheckedChange={(checked) => handleSelectStudent(student.id, checked as boolean)}
+                        className="mt-1"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm truncate">{student.name || '—'}</div>
+                        <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                          <div>ID: {(student as any).student_id || student.id}</div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span>Grade: {(student as any).current_grade || '—'}</span>
+                            <span>•</span>
+                            <span>Sec: {student.section || '—'}</span>
+                            <span>•</span>
+                            <span className="capitalize">{(student as any).shift || '—'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table View */}
+              <div className="hidden sm:block">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-12"></TableHead>
+                        <TableHead className="text-xs sm:text-sm">Name</TableHead>
+                        <TableHead className="text-xs sm:text-sm">Student ID</TableHead>
+                        <TableHead className="text-xs sm:text-sm">Grade</TableHead>
+                        <TableHead className="text-xs sm:text-sm">Section</TableHead>
+                        <TableHead className="text-xs sm:text-sm">Shift</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {unassignedStudents.map((student) => (
+                        <TableRow key={student.id}>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedStudents.has(student.id)}
+                              onCheckedChange={(checked) => handleSelectStudent(student.id, checked as boolean)}
+                            />
+                          </TableCell>
+                          <TableCell className="font-medium text-xs sm:text-sm truncate max-w-[150px]">{student.name || '—'}</TableCell>
+                          <TableCell className="text-xs sm:text-sm">{(student as any).student_id || student.id}</TableCell>
+                          <TableCell className="text-xs sm:text-sm">{(student as any).current_grade || '—'}</TableCell>
+                          <TableCell className="text-xs sm:text-sm">{student.section || '—'}</TableCell>
+                          <TableCell className="text-xs sm:text-sm capitalize">{(student as any).shift || '—'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowUnassignedSection(false)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Assign Students Dialog */}
+      <Dialog open={isAssignDialogOpen} onOpenChange={setIsAssignDialogOpen}>
+        <DialogContent className="max-w-[95vw] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign Students to Classroom</DialogTitle>
+            <DialogDescription>
+              Select a classroom to assign {selectedStudents.size} selected student(s) to.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label htmlFor="classroom-select">Classroom</Label>
+              <Select value={selectedClassroomForAssign} onValueChange={setSelectedClassroomForAssign}>
+                <SelectTrigger id="classroom-select" className="mt-1">
+                  <SelectValue placeholder="Select a classroom" />
+                </SelectTrigger>
+                <SelectContent>
+                  {classrooms.map((classroom) => (
+                    <SelectItem key={classroom.id} value={classroom.id.toString()}>
+                      {classroom.grade_name} - {classroom.section} ({classroom.shift ? classroom.shift.charAt(0).toUpperCase() + classroom.shift.slice(1) : ''})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="max-h-40 overflow-y-auto border rounded p-2 bg-gray-50">
+              <p className="text-xs font-semibold mb-2">Selected Students ({selectedStudents.size}):</p>
+              <ul className="text-xs space-y-1">
+                {unassignedStudents
+                  .filter(s => selectedStudents.has(s.id))
+                  .map(s => (
+                    <li key={s.id} className="text-gray-700">
+                      • {s.name} ({(s as any).current_grade || 'N/A'})
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsAssignDialogOpen(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBulkAssignStudents}
+              disabled={saving || !selectedClassroomForAssign}
+              style={{ backgroundColor: '#2196F3', color: 'white' }}
+            >
+              {saving ? 'Assigning...' : `Assign ${selectedStudents.size} Student(s)`}
             </Button>
           </DialogFooter>
         </DialogContent>
