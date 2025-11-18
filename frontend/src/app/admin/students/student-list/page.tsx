@@ -1253,6 +1253,26 @@ export default function StudentListPage() {
               <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Academic Information</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
+                  <Label htmlFor="current_grade">Current Grade</Label>
+                  <Input
+                    id="current_grade"
+                    value={editFormData.current_grade || ''}
+                    readOnly
+                    className="bg-gray-100 cursor-not-allowed"
+                    placeholder="Current grade"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="section">Current Section</Label>
+                  <Input
+                    id="section"
+                    value={editFormData.section || ''}
+                    readOnly
+                    className="bg-gray-100 cursor-not-allowed"
+                    placeholder="Current section"
+                  />
+                </div>
+                <div>
                   <Label htmlFor="last_class_passed">Last Class Passed</Label>
                   <Input
                     id="last_class_passed"
