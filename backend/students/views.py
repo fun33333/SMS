@@ -26,6 +26,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Override to handle role-based filtering for list views and stats actions"""
         # Use all() to bypass custom manager's default filter, then apply is_deleted=False explicitly
+        # Note: We don't filter by is_active here to match attendance behavior - all non-deleted students should appear
         queryset = Student.objects.all().filter(is_deleted=False).select_related('campus', 'classroom')
         
         # Apply role-based filtering for list views and stats actions
@@ -102,15 +103,8 @@ class StudentViewSet(viewsets.ModelViewSet):
                     # If coordinator resolution fails, return empty queryset
                     queryset = queryset.none()
             
-            # Handle shift filtering
-            shift_filter = self.request.query_params.get('shift')
-            if shift_filter:
-                if shift_filter in ['morning', 'afternoon']:
-                    # Filter students by shift
-                    queryset = queryset.filter(shift=shift_filter)
-                elif shift_filter == 'both':
-                    # Show students from both shifts (no additional filtering needed)
-                    pass
+            # Shift filtering is now handled by StudentFilter class
+            # No need for manual shift filtering here
         
         return queryset
 

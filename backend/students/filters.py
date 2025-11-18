@@ -16,15 +16,13 @@ class StudentFilter(django_filters.FilterSet):
     )
     
     current_grade = django_filters.CharFilter(
-        field_name='current_grade',
-        lookup_expr='icontains',
-        help_text="Filter by current grade"
+        method='filter_current_grade',
+        help_text="Filter by current grade (checks both student.current_grade and classroom.grade.name)"
     )
     
     section = django_filters.CharFilter(
-        field_name='section',
-        lookup_expr='icontains',
-        help_text="Filter by section"
+        method='filter_section',
+        help_text="Filter by section (checks both student.section and classroom.section)"
     )
     
     # Accept 'male', 'female', 'other' (and case-insensitive) instead of strict DB choices
@@ -35,9 +33,8 @@ class StudentFilter(django_filters.FilterSet):
     )
     
     shift = django_filters.CharFilter(
-        field_name='shift',
-        lookup_expr='icontains',
-        help_text="Filter by shift"
+        method='filter_shift',
+        help_text="Filter by shift (checks both student.shift and classroom.shift)"
     )
     
     # Add missing filters so stats respect these params
@@ -134,6 +131,136 @@ class StudentFilter(django_filters.FilterSet):
             Q(father_name__icontains=value) |
             Q(student_id__icontains=value)
         )
+    
+    def filter_shift(self, queryset, name, value):
+        """Filter by shift - check both student.shift and classroom.shift"""
+        if not value:
+            return queryset
+        
+        # Normalize the shift value
+        shift_value = value.strip().lower()
+        
+        # Filter by both student's shift field and classroom's shift field
+        return queryset.filter(
+            Q(shift__iexact=shift_value) |
+            Q(classroom__shift__iexact=shift_value)
+        )
+    
+    def filter_section(self, queryset, name, value):
+        """Filter by section - check both student.section and classroom.section"""
+        if not value:
+            return queryset
+        
+        # Normalize the section value (uppercase for consistency)
+        section_value = value.strip().upper()
+        
+        # Filter by both student's section field and classroom's section field
+        return queryset.filter(
+            Q(section__iexact=section_value) |
+            Q(classroom__section__iexact=section_value)
+        )
+    
+    def filter_current_grade(self, queryset, name, value):
+        """Filter by grade - check both student.current_grade and classroom.grade.name with precise matching"""
+        if not value:
+            return queryset
+        
+        # Normalize the grade value
+        grade_value = value.strip()
+        
+        # Roman numeral to number mapping
+        roman_to_num = {
+            'i': '1', 'ii': '2', 'iii': '3', 'iv': '4', 'v': '5',
+            'vi': '6', 'vii': '7', 'viii': '8', 'ix': '9', 'x': '10'
+        }
+        
+        # Number to Roman mapping
+        num_to_roman = {v: k.upper() for k, v in roman_to_num.items()}
+        
+        # Extract grade type and number/roman
+        grade_lower = grade_value.lower()
+        grade_upper = grade_value.upper()
+        
+        # Build exact match variations
+        exact_matches = set()
+        
+        # Add the original value
+        exact_matches.add(grade_value)
+        exact_matches.add(grade_upper)
+        exact_matches.add(grade_lower)
+        
+        # Handle KG grades (KG-I, KG-1, KG1, etc.)
+        if 'kg' in grade_lower:
+            # Extract the number/roman part
+            import re
+            match = re.search(r'kg[-_\s]?([ivx\d]+)', grade_lower)
+            if match:
+                num_part = match.group(1)
+                # Try to convert roman to number
+                if num_part in roman_to_num:
+                    num = roman_to_num[num_part]
+                    exact_matches.add(f'KG-{num}')
+                    exact_matches.add(f'KG-{num_part.upper()}')
+                    exact_matches.add(f'KG{num}')
+                    exact_matches.add(f'KG{num_part.upper()}')
+                # Try to convert number to roman
+                elif num_part in num_to_roman:
+                    roman = num_to_roman[num_part]
+                    exact_matches.add(f'KG-{roman}')
+                    exact_matches.add(f'KG-{num_part}')
+                    exact_matches.add(f'KG{roman}')
+                    exact_matches.add(f'KG{num_part}')
+                else:
+                    # Keep as is
+                    exact_matches.add(f'KG-{num_part.upper()}')
+                    exact_matches.add(f'KG{num_part.upper()}')
+        
+        # Handle regular grades (Grade 1, Grade I, Grade-1, etc.)
+        elif 'grade' in grade_lower:
+            # Extract the number/roman part
+            import re
+            match = re.search(r'grade[-_\s]?([ivx\d]+)', grade_lower)
+            if match:
+                num_part = match.group(1)
+                # Try to convert roman to number
+                if num_part in roman_to_num:
+                    num = roman_to_num[num_part]
+                    exact_matches.add(f'Grade {num}')
+                    exact_matches.add(f'Grade-{num}')
+                    exact_matches.add(f'Grade {num_part.upper()}')
+                    exact_matches.add(f'Grade-{num_part.upper()}')
+                # Try to convert number to roman
+                elif num_part in num_to_roman:
+                    roman = num_to_roman[num_part]
+                    exact_matches.add(f'Grade {roman}')
+                    exact_matches.add(f'Grade-{roman}')
+                    exact_matches.add(f'Grade {num_part}')
+                    exact_matches.add(f'Grade-{num_part}')
+                else:
+                    # Keep as is
+                    exact_matches.add(f'Grade {num_part}')
+                    exact_matches.add(f'Grade-{num_part}')
+        
+        # Build query for student's current_grade field - use exact or iexact matching
+        student_grade_query = Q()
+        for match_value in exact_matches:
+            # Use iexact for exact matching (case-insensitive)
+            student_grade_query |= Q(current_grade__iexact=match_value)
+            # Also try with spaces normalized
+            student_grade_query |= Q(current_grade__iexact=match_value.replace('-', ' '))
+            student_grade_query |= Q(current_grade__iexact=match_value.replace(' ', '-'))
+        
+        # Build query for classroom's grade name - use exact matching
+        classroom_grade_query = Q()
+        for match_value in exact_matches:
+            # Use iexact for exact matching (case-insensitive)
+            classroom_grade_query |= Q(classroom__grade__name__iexact=match_value)
+            # Also try with spaces normalized
+            classroom_grade_query |= Q(classroom__grade__name__iexact=match_value.replace('-', ' '))
+            classroom_grade_query |= Q(classroom__grade__name__iexact=match_value.replace(' ', '-'))
+        
+        # Filter by both student's current_grade and classroom's grade
+        return queryset.filter(student_grade_query | classroom_grade_query)
     
     class Meta:
         model = Student
