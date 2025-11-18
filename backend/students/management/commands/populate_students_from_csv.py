@@ -41,10 +41,12 @@ class Command(BaseCommand):
         self.stdout.write(f'🏫 Campus code: {campus_code}')
         self.stdout.write(f'🔍 Dry run: {dry_run}')
 
-        # Check if CSV file exists
-        if not os.path.exists(csv_file_path):
-            raise CommandError(f'CSV file not found: {csv_file_path}')
+        # Resolve CSV file path - check multiple locations
+        resolved_path = self.resolve_csv_path(csv_file_path)
+        if not resolved_path:
+            raise CommandError(f'CSV file not found: {csv_file_path}\n💡 Tip: Make sure the file exists in the backend directory')
         
+        csv_file_path = resolved_path
         self.stdout.write(f'✅ CSV file found: {csv_file_path}')
 
         # Get campus
@@ -487,3 +489,38 @@ class Command(BaseCommand):
             'dead': 'dead'
         }
         return status_map.get(status_str, 'alive')
+
+    def resolve_csv_path(self, file_path):
+        """Resolve CSV file path by checking multiple locations"""
+        # Check if file exists as provided
+        if os.path.exists(file_path):
+            return os.path.abspath(file_path)
+        
+        # Check in backend directory (where manage.py is)
+        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        backend_path = os.path.join(backend_dir, file_path)
+        if os.path.exists(backend_path):
+            return os.path.abspath(backend_path)
+        
+        # Check with just filename in backend directory
+        filename = os.path.basename(file_path)
+        filename_in_backend = os.path.join(backend_dir, filename)
+        if os.path.exists(filename_in_backend):
+            return os.path.abspath(filename_in_backend)
+        
+        # Try case-insensitive search in backend directory
+        if os.path.isdir(backend_dir):
+            provided_lower = filename.lower()
+            for file in os.listdir(backend_dir):
+                if file.lower().endswith('.csv'):
+                    file_lower = file.lower()
+                    # Normalize plural/singular for matching
+                    provided_normalized = provided_lower.replace('students', 'student')
+                    file_normalized = file_lower.replace('students', 'student')
+                    # Check if they match (allowing for minor differences)
+                    if (provided_normalized in file_normalized or 
+                        file_normalized in provided_normalized or
+                        provided_lower == file_lower):
+                        return os.path.abspath(os.path.join(backend_dir, file))
+        
+        return None

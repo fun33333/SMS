@@ -18,6 +18,7 @@ interface Student {
   id: number;
   name: string;
   father_name?: string;
+  father_cnic?: string;
   student_code: string;
   student_id?: string;
   gr_no?: string;
@@ -79,6 +80,8 @@ function TeacherAttendanceContent() {
   const [classroomOptions, setClassroomOptions] = useState<SimpleClassRoom[]>([]);
   const [holidays, setHolidays] = useState<any[]>([]);
   const [selectedHoliday, setSelectedHoliday] = useState<any | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [showStudentModal, setShowStudentModal] = useState(false);
   
   // Helper function to normalize date format (YYYY-MM-DD)
   const normalizeDate = (dateStr: string | undefined | null): string => {
@@ -1814,8 +1817,15 @@ function TeacherAttendanceContent() {
 					{/* Mobile list view */}
 					<div className="block sm:hidden space-y-2">
 						{students.map((student) => (
-							<div key={student.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-200 bg-white">
-								<div className="flex items-center gap-2 min-w-0">
+							<div 
+								key={student.id} 
+								className="flex items-center justify-between p-3 rounded-lg border border-gray-200 bg-white cursor-pointer hover:bg-gray-50 transition-colors"
+								onClick={() => {
+									setSelectedStudent(student);
+									setShowStudentModal(true);
+								}}
+							>
+								<div className="flex items-center gap-2 min-w-0 flex-1">
 									<div className="min-w-0">
 										<p className="text-sm font-medium text-gray-900 truncate">{student.name}</p>
 										{student.father_name && (
@@ -1827,7 +1837,7 @@ function TeacherAttendanceContent() {
 										</div>
 									</div>
 								</div>
-								<div className="flex items-center gap-1 ml-2">
+								<div className="flex items-center gap-1 ml-2" onClick={(e) => e.stopPropagation()}>
 									<Button size="sm" variant={attendance[student.id] === 'present' ? 'default' : 'outline'}
 										className={`${attendance[student.id] === 'present' ? 'bg-green-600 hover:bg-green-700 text-white' : 'border-green-500 text-green-600 hover:bg-green-50'} px-2 py-1 text-xs`}
 										onClick={() => handleAttendanceChange(student.id, 'present')} disabled={!isDateEditable()}>
@@ -1861,7 +1871,14 @@ function TeacherAttendanceContent() {
 							</TableHeader>
 							<TableBody>
 								{students.map((student) => (
-									<TableRow key={student.id}>
+									<TableRow 
+										key={student.id}
+										className="cursor-pointer hover:bg-gray-50 transition-colors"
+										onClick={() => {
+											setSelectedStudent(student);
+											setShowStudentModal(true);
+										}}
+									>
 										<TableCell className="font-medium">
 											<div className="flex items-center space-x-2 sm:space-x-3">
 										{student.photo ? (
@@ -1881,7 +1898,7 @@ function TeacherAttendanceContent() {
 										</TableCell>
 										<TableCell className="text-xs sm:text-sm">{student.student_id || student.student_code || 'Not Assigned'}</TableCell>
 										<TableCell className="text-xs sm:text-sm capitalize">{student.gender}</TableCell>
-										<TableCell>
+										<TableCell onClick={(e) => e.stopPropagation()}>
 											<div className="flex flex-col sm:flex-row space-y-1 sm:space-y-0 sm:space-x-1">
 												<Button size="sm" variant={attendance[student.id] === 'present' ? 'default' : 'outline'}
 													className={`${attendance[student.id] === 'present' ? 'bg-green-600 hover:bg-green-700 text-white' : 'border-green-500 text-green-500 hover:bg-green-50'} text-xs px-2 py-1`}
@@ -2010,123 +2027,78 @@ function TeacherAttendanceContent() {
         </DialogContent>
       </Dialog>
 
-      {/* Attendance History Modal */}
-      {/* <Dialog open={showHistoryModal} onOpenChange={setShowHistoryModal}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+      
+
+      {/* Student Details Modal */}
+      <Dialog open={showStudentModal} onOpenChange={setShowStudentModal}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-[#274c77] flex items-center text-base sm:text-lg">
-              <History className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-              <span className="hidden sm:inline">{new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} Attendance History</span>
-              <span className="sm:hidden">Attendance History</span>
+            <DialogTitle className="text-[#274c77] text-lg sm:text-xl font-bold">
+              Student Details
             </DialogTitle>
-            <DialogDescription className="text-sm">
-              View your attendance records with their approval status
-            </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-3 sm:space-y-4">
-            {attendanceHistoryData && attendanceHistoryData.length > 0 ? (
-              attendanceHistoryData.slice(0, 6).map((record: any, index: number) => (
-                <div key={index} className={`p-3 sm:p-4 rounded-lg border ${
-                  record.status === 'approved' ? 'bg-green-50 border-green-200' : 
-                  record.status === 'submitted' ? 'bg-blue-50 border-blue-200' :
-                  record.status === 'under_review' ? 'bg-yellow-50 border-yellow-200' :
-                  'bg-gray-50 border-gray-200'
-                }`}>
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
-                    <div className="flex items-center space-x-3 sm:space-x-4">
-                      <div className={`h-8 w-8 sm:h-10 sm:w-10 rounded-full flex items-center justify-center ${
-                        record.status === 'approved' ? 'bg-green-100' : 
-                        record.status === 'submitted' ? 'bg-blue-100' :
-                        record.status === 'under_review' ? 'bg-yellow-100' :
-                        'bg-gray-100'
-                      }`}>
-                        <Calendar className={`h-4 w-4 sm:h-5 sm:w-5 ${
-                          record.status === 'approved' ? 'text-green-600' : 
-                          record.status === 'submitted' ? 'text-blue-600' :
-                          record.status === 'under_review' ? 'text-yellow-600' :
-                          'text-gray-600'
-                        }`} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className={`font-medium text-sm sm:text-base ${
-                          record.status === 'approved' ? 'text-green-800' : 
-                          record.status === 'submitted' ? 'text-blue-800' :
-                          record.status === 'under_review' ? 'text-yellow-800' :
-                          'text-gray-800'
-                        }`}>
-                          <span className="hidden sm:inline">{new Date(record.date).toLocaleDateString('en-US', { 
-                            weekday: 'long', 
-                            year: 'numeric', 
-                            month: 'long', 
-                            day: 'numeric' 
-                          })}</span>
-                          <span className="sm:hidden">{new Date(record.date).toLocaleDateString('en-US', { 
-                            month: 'short', 
-                            day: 'numeric' 
-                          })}</span>
-                        </p>
-                        <p className="text-xs sm:text-sm text-gray-600">
-                          {record.present_count || 0} present, {record.absent_count || 0} absent, {record.leave_count || 0} leave
-                        </p>
-                        {record.marked_by && (
-                          <p className="text-xs text-gray-500">
-                            Marked by: {record.marked_by}
-                          </p>
-                        )}
-                        {(() => {
-                          const recordDate = normalizeDate(record.date);
-                          const holiday = holidays.find((h: any) => normalizeDate(h.date) === recordDate);
-                          return holiday ? (
-                            <div className="mt-2">
-                              <Badge className="bg-yellow-500 text-white border-yellow-600 text-sm sm:text-base px-3 py-1.5 font-bold shadow-md">
-                                <Calendar className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-                                HOLIDAY: {holiday.reason}
-                              </Badge>
-                            </div>
-                          ) : null;
-                        })()}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-2">
-                      <Badge 
-                        variant="outline"
-                        className={`text-xs ${
-                          record.status === 'approved' ? 'bg-green-100 text-green-800 border-green-300' :
-                          record.status === 'submitted' ? 'bg-blue-100 text-blue-800 border-blue-300' :
-                          record.status === 'under_review' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
-                          'bg-gray-100 text-gray-800 border-gray-300'
-                        }`}
-                      >
-                        {record.display_status || 
-                         (record.status === 'approved' ? '✅ Approved' : 
-                          record.status === 'submitted' ? '📤 Submitted' : 
-                          record.status === 'under_review' ? '⏳ Under Review' :
-                          '📝 Draft')}
-                      </Badge>
-                      
-                      {record.status === 'approved' && record.finalized_at && (
-                        <span className="text-xs text-green-600">
-                          <span className="hidden sm:inline">Approved on </span>{new Date(record.finalized_at).toLocaleDateString()}
-                        </span>
-                      )}
-                    </div>
+          {selectedStudent && (
+            <div className="py-4 space-y-4">
+              {/* Student Photo/Avatar */}
+              <div className="flex justify-center mb-4">
+                {selectedStudent.photo ? (
+                  <img 
+                    src={resolveMediaUrl(selectedStudent.photo)} 
+                    alt={selectedStudent.name} 
+                    className="h-20 w-20 sm:h-24 sm:w-24 rounded-full object-cover border-4 border-[#6096ba]" 
+                  />
+                ) : (
+                  <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-[#6096ba] flex items-center justify-center text-white text-2xl sm:text-3xl font-medium">
+                    {selectedStudent.name.charAt(0).toUpperCase()}
                   </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-6 sm:py-8">
-                <Calendar className="h-12 w-12 sm:h-16 sm:w-16 text-gray-400 mx-auto mb-3 sm:mb-4" />
-                <p className="text-gray-500 text-base sm:text-lg">No attendance history found</p>
-                <p className="text-sm text-gray-400">Start marking attendance to see your history here</p>
+                )}
               </div>
-            )}
-          </div>
+
+              {/* Student Details */}
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-gray-50 rounded-lg">
+                  <span className="text-sm font-semibold text-gray-600 mb-1 sm:mb-0">Name:</span>
+                  <span className="text-sm sm:text-base font-medium text-gray-900">{selectedStudent.name}</span>
+                </div>
+
+                {selectedStudent.father_name && (
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-gray-50 rounded-lg">
+                    <span className="text-sm font-semibold text-gray-600 mb-1 sm:mb-0">Father Name:</span>
+                    <span className="text-sm sm:text-base font-medium text-gray-900">{selectedStudent.father_name}</span>
+                  </div>
+                )}
+
+                {selectedStudent.father_cnic && (
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-gray-50 rounded-lg">
+                    <span className="text-sm font-semibold text-gray-600 mb-1 sm:mb-0">Father CNIC:</span>
+                    <span className="text-sm sm:text-base font-medium text-gray-900">{selectedStudent.father_cnic}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-gray-50 rounded-lg">
+                  <span className="text-sm font-semibold text-gray-600 mb-1 sm:mb-0">Student ID:</span>
+                  <span className="text-sm sm:text-base font-medium text-gray-900">{selectedStudent.student_id || selectedStudent.student_code || 'Not Assigned'}</span>
+                </div>
+
+                {selectedStudent.gr_no && (
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-gray-50 rounded-lg">
+                    <span className="text-sm font-semibold text-gray-600 mb-1 sm:mb-0">GR No:</span>
+                    <span className="text-sm sm:text-base font-medium text-gray-900">{selectedStudent.gr_no}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-gray-50 rounded-lg">
+                  <span className="text-sm font-semibold text-gray-600 mb-1 sm:mb-0">Gender:</span>
+                  <span className="text-sm sm:text-base font-medium text-gray-900 capitalize">{selectedStudent.gender}</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           <DialogFooter>
             <Button
-              onClick={() => setShowHistoryModal(false)}
+              onClick={() => setShowStudentModal(false)}
               variant="outline"
               className="border-gray-300 text-xs sm:text-sm"
             >
@@ -2134,7 +2106,7 @@ function TeacherAttendanceContent() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog> */}
+      </Dialog>
 
 		</div>
 	);

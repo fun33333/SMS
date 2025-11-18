@@ -509,9 +509,13 @@ export default function MainDashboardPage() {
               
               return { day: dayName, present, absent }
             })
-            setWeeklyAttendanceData(weekData)
+            // Filter out Sunday from the data
+            const filteredWeekData = weekData.filter((item: any) => item.day !== 'Sun')
+            setWeeklyAttendanceData(filteredWeekData)
         } else {
-          setWeeklyAttendanceData(daysOfWeek.map(day => ({ day, present: 0, absent: 0 })))
+          // Filter out Sunday from daysOfWeek
+          const weekDaysWithoutSunday = daysOfWeek.filter(day => day !== 'Sun')
+          setWeeklyAttendanceData(weekDaysWithoutSunday.map(day => ({ day, present: 0, absent: 0 })))
         }
 
         // PHASE 2: Fetch chart data using optimized endpoints (parallel, fast)
@@ -1045,37 +1049,41 @@ export default function MainDashboardPage() {
               return date
             })
             
-            const weekData = last7Days.map((date) => {
-              const dayName = daysOfWeek[date.getDay() === 0 ? 6 : date.getDay() - 1]
-              const dateStr = date.toISOString().split('T')[0]
-              
-              // Find attendance records for this date
-              const dayRecords = attendanceResponse.filter((record: any) => 
-                record.date === dateStr || record.date?.startsWith(dateStr)
-              )
-              
-              // Calculate present/absent from records
-              let present = 0
-              let absent = 0
-              
-              dayRecords.forEach((record: any) => {
-                if (record.present_count) present += record.present_count
-                if (record.absent_count) absent += record.absent_count
+            const weekData = last7Days
+              .map((date) => {
+                const dayName = daysOfWeek[date.getDay() === 0 ? 6 : date.getDay() - 1]
+                const dateStr = date.toISOString().split('T')[0]
+                
+                // Find attendance records for this date
+                const dayRecords = attendanceResponse.filter((record: any) => 
+                  record.date === dateStr || record.date?.startsWith(dateStr)
+                )
+                
+                // Calculate present/absent from records
+                let present = 0
+                let absent = 0
+                
+                dayRecords.forEach((record: any) => {
+                  if (record.present_count) present += record.present_count
+                  if (record.absent_count) absent += record.absent_count
+                })
+                
+                return { day: dayName, present, absent }
               })
-              
-              return { day: dayName, present, absent }
-            })
+              .filter((item: any) => item.day !== 'Sun') // Filter out Sunday
             
             setWeeklyAttendanceData(weekData)
           } else {
-            // Fallback to empty data if API doesn't return array
-            const weekData = daysOfWeek.map(day => ({ day, present: 0, absent: 0 }))
+            // Fallback to empty data if API doesn't return array - exclude Sunday
+            const weekDaysWithoutSunday = daysOfWeek.filter(day => day !== 'Sun')
+            const weekData = weekDaysWithoutSunday.map(day => ({ day, present: 0, absent: 0 }))
             setWeeklyAttendanceData(weekData)
           }
         } catch (apiError) {
           console.error('Error fetching real attendance:', apiError)
-          // Fallback to empty data
-          const weekData = daysOfWeek.map(day => ({ day, present: 0, absent: 0 }))
+          // Fallback to empty data - exclude Sunday
+          const weekDaysWithoutSunday = daysOfWeek.filter(day => day !== 'Sun')
+          const weekData = weekDaysWithoutSunday.map(day => ({ day, present: 0, absent: 0 }))
           setWeeklyAttendanceData(weekData)
         }
       } catch (error) {

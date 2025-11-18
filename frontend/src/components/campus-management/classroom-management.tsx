@@ -1167,6 +1167,9 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                       />
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-sm truncate">{student.name || '—'}</div>
+                        {(student as any).father_name && (
+                          <div className="text-xs text-gray-500 mt-0.5 truncate">S/O {(student as any).father_name}</div>
+                        )}
                         <div className="text-xs text-gray-600 mt-1 space-y-0.5">
                           <div>ID: {(student as any).student_id || student.id}</div>
                           <div className="flex items-center gap-2 flex-wrap">
@@ -1191,6 +1194,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                       <TableRow>
                         <TableHead className="w-12"></TableHead>
                         <TableHead className="text-xs sm:text-sm">Name</TableHead>
+                        <TableHead className="text-xs sm:text-sm">Father Name</TableHead>
                         <TableHead className="text-xs sm:text-sm">Student ID</TableHead>
                         <TableHead className="text-xs sm:text-sm">Grade</TableHead>
                         <TableHead className="text-xs sm:text-sm">Section</TableHead>
@@ -1207,6 +1211,7 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
                             />
                           </TableCell>
                           <TableCell className="font-medium text-xs sm:text-sm truncate max-w-[150px]">{student.name || '—'}</TableCell>
+                          <TableCell className="text-xs sm:text-sm">{((student as any).father_name || '—')}</TableCell>
                           <TableCell className="text-xs sm:text-sm">{(student as any).student_id || student.id}</TableCell>
                           <TableCell className="text-xs sm:text-sm">{(student as any).current_grade || '—'}</TableCell>
                           <TableCell className="text-xs sm:text-sm">{student.section || '—'}</TableCell>

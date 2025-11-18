@@ -134,8 +134,7 @@ export default function StudentListPage() {
           const teacherCampusId = profile.campus?.id || profile.campus_id || user?.campus?.id;
           if (teacherCampusId) {
             setUserCampusId(teacherCampusId);
-            // Pre-fill campus filter for teachers
-            setFilters(prev => ({ ...prev, campus: String(teacherCampusId) }));
+            // Campus filter is hidden for teachers, so no need to pre-fill
           }
           
           // Get teacher's assigned classrooms from profile
@@ -202,14 +201,11 @@ export default function StudentListPage() {
               setShowShiftFilter(true);
             }
             
-            // Section filter logic
-            if (sectionsArray.length === 1) {
-              newFilters.section = sectionsArray[0];
-              setShowSectionFilter(false);
-              console.log('Hiding section filter, auto-filling:', sectionsArray[0]);
-            } else {
-              setShowSectionFilter(true);
-            }
+            // Section filter logic - DON'T auto-filter by section
+            // A classroom can have students from multiple sections, so we shouldn't auto-filter
+            // This ensures teachers see all students in their assigned classrooms
+            setShowSectionFilter(true);
+            // Don't set section filter automatically - let teachers see all sections in their classrooms
             
             // Grade filter logic
             if (gradesArray.length === 1) {
@@ -326,9 +322,10 @@ export default function StudentListPage() {
         page: currentPage,
         page_size: pageSize,
         search: searchQuery || undefined,
-        campus: filters.campus ? parseInt(filters.campus) : undefined,
-        // Do NOT send grade to backend; we'll normalize locally (Grade 1 vs Grade I etc.)
-        current_grade: undefined,
+        // Only send campus filter for superadmin - backend handles role-based filtering for others
+        campus: (userRole === 'superadmin' && filters.campus) ? parseInt(filters.campus) : undefined,
+        // Send grade to backend - backend now handles normalization
+        current_grade: filters.current_grade || undefined,
         section: filters.section || undefined,
         current_state: filters.current_state || undefined,
         gender: filters.gender || undefined,
@@ -382,14 +379,11 @@ export default function StudentListPage() {
         // Active students come first (return -1), inactive come last (return 1)
         return aIsActive ? -1 : 1;
       });
-      if (filters.current_grade) {
-        const selectedNorm = normalizeGradeName(filters.current_grade);
-        results = results.filter((stu: any) => normalizeGradeName(stu.current_grade) === selectedNorm);
-      }
+      // Grade filtering is now done on backend, so no need for client-side filtering
 
       setStudents(results);
-      // Adjust counts if we applied client filter; otherwise keep backend count
-      const countBase = filters.current_grade ? results.length : (response.count || results.length || 0);
+      // Use backend count since all filtering is done server-side now
+      const countBase = response.count || results.length || 0;
       setTotalCount(countBase);
       const computedTotalPages = Math.ceil(countBase / pageSize) || 1;
       setTotalPages(computedTotalPages);
@@ -847,7 +841,7 @@ export default function StudentListPage() {
             </div>
           </div>
         </div>
-  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4 mb-3 sm:mb-4">
+  <div className={`grid grid-cols-1 sm:grid-cols-2 ${userRole === 'superadmin' ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-2.5 sm:gap-3 md:gap-4 mb-3 sm:mb-4`}>
           {/* Search */}
           <div>
             <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
@@ -863,7 +857,8 @@ export default function StudentListPage() {
                />
              </div>
              
-          {/* Campus Filter */}
+          {/* Campus Filter - Only show for superadmin */}
+               {userRole === 'superadmin' && (
                <div>
             <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
               Campus
@@ -871,14 +866,11 @@ export default function StudentListPage() {
                  <select
               value={filters.campus}
               onChange={(e) => handleFilterChange('campus', e.target.value)}
-              disabled={userRole === 'teacher' && userCampusId !== null}
               className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
               style={{ 
                 borderColor: '#a3cef1', 
                 minHeight: '44px', 
-                maxWidth: '100%',
-                backgroundColor: userRole === 'teacher' && userCampusId !== null ? '#f3f4f6' : 'white',
-                cursor: userRole === 'teacher' && userCampusId !== null ? 'not-allowed' : 'pointer'
+                maxWidth: '100%'
               }}
             >
               <option value="">All Campuses</option>
@@ -889,6 +881,7 @@ export default function StudentListPage() {
               ))}
                  </select>
                </div>
+               )}
                
           {/* Grade Filter */}
                {showGradeFilter && (

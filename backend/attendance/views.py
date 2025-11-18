@@ -319,8 +319,9 @@ def mark_bulk_attendance(request):
                     'is_weekend': True
                 }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get all students in this class (only active students)
-        all_students = Student.objects.filter(classroom=classroom, is_deleted=False, is_active=True)
+        # Get all students in this class (non-deleted students)
+        # Removed is_active filter to ensure all students appear consistently
+        all_students = Student.objects.filter(classroom=classroom, is_deleted=False)
         all_student_ids = list(all_students.values_list('id', flat=True))
         
         with transaction.atomic():
@@ -595,7 +596,9 @@ def get_class_students(request, classroom_id):
         except Teacher.DoesNotExist:
             return Response({'error': 'Teacher profile not found'}, status=status.HTTP_404_NOT_FOUND)
     
-    students = Student.objects.filter(classroom=classroom, is_deleted=False, is_active=True).order_by('name')
+    # Filter students: only non-deleted students should appear in attendance
+    # Removed is_active filter to match student list view - all non-deleted students should be visible
+    students = Student.objects.filter(classroom=classroom, is_deleted=False).order_by('name')
     
     student_data = []
     for student in students:
@@ -603,6 +606,7 @@ def get_class_students(request, classroom_id):
             'id': student.id,
             'name': student.name,
             'father_name': student.father_name,
+            'father_cnic': student.father_cnic,
             'student_code': student.student_code,
             'photo': student.photo.url if student.photo else None,
             'gr_no': student.gr_no,
