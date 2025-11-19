@@ -904,6 +904,39 @@ export async function getCoordinatorGeneralStats(coordinatorId: number) {
   }
 }
 
+// Get classrooms for a coordinator by ID (for principal view)
+export async function getCoordinatorClassrooms(coordinatorId: number) {
+  try {
+    const baseUrl = getApiBaseUrl();
+    const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+    const url = `${cleanBaseUrl}/api/coordinators/${coordinatorId}/classrooms/`;
+    console.log('Fetching classrooms from:', url);
+    
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('sis_access_token')}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.warn(`Classrooms endpoint not found (404) for coordinator ${coordinatorId}. Make sure backend server is running and endpoint is registered.`);
+      } else {
+        console.error(`Failed to fetch classrooms: ${response.status} ${response.statusText}`);
+      }
+      // Return empty array if endpoint doesn't exist or error occurs
+      return [];
+    }
+    
+    const data = await response.json();
+    return Array.isArray(data) ? data : (data.classrooms || []);
+  } catch (error) {
+    console.error('Failed to fetch coordinator classrooms:', error);
+    return [];
+  }
+}
+
 // Classes API functions
 
 export async function findCoordinatorByEmployeeCode(employeeCode: string) {

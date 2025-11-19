@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calender";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarIcon } from "lucide-react";
@@ -48,13 +49,13 @@ export default function StudentListPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [pageSize, setPageSize] = useState(50);
-  
+
   // Search and filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [filters, setFilters] = useState({
@@ -66,7 +67,7 @@ export default function StudentListPage() {
     shift: "",
     ordering: "name"
   });
-  
+
   // User role and campus info
   const [userRole, setUserRole] = useState<string>("");
   const [userCampus, setUserCampus] = useState<string>("");
@@ -80,7 +81,7 @@ export default function StudentListPage() {
   const [showSectionFilter, setShowSectionFilter] = useState(true);
   const [teacherGrades, setTeacherGrades] = useState<string[]>([]);
   const [showGradeFilter, setShowGradeFilter] = useState(true);
-  
+
   // Edit functionality
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -88,7 +89,7 @@ export default function StudentListPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [showDobPicker, setShowDobPicker] = useState(false);
-  
+
   // Debounced search
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
 
@@ -115,7 +116,7 @@ export default function StudentListPage() {
   const initializeUserData = async () => {
     const role = getCurrentUserRole();
     setUserRole(role);
-    
+
     // Get user campus info
     const user = getCurrentUser() as any;
     if (user?.campus?.campus_name) {
@@ -124,7 +125,7 @@ export default function StudentListPage() {
     if (user?.campus?.id) {
       setUserCampusId(user.campus.id);
     }
-    
+
     // For teachers, fetch their profile and classrooms to determine shifts
     if (role === 'teacher') {
       try {
@@ -136,11 +137,11 @@ export default function StudentListPage() {
             setUserCampusId(teacherCampusId);
             // Campus filter is hidden for teachers, so no need to pre-fill
           }
-          
+
           // Get teacher's assigned classrooms from profile
           // Handle both assigned_classrooms (array) and assigned_classroom (single object)
           let classroomsList: any[] = [];
-          
+
           if (profile.assigned_classrooms && Array.isArray(profile.assigned_classrooms) && profile.assigned_classrooms.length > 0) {
             classroomsList = profile.assigned_classrooms;
           } else if (profile.assigned_classroom) {
@@ -149,16 +150,16 @@ export default function StudentListPage() {
           } else if (profile.classrooms && Array.isArray(profile.classrooms)) {
             classroomsList = profile.classrooms;
           }
-          
+
           console.log('Teacher Profile:', profile);
           console.log('Teacher Classrooms List:', classroomsList);
-          
+
           if (classroomsList.length > 0) {
             // Get unique shifts, sections, and grades from teacher's classrooms
             const shifts = new Set<string>();
             const sections = new Set<string>();
             const grades = new Set<string>();
-            
+
             classroomsList.forEach((classroom: any) => {
               console.log('Processing classroom:', classroom);
               if (classroom.shift) {
@@ -178,20 +179,20 @@ export default function StudentListPage() {
                 grades.add(classroom.grade_name);
               }
             });
-            
+
             const shiftsArray = Array.from(shifts);
             const sectionsArray = Array.from(sections);
             const gradesArray = Array.from(grades);
-            
+
             console.log('Extracted - Shifts:', shiftsArray, 'Sections:', sectionsArray, 'Grades:', gradesArray);
-            
+
             setTeacherShifts(shiftsArray);
             setTeacherSections(sectionsArray);
             setTeacherGrades(gradesArray);
-            
+
             // Auto-fill and hide filters if teacher has only one option
             const newFilters: any = {};
-            
+
             // Shift filter logic
             if (shiftsArray.length === 1) {
               newFilters.shift = shiftsArray[0];
@@ -200,13 +201,13 @@ export default function StudentListPage() {
             } else {
               setShowShiftFilter(true);
             }
-            
+
             // Section filter logic - DON'T auto-filter by section
             // A classroom can have students from multiple sections, so we shouldn't auto-filter
             // This ensures teachers see all students in their assigned classrooms
             setShowSectionFilter(true);
             // Don't set section filter automatically - let teachers see all sections in their classrooms
-            
+
             // Grade filter logic
             if (gradesArray.length === 1) {
               newFilters.current_grade = gradesArray[0];
@@ -215,7 +216,7 @@ export default function StudentListPage() {
             } else {
               setShowGradeFilter(true);
             }
-            
+
             // Apply all filters at once
             if (Object.keys(newFilters).length > 0) {
               console.log('Applying filters:', newFilters);
@@ -225,12 +226,12 @@ export default function StudentListPage() {
             // Fallback: Get all classrooms from campus if teacher classrooms not in profile
             if (teacherCampusId) {
               const allClassrooms: any = await getClassrooms(undefined, undefined, teacherCampusId);
-              const allClassroomsList = Array.isArray(allClassrooms) 
-                ? allClassrooms 
-                : Array.isArray(allClassrooms?.results) 
-                  ? allClassrooms.results 
+              const allClassroomsList = Array.isArray(allClassrooms)
+                ? allClassrooms
+                : Array.isArray(allClassrooms?.results)
+                  ? allClassrooms.results
                   : [];
-              
+
               // Get unique shifts from all classrooms
               const shifts = new Set<string>();
               allClassroomsList.forEach((classroom: any) => {
@@ -238,10 +239,10 @@ export default function StudentListPage() {
                   shifts.add(classroom.shift.toLowerCase());
                 }
               });
-              
+
               const shiftsArray = Array.from(shifts);
               setTeacherShifts(shiftsArray);
-              
+
               // If teacher teaches only one shift, auto-filter by that shift and hide filter
               if (shiftsArray.length === 1) {
                 setFilters(prev => ({ ...prev, shift: shiftsArray[0] }));
@@ -256,7 +257,7 @@ export default function StudentListPage() {
         console.error('Error fetching teacher profile:', error);
       }
     }
-    
+
     // Fetch campuses for filter dropdown
     try {
       const campusesData = await getAllCampuses();
@@ -316,7 +317,7 @@ export default function StudentListPage() {
   const fetchStudents = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const params = {
         page: currentPage,
@@ -368,14 +369,14 @@ export default function StudentListPage() {
       let results = [...pageResults].sort((a, b) => {
         const aIsActive = a.is_active !== false; // true if active or undefined
         const bIsActive = b.is_active !== false;
-        
+
         // If both have same status, sort by name in ascending order
         if (aIsActive === bIsActive) {
           const nameA = (a.name || '').toLowerCase();
           const nameB = (b.name || '').toLowerCase();
           return nameA.localeCompare(nameB);
         }
-        
+
         // Active students come first (return -1), inactive come last (return 1)
         return aIsActive ? -1 : 1;
       });
@@ -391,7 +392,7 @@ export default function StudentListPage() {
         setCurrentPage(computedTotalPages);
         return; // trigger refetch with clamped page
       }
-      
+
     } catch (err: any) {
       // Handle invalid page gracefully by stepping back one page (or to 1)
       if (err?.status === 404 || /invalid page/i.test(err?.message || '')) {
@@ -400,7 +401,7 @@ export default function StudentListPage() {
       }
       console.error("Error fetching students:", err);
       setError(err.message || "Failed to load students");
-      } finally {
+    } finally {
       setLoading(false);
     }
   };
@@ -408,17 +409,17 @@ export default function StudentListPage() {
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
     setCurrentPage(1); // Reset to first page when searching
-    
+
     // Clear existing timeout
     if (searchTimeout) {
       clearTimeout(searchTimeout);
     }
-    
+
     // Set new timeout for debounced search
     const timeout = setTimeout(() => {
       fetchStudents();
     }, 500);
-    
+
     setSearchTimeout(timeout);
   };
 
@@ -464,7 +465,7 @@ export default function StudentListPage() {
   const handleEdit = async (student: Student) => {
     try {
       setEditingStudent(student);
-      
+
       // Fetch full student data
       const baseForRead = getApiBaseUrl();
       const cleanBaseForRead = baseForRead.endsWith('/') ? baseForRead.slice(0, -1) : baseForRead;
@@ -474,65 +475,66 @@ export default function StudentListPage() {
           'Content-Type': 'application/json',
         },
       });
-      
+
       if (response.ok) {
         const studentData = await response.json();
         // Load full data; UI will hide specific fields (grade/section/GR/shift/is_draft)
-            const formData = {
-            name: studentData.name || '',
-            gender: studentData.gender || '',
-            dob: studentData.dob || '',
-            place_of_birth: studentData.place_of_birth || '',
-            religion: studentData.religion || '',
-            mother_tongue: studentData.mother_tongue || '',
-            emergency_contact: studentData.emergency_contact || '',
-            father_name: studentData.father_name || '',
-            father_cnic: studentData.father_cnic || '',
-            father_contact: studentData.father_contact || '',
-            father_profession: studentData.father_profession || '',
-            guardian_name: studentData.guardian_name || '',
-            guardian_cnic: studentData.guardian_cnic || '',
-            guardian_contact: studentData.guardian_contact || '',
-            guardian_relation: studentData.guardian_relation || '',
-            current_grade: studentData.current_grade || '',
-            section: studentData.section || '',
-            last_class_passed: studentData.last_class_passed || '',
-            last_school_name: studentData.last_school_name || '',
-            last_class_result: studentData.last_class_result || '',
-            from_year: studentData.from_year || '',
-            to_year: studentData.to_year || '',
-            siblings_count: studentData.siblings_count || '',
-            father_status: studentData.father_status || '',
-            sibling_in_alkhair: studentData.sibling_in_alkhair || '',
-            gr_no: studentData.gr_no || '',
-            enrollment_year: studentData.enrollment_year || '',
-            shift: studentData.shift || '',
-            is_draft: studentData.is_draft ? 'true' : 'false',
-            is_active: studentData.is_active !== undefined ? studentData.is_active : true,
-            classroom: studentData.classroom || studentData.classroom_id || '',
-            photo: studentData.photo || null,
-                  };
-                  
-                  // Fetch classrooms for this student's campus and shift
-                  if (studentData.campus) {
-                    const campusId = typeof studentData.campus === 'object' ? studentData.campus.id : studentData.campus;
-                    const studentShift = studentData.shift || '';
-                    try {
-                      const classroomsData: any = await getClassrooms(undefined, undefined, campusId, studentShift);
-                      const classroomsList: any[] = Array.isArray(classroomsData)
-                        ? classroomsData
-                        : Array.isArray(classroomsData?.results)
-                          ? classroomsData.results
-                          : [];
-                      setClassrooms(classroomsList);
-                    } catch (error) {
-                      console.error('Error fetching classrooms:', error);
-                      setClassrooms([]);
-                    }
-                  }
+        const formData = {
+          name: studentData.name || '',
+          gender: studentData.gender || '',
+          dob: studentData.dob || '',
+          place_of_birth: studentData.place_of_birth || '',
+          religion: studentData.religion || '',
+          mother_tongue: studentData.mother_tongue || '',
+          emergency_contact: studentData.emergency_contact || '',
+          father_name: studentData.father_name || '',
+          father_cnic: studentData.father_cnic || '',
+          father_contact: studentData.father_contact || '',
+          father_profession: studentData.father_profession || '',
+          address: studentData.address || '',
+          guardian_name: studentData.guardian_name || '',
+          guardian_cnic: studentData.guardian_cnic || '',
+          guardian_contact: studentData.guardian_contact || '',
+          guardian_relation: studentData.guardian_relation || '',
+          current_grade: studentData.current_grade || '',
+          section: studentData.section || '',
+          last_class_passed: studentData.last_class_passed || '',
+          last_school_name: studentData.last_school_name || '',
+          last_class_result: studentData.last_class_result || '',
+          from_year: studentData.from_year || '',
+          to_year: studentData.to_year || '',
+          siblings_count: studentData.siblings_count || '',
+          father_status: studentData.father_status || '',
+          sibling_in_alkhair: studentData.sibling_in_alkhair || '',
+          gr_no: studentData.gr_no || '',
+          enrollment_year: studentData.enrollment_year || '',
+          shift: studentData.shift || '',
+          is_draft: studentData.is_draft ? 'true' : 'false',
+          is_active: studentData.is_active !== undefined ? studentData.is_active : true,
+          classroom: studentData.classroom || studentData.classroom_id || '',
+          photo: studentData.photo || null,
+        };
 
-                  setEditFormData(formData);
-                  setShowEditDialog(true);
+        // Fetch classrooms for this student's campus and shift
+        if (studentData.campus) {
+          const campusId = typeof studentData.campus === 'object' ? studentData.campus.id : studentData.campus;
+          const studentShift = studentData.shift || '';
+          try {
+            const classroomsData: any = await getClassrooms(undefined, undefined, campusId, studentShift);
+            const classroomsList: any[] = Array.isArray(classroomsData)
+              ? classroomsData
+              : Array.isArray(classroomsData?.results)
+                ? classroomsData.results
+                : [];
+            setClassrooms(classroomsList);
+          } catch (error) {
+            console.error('Error fetching classrooms:', error);
+            setClassrooms([]);
+          }
+        }
+
+        setEditFormData(formData);
+        setShowEditDialog(true);
       } else {
         console.error('Error fetching student data:', response.statusText);
         alert('Error loading student data');
@@ -586,7 +588,7 @@ export default function StudentListPage() {
 
   const handleEditSubmit = async () => {
     if (!editingStudent) return;
-    
+
     setIsSubmitting(true);
     try {
       // Handle photo upload first if there's a new photo
@@ -594,10 +596,10 @@ export default function StudentListPage() {
       if (editFormData.photo && editFormData.photo instanceof File) {
         const formData = new FormData();
         formData.append('photo', editFormData.photo);
-        
+
         const baseForUpdate = getApiBaseUrl();
         const cleanBaseForUpdate = baseForUpdate.endsWith('/') ? baseForUpdate.slice(0, -1) : baseForUpdate;
-        
+
         try {
           const photoResponse = await fetch(`${cleanBaseForUpdate}/api/students/${editingStudent.id}/upload-photo/`, {
             method: 'POST',
@@ -606,7 +608,7 @@ export default function StudentListPage() {
             },
             body: formData,
           });
-          
+
           if (photoResponse.ok) {
             const photoData = await photoResponse.json();
             photoUrl = photoData.photo_url; // Get the URL of the uploaded photo
@@ -631,9 +633,9 @@ export default function StudentListPage() {
           updateData[key] = editFormData[key];
         }
       });
-      
-    
-      
+
+
+
       // Convert numeric fields
       if (updateData.from_year) updateData.from_year = parseInt(updateData.from_year);
       if (updateData.to_year) updateData.to_year = parseInt(updateData.to_year);
@@ -659,12 +661,36 @@ export default function StudentListPage() {
         // Refresh the students list
         fetchStudents();
       } else {
-        const errorData = await response.text();
-        console.error('Error updating student:', response.status, errorData);
-        alert(`Error updating student: ${response.status} - ${errorData}`);
+        const errorText = await response.text();
+        let errorMessage = `Error updating student: ${response.status}`;
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          if (errorData && typeof errorData === 'object') {
+            // Format validation errors
+            const errorMessages: string[] = [];
+            Object.keys(errorData).forEach((field) => {
+              const fieldErrors = errorData[field];
+              if (Array.isArray(fieldErrors)) {
+                fieldErrors.forEach((err: string) => {
+                  errorMessages.push(`${field}: ${err}`);
+                });
+              } else if (typeof fieldErrors === 'string') {
+                errorMessages.push(`${field}: ${fieldErrors}`);
+              }
+            });
+            if (errorMessages.length > 0) {
+              errorMessage = `Validation Errors:\n${errorMessages.join('\n')}`;
+            }
+          }
+        } catch (e) {
+          // If not JSON, use the text as is
+          errorMessage = `Error updating student: ${response.status} - ${errorText}`;
+        }
+        
+        alert(errorMessage);
       }
     } catch (error) {
-      console.error('Error updating student:', error);
       alert('Error updating student');
     } finally {
       setIsSubmitting(false);
@@ -819,7 +845,7 @@ export default function StudentListPage() {
         </p>
       </div>
 
-       {/* Search and Filters */}
+      {/* Search and Filters */}
       <div className="bg-white rounded-lg shadow p-2.5 sm:p-3 md:p-4 mb-3 w-full overflow-x-hidden" style={{ borderColor: '#a3cef1' }}>
         <div className="mb-2 sm:mb-3">
           <div className="flex items-center justify-between gap-3">
@@ -841,7 +867,7 @@ export default function StudentListPage() {
             </div>
           </div>
         </div>
-  <div className={`grid grid-cols-1 sm:grid-cols-2 ${userRole === 'superadmin' ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-2.5 sm:gap-3 md:gap-4 mb-3 sm:mb-4`}>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 ${userRole === 'superadmin' ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-2.5 sm:gap-3 md:gap-4 mb-3 sm:mb-4`}>
           {/* Search */}
           <div>
             <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
@@ -854,121 +880,121 @@ export default function StudentListPage() {
               onChange={(e) => handleSearchChange(e.target.value)}
               className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
               style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
-               />
-             </div>
-             
+            />
+          </div>
+
           {/* Campus Filter - Only show for superadmin */}
-               {userRole === 'superadmin' && (
-               <div>
-            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
-              Campus
-            </label>
-                 <select
-              value={filters.campus}
-              onChange={(e) => handleFilterChange('campus', e.target.value)}
-              className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
-              style={{ 
-                borderColor: '#a3cef1', 
-                minHeight: '44px', 
-                maxWidth: '100%'
-              }}
-            >
-              <option value="">All Campuses</option>
-              {campuses.map((campus) => (
-                <option key={campus.id} value={campus.id}>
-                  {campus.campus_name || campus.name}
-                </option>
-              ))}
-                 </select>
-               </div>
-               )}
-               
-          {/* Grade Filter */}
-               {showGradeFilter && (
-               <div>
-            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
-              Grade
-            </label>
-                 <select
-              value={filters.current_grade}
-              onChange={(e) => handleFilterChange('current_grade', e.target.value)}
-              className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
-              disabled={!filters.shift && userRole !== 'teacher'}
-              style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
-            >
-              <option value="" disabled={!filters.shift && userRole !== 'teacher'}>
-                {filters.shift || userRole === 'teacher' ? 'All Grades' : 'Select shift first'}
-              </option>
-              {userRole === 'teacher' && teacherGrades.length > 0 ? (
-                teacherGrades.map((grade: string) => (
-                  <option key={grade} value={grade}>{grade}</option>
-                ))
-              ) : (
-                grades.map((g: any) => (
-                  <option key={g.id} value={g.name}>{g.name}</option>
-                ))
-              )}
-                 </select>
-               </div>
-               )}
-               
-          {/* Section Filter */}
-               {showSectionFilter && (
-               <div>
-            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
-              Section
-            </label>
-                 <select
-              value={filters.section}
-              onChange={(e) => handleFilterChange('section', e.target.value)}
-              className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
-              style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
-            >
-              <option value="">All Sections</option>
-              {userRole === 'teacher' && teacherSections.length > 0 ? (
-                teacherSections.map((section: string) => (
-                  <option key={section} value={section}>{section}</option>
-                ))
-              ) : (
-                <>
-                  <option value="A">A</option>
-                  <option value="B">B</option>
-                  <option value="C">C</option>
-                  <option value="D">D</option>
-                </>
-              )}
-            </select>
-               </div>
-               )}
-               {showShiftFilter && (
-               <div>
-            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
-              Shift
-            </label>
-                 <select
-              value={filters.shift}
-              onChange={(e) => handleFilterChange('shift', e.target.value)}
-              className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
-              style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
-            >
-              <option value="">All Shifts</option>
-              {teacherShifts.length > 0 ? (
-                teacherShifts.map((shift) => (
-                  <option key={shift} value={shift}>
-                    {shift.charAt(0).toUpperCase() + shift.slice(1)}
+          {userRole === 'superadmin' && (
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
+                Campus
+              </label>
+              <select
+                value={filters.campus}
+                onChange={(e) => handleFilterChange('campus', e.target.value)}
+                className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
+                style={{
+                  borderColor: '#a3cef1',
+                  minHeight: '44px',
+                  maxWidth: '100%'
+                }}
+              >
+                <option value="">All Campuses</option>
+                {campuses.map((campus) => (
+                  <option key={campus.id} value={campus.id}>
+                    {campus.campus_name || campus.name}
                   </option>
-                ))
-              ) : (
-                <>
-                  <option value="morning">Morning</option>
-                  <option value="afternoon">Afternoon</option>
-                </>
-              )}
-                 </select>
-               </div>
-               )}
-             </div>
-             </div>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Grade Filter */}
+          {showGradeFilter && (
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
+                Grade
+              </label>
+              <select
+                value={filters.current_grade}
+                onChange={(e) => handleFilterChange('current_grade', e.target.value)}
+                className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
+                disabled={!filters.shift && userRole !== 'teacher'}
+                style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
+              >
+                <option value="" disabled={!filters.shift && userRole !== 'teacher'}>
+                  {filters.shift || userRole === 'teacher' ? 'All Grades' : 'Select shift first'}
+                </option>
+                {userRole === 'teacher' && teacherGrades.length > 0 ? (
+                  teacherGrades.map((grade: string) => (
+                    <option key={grade} value={grade}>{grade}</option>
+                  ))
+                ) : (
+                  grades.map((g: any) => (
+                    <option key={g.id} value={g.name}>{g.name}</option>
+                  ))
+                )}
+              </select>
+            </div>
+          )}
+
+          {/* Section Filter */}
+          {showSectionFilter && (
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
+                Section
+              </label>
+              <select
+                value={filters.section}
+                onChange={(e) => handleFilterChange('section', e.target.value)}
+                className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
+                style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
+              >
+                <option value="">All Sections</option>
+                {userRole === 'teacher' && teacherSections.length > 0 ? (
+                  teacherSections.map((section: string) => (
+                    <option key={section} value={section}>{section}</option>
+                  ))
+                ) : (
+                  <>
+                    <option value="A">A</option>
+                    <option value="B">B</option>
+                    <option value="C">C</option>
+                    <option value="D">D</option>
+                  </>
+                )}
+              </select>
+            </div>
+          )}
+          {showShiftFilter && (
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
+                Shift
+              </label>
+              <select
+                value={filters.shift}
+                onChange={(e) => handleFilterChange('shift', e.target.value)}
+                className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
+                style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
+              >
+                <option value="">All Shifts</option>
+                {teacherShifts.length > 0 ? (
+                  teacherShifts.map((shift) => (
+                    <option key={shift} value={shift}>
+                      {shift.charAt(0).toUpperCase() + shift.slice(1)}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="morning">Morning</option>
+                    <option value="afternoon">Afternoon</option>
+                  </>
+                )}
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Students Table - USING REUSABLE COMPONENT */}
       <DataTable
@@ -992,35 +1018,35 @@ export default function StudentListPage() {
         onPageSizeChange={handlePageSizeChange}
       />
 
-    
+
 
       {error && (
         <div className="mt-4 bg-red-50 border border-red-200 rounded-md p-4">
           <div className="text-sm text-red-600">{error}</div>
-            </div>
-          )}
+        </div>
+      )}
 
       {/* Edit Student Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="w-[95vw] sm:w-full sm:max-w-4xl max-h-[90vh] overflow-y-auto px-4 sm:px-6 py-6 rounded-3xl">
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto px-4 sm:px-6 py-6 rounded-3xl hide-scrollbar">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold transition-all duration-150 ease-in-out transform hover:shadow-lg active:scale-95 active:shadow-md" style={{ color: '#274c77' }}>
               Edit Student - {editingStudent?.name}
             </DialogTitle>
           </DialogHeader>
-          
+
           <div className="space-y-6 text-sm sm:text-base">
             {/* Personal Information */}
             <div className="bg-gray-50 p-4 sm:p-5 rounded-2xl border border-[#e4ecf5] shadow-inner">
               <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Personal Information</h3>
-              
+
               {/* Photo Upload */}
               <div className="mb-6">
                 <Label htmlFor="photo">Profile Photo</Label>
                 <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
                   {editFormData.photo ? (
                     <div className="relative">
-                      <img 
+                      <img
                         src={typeof editFormData.photo === 'string' ? editFormData.photo : URL.createObjectURL(editFormData.photo)}
                         alt="Student photo"
                         className="w-24 h-24 object-cover rounded-lg border-2 border-gray-200"
@@ -1056,7 +1082,7 @@ export default function StudentListPage() {
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          setEditFormData({...editFormData, photo: file});
+                          setEditFormData({ ...editFormData, photo: file });
                         }
                       }}
                       className="mt-1"
@@ -1072,13 +1098,13 @@ export default function StudentListPage() {
                   <Input
                     id="name"
                     value={editFormData.name || ''}
-                    onChange={(e) => setEditFormData({...editFormData, name: e.target.value})}
+                    onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
                     placeholder="Enter full name"
                   />
                 </div>
                 <div>
                   <Label htmlFor="gender">Gender</Label>
-                  <Select value={editFormData.gender || ''} onValueChange={(value) => setEditFormData({...editFormData, gender: value})}>
+                  <Select value={editFormData.gender || ''} onValueChange={(value) => setEditFormData({ ...editFormData, gender: value })}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select gender" />
                     </SelectTrigger>
@@ -1116,7 +1142,7 @@ export default function StudentListPage() {
                   <Input
                     id="place_of_birth"
                     value={editFormData.place_of_birth || ''}
-                    onChange={(e) => setEditFormData({...editFormData, place_of_birth: e.target.value})}
+                    onChange={(e) => setEditFormData({ ...editFormData, place_of_birth: e.target.value })}
                     placeholder="Enter place of birth"
                   />
                 </div>
@@ -1125,7 +1151,7 @@ export default function StudentListPage() {
                   <Input
                     id="religion"
                     value={editFormData.religion || ''}
-                    onChange={(e) => setEditFormData({...editFormData, religion: e.target.value})}
+                    onChange={(e) => setEditFormData({ ...editFormData, religion: e.target.value })}
                     placeholder="Enter religion"
                   />
                 </div>
@@ -1134,7 +1160,7 @@ export default function StudentListPage() {
                   <Input
                     id="mother_tongue"
                     value={editFormData.mother_tongue || ''}
-                    onChange={(e) => setEditFormData({...editFormData, mother_tongue: e.target.value})}
+                    onChange={(e) => setEditFormData({ ...editFormData, mother_tongue: e.target.value })}
                     placeholder="Enter mother tongue"
                   />
                 </div>
@@ -1142,11 +1168,46 @@ export default function StudentListPage() {
                   <Label htmlFor="emergency_contact">Emergency Contact</Label>
                   <Input
                     id="emergency_contact"
+                    type="tel"
+                    maxLength={11}
                     value={editFormData.emergency_contact || ''}
-                    onChange={(e) => setEditFormData({...editFormData, emergency_contact: e.target.value})}
-                    placeholder="Enter emergency contact"
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '').slice(0, 11);
+                      setEditFormData({ ...editFormData, emergency_contact: value });
+                    }}
+                    placeholder="Enter emergency contact (11 digits)"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Must be exactly 11 digits and make sure start with 03</p>
+                </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="is_active">Student Status</Label>
+                      <Select
+                        value={editFormData.is_active !== undefined ? (editFormData.is_active ? 'true' : 'false') : 'true'}
+                        onValueChange={(value) => setEditFormData({ ...editFormData, is_active: value === 'true' })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">Active</SelectItem>
+                          <SelectItem value="false">Inactive (Left)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="md:col-span-2">
+                  <Label htmlFor="address">Permanent Address</Label>
+                  <Textarea
+                    id="address"
+                    value={editFormData.address || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, address: e.target.value })}
+                    placeholder="Enter permanent address"
+                    rows={3}
+                    className="resize-none"
                   />
                 </div>
+                
               </div>
             </div>
 
@@ -1159,7 +1220,7 @@ export default function StudentListPage() {
                   <Input
                     id="father_name"
                     value={editFormData.father_name || ''}
-                    onChange={(e) => setEditFormData({...editFormData, father_name: e.target.value})}
+                    onChange={(e) => setEditFormData({ ...editFormData, father_name: e.target.value })}
                     placeholder="Enter father name"
                   />
                 </div>
@@ -1167,32 +1228,44 @@ export default function StudentListPage() {
                   <Label htmlFor="father_cnic">Father CNIC</Label>
                   <Input
                     id="father_cnic"
+                    type="text"
+                    maxLength={13}
                     value={editFormData.father_cnic || ''}
-                    onChange={(e) => setEditFormData({...editFormData, father_cnic: e.target.value})}
-                    placeholder="Enter father CNIC"
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '').slice(0, 13);
+                      setEditFormData({ ...editFormData, father_cnic: value });
+                    }}
+                    placeholder="Enter father CNIC (13 digits)"
                   />
+                  <p className="mt-1 text-xs text-gray-500">Must be exactly 13 digits</p>
                 </div>
                 <div>
                   <Label htmlFor="father_contact">Father Contact</Label>
                   <Input
                     id="father_contact"
+                    type="tel"
+                    maxLength={11}
                     value={editFormData.father_contact || ''}
-                    onChange={(e) => setEditFormData({...editFormData, father_contact: e.target.value})}
-                    placeholder="Enter father contact"
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '').slice(0, 11);
+                      setEditFormData({ ...editFormData, father_contact: value });
+                    }}
+                    placeholder="Enter father contact (11 digits)"
                   />
+                  <p className="mt-1 text-xs text-gray-500">Must be exactly 11 digits and make sure start with 03</p>
                 </div>
                 <div>
                   <Label htmlFor="father_profession">Father Profession</Label>
                   <Input
                     id="father_profession"
                     value={editFormData.father_profession || ''}
-                    onChange={(e) => setEditFormData({...editFormData, father_profession: e.target.value})}
+                    onChange={(e) => setEditFormData({ ...editFormData, father_profession: e.target.value })}
                     placeholder="Enter father profession"
                   />
                 </div>
                 <div>
                   <Label htmlFor="father_status">Father Status</Label>
-                  <Select value={editFormData.father_status || ''} onValueChange={(value) => setEditFormData({...editFormData, father_status: value})}>
+                  <Select value={editFormData.father_status || ''} onValueChange={(value) => setEditFormData({ ...editFormData, father_status: value })}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select father status" />
                     </SelectTrigger>
@@ -1202,49 +1275,7 @@ export default function StudentListPage() {
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
-            </div>
-
-            {/* Guardian Information */}
-            <div className="bg-gray-50 p-4 sm:p-5 rounded-2xl border border-[#e4ecf5] shadow-inner">
-              <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Guardian Information</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="guardian_name">Guardian Name</Label>
-                  <Input
-                    id="guardian_name"
-                    value={editFormData.guardian_name || ''}
-                    onChange={(e) => setEditFormData({...editFormData, guardian_name: e.target.value})}
-                    placeholder="Enter guardian name"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="guardian_cnic">Guardian CNIC</Label>
-                  <Input
-                    id="guardian_cnic"
-                    value={editFormData.guardian_cnic || ''}
-                    onChange={(e) => setEditFormData({...editFormData, guardian_cnic: e.target.value})}
-                    placeholder="Enter guardian CNIC"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="guardian_contact">Guardian Contact</Label>
-                  <Input
-                    id="guardian_contact"
-                    value={editFormData.guardian_contact || ''}
-                    onChange={(e) => setEditFormData({...editFormData, guardian_contact: e.target.value})}
-                    placeholder="Enter guardian contact"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="guardian_relation">Guardian Relation</Label>
-                  <Input
-                    id="guardian_relation"
-                    value={editFormData.guardian_relation || ''}
-                    onChange={(e) => setEditFormData({...editFormData, guardian_relation: e.target.value})}
-                    placeholder="Enter guardian relation"
-                  />
-                </div>
+                
               </div>
             </div>
 
@@ -1273,103 +1304,20 @@ export default function StudentListPage() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="last_class_passed">Last Class Passed</Label>
-                  <Input
-                    id="last_class_passed"
-                    value={editFormData.last_class_passed || ''}
-                    onChange={(e) => setEditFormData({...editFormData, last_class_passed: e.target.value})}
-                    placeholder="Enter last class passed"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="last_school_name">Last School Name</Label>
-                  <Input
-                    id="last_school_name"
-                    value={editFormData.last_school_name || ''}
-                    onChange={(e) => setEditFormData({...editFormData, last_school_name: e.target.value})}
-                    placeholder="Enter last school name"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="last_class_result">Last Class Result</Label>
-                  <Input
-                    id="last_class_result"
-                    value={editFormData.last_class_result || ''}
-                    onChange={(e) => setEditFormData({...editFormData, last_class_result: e.target.value})}
-                    placeholder="Enter last class result"
-                  />
-                </div>
-                <div>
                   <Label htmlFor="enrollment_year">Enrollment Year</Label>
                   <Input
                     id="enrollment_year"
                     type="number"
                     value={editFormData.enrollment_year || ''}
-                    onChange={(e) => setEditFormData({...editFormData, enrollment_year: e.target.value})}
+                    onChange={(e) => setEditFormData({ ...editFormData, enrollment_year: e.target.value })}
                     placeholder="Enter enrollment year"
                   />
                 </div>
-              </div>
-            </div>
-
-            {/* Family Information */}
-            <div className="bg-gray-50 p-4 sm:p-5 rounded-2xl border border-[#e4ecf5] shadow-inner">
-              <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Family Information</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="siblings_count">Siblings Count</Label>
-                  <Input
-                    id="siblings_count"
-                    type="number"
-                    value={editFormData.siblings_count || ''}
-                    onChange={(e) => setEditFormData({...editFormData, siblings_count: e.target.value})}
-                    placeholder="Enter siblings count"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="sibling_in_alkhair">Sibling in Alkhair</Label>
-                  <Select value={editFormData.sibling_in_alkhair || ''} onValueChange={(value) => setEditFormData({...editFormData, sibling_in_alkhair: value})}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="yes">Yes</SelectItem>
-                      <SelectItem value="no">No</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="from_year">From Year</Label>
-                  <Input
-                    id="from_year"
-                    type="number"
-                    value={editFormData.from_year || ''}
-                    onChange={(e) => setEditFormData({...editFormData, from_year: e.target.value})}
-                    placeholder="Enter from year"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="to_year">To Year</Label>
-                  <Input
-                    id="to_year"
-                    type="number"
-                    value={editFormData.to_year || ''}
-                    onChange={(e) => setEditFormData({...editFormData, to_year: e.target.value})}
-                    placeholder="Enter to year"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Academic Information - Classroom Assignment */}
-            <div className="bg-gray-50 p-4 sm:p-5 rounded-2xl border border-[#e4ecf5] shadow-inner">
-              <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>Classroom Assignment</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <Label htmlFor="classroom">Classroom</Label>
-                  <Select 
-                    value={editFormData.classroom ? String(editFormData.classroom) : 'none'} 
-                    onValueChange={(value) => setEditFormData({...editFormData, classroom: value === 'none' ? null : parseInt(value)})}
+                  <Select
+                    value={editFormData.classroom ? String(editFormData.classroom) : 'none'}
+                    onValueChange={(value) => setEditFormData({ ...editFormData, classroom: value === 'none' ? null : parseInt(value) })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select classroom" />
@@ -1391,27 +1339,7 @@ export default function StudentListPage() {
             </div>
 
             {/* System Information */}
-            <div className="bg-gray-50 p-4 sm:p-5 rounded-2xl border border-[#e4ecf5] shadow-inner">
-              <h3 className="text-lg font-semibold mb-4" style={{ color: '#274c77' }}>System Information</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="is_active">Student Status</Label>
-                  <Select 
-                    value={editFormData.is_active !== undefined ? (editFormData.is_active ? 'true' : 'false') : 'true'} 
-                    onValueChange={(value) => setEditFormData({...editFormData, is_active: value === 'true'})}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="true">Active</SelectItem>
-                      <SelectItem value="false">Inactive (Left)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="mt-1 text-xs text-gray-500">Inactive students will not appear in attendance sheets</p>
-                </div>
-              </div>
-            </div>
+
           </div>
 
           <div className="flex flex-col sm:flex-row sm:justify-end gap-3 mt-6 transition-all duration-150">

@@ -351,3 +351,42 @@ class CoordinatorViewSet(viewsets.ModelViewSet):
             },
             'subject_distribution': subject_data
         })
+    
+    @decorators.action(detail=True, methods=["get"])
+    def classrooms(self, request, pk=None):
+        """Get all classrooms under this coordinator"""
+        coordinator = self.get_object()
+        
+        # Get classrooms using the model method
+        classrooms = coordinator.get_assigned_classrooms()
+        
+        # Serialize classroom data
+        classroom_data = []
+        for classroom in classrooms:
+            # Get student count for this classroom
+            student_count = Student.objects.filter(
+                classroom=classroom,
+                is_deleted=False
+            ).count()
+            
+            classroom_data.append({
+                'id': classroom.id,
+                'name': str(classroom),  # Grade - Section
+                'code': classroom.code,
+                'grade': classroom.grade.name,
+                'section': classroom.section,
+                'shift': classroom.shift,
+                'level': {
+                    'id': classroom.grade.level.id,
+                    'name': classroom.grade.level.name
+                } if classroom.grade.level else None,
+                'class_teacher': {
+                    'id': classroom.class_teacher.id,
+                    'full_name': classroom.class_teacher.full_name,
+                    'employee_code': classroom.class_teacher.employee_code
+                } if classroom.class_teacher else None,
+                'student_count': student_count,
+                'capacity': classroom.capacity
+            })
+        
+        return response.Response(classroom_data)

@@ -651,6 +651,7 @@ def get_attendance_summary(request, classroom_id):
             'present_count': attendance.present_count,
             'absent_count': attendance.absent_count,
             'late_count': attendance.late_count,
+            'leave_count': attendance.leave_count,  # Add leave_count to response
             'attendance_percentage': round(attendance_percentage, 2)
         })
     

@@ -277,8 +277,11 @@ export function useWebSocketNotifications() {
           const data = await response.json()
           // Handle paginated response (results array) or direct array
           const notificationsList = Array.isArray(data) ? data : (data.results || [])
+          // Store all notifications (both read and unread)
           setNotifications(notificationsList)
-          setUnreadCount(notificationsList.filter((n: Notification) => n.unread).length)
+          // Calculate unread count
+          const unreadCount = notificationsList.filter((n: Notification) => n.unread === true).length
+          setUnreadCount(unreadCount)
         }
       } catch (error) {
         console.error('Error polling notifications:', error)
@@ -303,7 +306,7 @@ export function useWebSocketNotifications() {
     }
   }, [connectWebSocket, disconnectWebSocket, usePolling, startPolling])
 
-  // Fetch all notifications (not just unread)
+  // Fetch all notifications (both read and unread)
   const fetchNotifications = useCallback(async () => {
     try {
       const token = localStorage.getItem('sis_access_token')
@@ -323,10 +326,11 @@ export function useWebSocketNotifications() {
         const data = await response.json()
         // Handle paginated response (results array) or direct array
         const notificationsList = Array.isArray(data) ? data : (data.results || [])
-        // Filter to only unread notifications
-        const unreadOnly = notificationsList.filter((n: Notification) => n.unread === true)
-        setNotifications(unreadOnly)
-        setUnreadCount(unreadOnly.length)
+        // Store all notifications (both read and unread) for the page to filter
+        setNotifications(notificationsList)
+        // Calculate unread count
+        const unreadCount = notificationsList.filter((n: Notification) => n.unread === true).length
+        setUnreadCount(unreadCount)
       }
     } catch (error) {
       console.error('Error fetching notifications:', error)
@@ -351,16 +355,18 @@ export function useWebSocketNotifications() {
       })
 
       if (response.ok) {
-        // Remove notification from list when marked as read (only show unread)
+        // Update notification to mark as read in the list
         setNotifications((prev) =>
-          prev.filter((n) => n.id !== notificationId)
+          prev.map((n) => n.id === notificationId ? { ...n, unread: false } : n)
         )
         setUnreadCount((prev) => Math.max(0, prev - 1))
+        // Refetch to ensure state is in sync with backend
+        await fetchNotifications()
       }
     } catch (error) {
       console.error('Error marking notification as read:', error)
     }
-  }, [])
+  }, [fetchNotifications])
 
   // Mark all notifications as read
   const markAllAsRead = useCallback(async () => {
@@ -380,14 +386,18 @@ export function useWebSocketNotifications() {
       })
 
       if (response.ok) {
-        // Remove all notifications from list when all marked as read (only show unread)
-        setNotifications([])
+        // Update all notifications to mark as read
+        setNotifications((prev) =>
+          prev.map((n) => ({ ...n, unread: false }))
+        )
         setUnreadCount(0)
+        // Refetch to ensure state is in sync with backend
+        await fetchNotifications()
       }
     } catch (error) {
       console.error('Error marking all notifications as read:', error)
     }
-  }, [])
+  }, [fetchNotifications])
 
   useEffect(() => {
     fetchNotifications()

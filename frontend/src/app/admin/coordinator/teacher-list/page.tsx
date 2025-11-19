@@ -121,6 +121,62 @@ function CoordinatorTeacherListContent() {
       
       if (response.ok) {
         const teacherData = await response.json();
+        
+        // Format classroom info for display
+        let classroomDisplay = 'Not Assigned';
+        
+        // First check if classroom_name is available (from serializer)
+        if (teacherData.classroom_name) {
+          classroomDisplay = teacherData.classroom_name;
+        }
+        // Check classroom_data (nested serializer)
+        else if (teacherData.classroom_data) {
+          const classroom = teacherData.classroom_data;
+          if (classroom.grade_name && classroom.section) {
+            classroomDisplay = `${classroom.grade_name} - ${classroom.section}`;
+          }
+        }
+        // Check assigned_classroom (legacy field)
+        else if (teacherData.assigned_classroom) {
+          const classroom = teacherData.assigned_classroom;
+          if (typeof classroom === 'object') {
+            // Check if it has grade and section directly
+            if (classroom.grade && classroom.section) {
+              const gradeName = typeof classroom.grade === 'object' ? (classroom.grade.name || classroom.grade) : classroom.grade;
+              classroomDisplay = `${gradeName} - ${classroom.section}`;
+            }
+            // Check if it has grade_name and section (from serializer)
+            else if (classroom.grade_name && classroom.section) {
+              classroomDisplay = `${classroom.grade_name} - ${classroom.section}`;
+            }
+            // Check if it has name field
+            else if (classroom.name) {
+              classroomDisplay = classroom.name;
+            }
+          } else if (typeof classroom === 'string') {
+            classroomDisplay = classroom;
+          }
+        }
+        // Check assigned_classrooms (multiple classrooms)
+        else if (teacherData.assigned_classrooms && Array.isArray(teacherData.assigned_classrooms) && teacherData.assigned_classrooms.length > 0) {
+          const classrooms = teacherData.assigned_classrooms.map((c: any) => {
+            if (typeof c === 'object') {
+              if (c.grade_name && c.section) {
+                return `${c.grade_name} - ${c.section}`;
+              } else if (c.grade && c.section) {
+                const gradeName = typeof c.grade === 'object' ? (c.grade.name || c.grade) : c.grade;
+                return `${gradeName} - ${c.section}`;
+              } else if (c.name) {
+                return c.name;
+              }
+            }
+            return c;
+          }).filter(Boolean);
+          if (classrooms.length > 0) {
+            classroomDisplay = classrooms.join(', ');
+          }
+        }
+        
         setEditFormData({
           full_name: teacherData.full_name || '',
           email: teacherData.email || '',
@@ -146,6 +202,8 @@ function CoordinatorTeacherListContent() {
           is_currently_active: teacherData.is_currently_active ? 'true' : 'false',
           current_subjects: teacherData.current_subjects || '',
           current_classes_taught: teacherData.current_classes_taught || '',
+          is_class_teacher: teacherData.is_class_teacher ? 'Yes' : 'No',
+          class_teacher_of: classroomDisplay,
         });
         setShowEditDialog(true);
       } else {
@@ -173,16 +231,17 @@ function CoordinatorTeacherListContent() {
       const updateData: any = {};
       
       // List of valid fields that exist in the Teacher model
+      // Note: 'email' and 'shift' are excluded as they should not be editable
       const validFields = [
-        'full_name', 'email', 'contact_number', 'dob', 'gender', 'permanent_address', 
+        'full_name', 'contact_number', 'dob', 'gender', 'permanent_address', 
         'marital_status', 'cnic', 'education_level', 'institution_name', 
         'year_of_passing', 'education_subjects', 'education_grade', 'previous_institution_name', 
         'previous_position', 'experience_from_date', 'experience_to_date', 'total_experience_years',
-        'joining_date', 'current_role_title', 'shift', 'is_currently_active',
+        'joining_date', 'current_role_title', 'is_currently_active',
         'current_subjects', 'current_classes_taught'
       ];
       
-      // Only add valid fields that have values
+      // Only add valid fields that have values (email is excluded)
       validFields.forEach(key => {
         const value = editFormData[key];
         if (value !== '' && value !== null && value !== undefined) {
@@ -243,6 +302,7 @@ function CoordinatorTeacherListContent() {
       });
       
       if (response.ok) {
+        alert(`✅ Success! Teacher ${editFormData.full_name || editingTeacher.name} has been updated successfully!`);
         // Refresh teacher list
         const userProfile = await getCurrentUserProfile() as any;
         const coordinatorId = userProfile?.coordinator_id;
@@ -355,6 +415,20 @@ function CoordinatorTeacherListContent() {
                       </Button>
                     </TableCell>
                   </TableRow>
+                ) : filteredTeachers.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-12">
+                      <div className="flex flex-col items-center gap-3">
+                        <Search className="h-12 w-12 text-gray-400" />
+                        <div>
+                          <p className="text-base font-semibold text-gray-900">No teachers found</p>
+                          <p className="text-sm text-gray-500 mt-1">
+                            {search ? `No teachers match "${search}"` : 'No teachers available'}
+                          </p>
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   filteredTeachers.map((teacher, index) => (
                     <TableRow 
@@ -402,16 +476,16 @@ function CoordinatorTeacherListContent() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-1 sm:gap-2">
+                        <div className="flex gap-1">
                           <Button 
                             size="sm" 
                             variant="outline" 
                             style={{ borderColor: '#6096ba', color: '#274c77' }}
                             onClick={() => router.push(`/admin/teachers/profile?id=${teacher.id}`)}
                             title="View Teacher Profile"
-                            className="text-xs px-2 py-1"
+                            className="text-xs px-1.5 py-0.5 h-7 transition-all duration-150 ease-in-out transform hover:scale-105 active:scale-95 active:shadow-md"
                           >
-                            <Eye className="h-3 w-3 sm:h-4 sm:w-4 mr-0.5 sm:mr-1" />
+                            <Eye className="h-3 w-3 mr-0.5" />
                             View
                           </Button>
                           <Button 
@@ -419,9 +493,9 @@ function CoordinatorTeacherListContent() {
                             variant="outline" 
                             style={{ borderColor: '#6096ba', color: '#274c77' }}
                             onClick={() => handleEdit(teacher)}
-                            className="text-xs px-2 py-1"
+                            className="text-xs px-1.5 py-0.5 h-7 transition-all duration-150 ease-in-out transform hover:scale-105 active:scale-95 active:shadow-md"
                           >
-                            <Edit className="h-3 w-3 sm:h-4 sm:w-4 mr-0.5 sm:mr-1" />
+                            <Edit className="h-3 w-3 mr-0.5" />
                             Edit
                           </Button>
                         </div>
@@ -445,6 +519,18 @@ function CoordinatorTeacherListContent() {
                 <Button onClick={() => window.location.reload()} variant="outline" size="sm">
                   Try Again
                 </Button>
+              </div>
+            ) : filteredTeachers.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="flex flex-col items-center gap-3">
+                  <Search className="h-12 w-12 text-gray-400" />
+                  <div>
+                    <p className="text-base font-semibold text-gray-900">No teachers found</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {search ? `No teachers match "${search}"` : 'No teachers available'}
+                    </p>
+                  </div>
+                </div>
               </div>
             ) : (
               filteredTeachers.map((teacher, index) => (
@@ -497,16 +583,16 @@ function CoordinatorTeacherListContent() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex gap-2 pt-2">
+                    <div className="flex gap-1.5 pt-2">
                       <Button 
                         size="sm" 
                         variant="outline" 
                         style={{ borderColor: '#6096ba', color: '#274c77' }}
                         onClick={() => router.push(`/admin/teachers/profile?id=${teacher.id}`)}
                         title="View Teacher Profile"
-                        className="flex-1 text-xs py-1"
+                        className="flex-1 text-xs py-0.5 h-7 transition-all duration-150 ease-in-out transform hover:scale-105 active:scale-95 active:shadow-md"
                       >
-                        <Eye className="h-3 w-3 mr-1" />
+                        <Eye className="h-3 w-3 mr-0.5" />
                         View
                       </Button>
                       <Button 
@@ -514,9 +600,9 @@ function CoordinatorTeacherListContent() {
                         variant="outline" 
                         style={{ borderColor: '#6096ba', color: '#274c77' }}
                         onClick={() => handleEdit(teacher)}
-                        className="flex-1 text-xs py-1"
+                        className="flex-1 text-xs py-0.5 h-7 transition-all duration-150 ease-in-out transform hover:scale-105 active:scale-95 active:shadow-md"
                       >
-                        <Edit className="h-3 w-3 mr-1" />
+                        <Edit className="h-3 w-3 mr-0.5" />
                         Edit
                       </Button>
                     </div>
@@ -530,7 +616,7 @@ function CoordinatorTeacherListContent() {
 
       {/* Edit Teacher Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto w-[95vw]">
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto px-4 sm:px-6 py-6 rounded-3xl hide-scrollbar">
           <DialogHeader>
             <DialogTitle className="text-xl sm:text-2xl font-bold" style={{ color: '#274c77' }}>
               Edit Teacher - {editingTeacher?.name}
@@ -553,25 +639,31 @@ function CoordinatorTeacherListContent() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">Email <span className="text-xs text-gray-500">(Read Only)</span></Label>
                   <Input
                     id="email"
                     type="email"
                     value={editFormData.email || ''}
-                    onChange={(e) => setEditFormData({...editFormData, email: e.target.value})}
-                    placeholder="Enter email"
-                    className="text-sm"
+                    readOnly
+                    className="text-sm bg-gray-100 cursor-not-allowed"
+                    placeholder="Email cannot be changed"
                   />
                 </div>
                 <div>
                   <Label htmlFor="contact_number">Contact Number</Label>
                   <Input
                     id="contact_number"
+                    type="tel"
+                    maxLength={11}
                     value={editFormData.contact_number || ''}
-                    onChange={(e) => setEditFormData({...editFormData, contact_number: e.target.value})}
-                    placeholder="Enter contact number"
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '').slice(0, 11);
+                      setEditFormData({...editFormData, contact_number: value});
+                    }}
+                    placeholder="Enter contact number (11 digits)"
                     className="text-sm"
                   />
+                  <p className="mt-1 text-xs text-gray-500">Must be exactly 11 digits and make sure start with 03</p>
                 </div>
                 <div>
                   <Label htmlFor="dob">Date of Birth</Label>
@@ -610,11 +702,29 @@ function CoordinatorTeacherListContent() {
                   <Label htmlFor="cnic">CNIC</Label>
                   <Input
                     id="cnic"
+                    type="text"
+                    maxLength={13}
                     value={editFormData.cnic || ''}
-                    onChange={(e) => setEditFormData({...editFormData, cnic: e.target.value})}
-                    placeholder="Enter CNIC"
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '').slice(0, 13);
+                      setEditFormData({...editFormData, cnic: value});
+                    }}
+                    placeholder="Enter CNIC (13 digits)"
                     className="text-sm"
                   />
+                  <p className="mt-1 text-xs text-gray-500">Must be exactly 13 digits</p>
+                </div>
+                <div>
+                  <Label htmlFor="is_currently_active">Is Currently Active</Label>
+                  <Select value={editFormData.is_currently_active || ''} onValueChange={(value) => setEditFormData({...editFormData, is_currently_active: value})}>
+                    <SelectTrigger className="text-sm">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true">Yes</SelectItem>
+                      <SelectItem value="false">No</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="md:col-span-2">
                   <Label htmlFor="permanent_address">Permanent Address</Label>
@@ -770,32 +880,8 @@ function CoordinatorTeacherListContent() {
                     className="text-sm"
                   />
                 </div>
+                
                 <div>
-                  <Label htmlFor="shift">Shift</Label>
-                  <Select value={editFormData.shift || ''} onValueChange={(value) => setEditFormData({...editFormData, shift: value})}>
-                    <SelectTrigger className="text-sm">
-                      <SelectValue placeholder="Select shift" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="morning">Morning</SelectItem>
-                      <SelectItem value="afternoon">Afternoon</SelectItem>
-                      <SelectItem value="both">Both</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="is_currently_active">Is Currently Active</Label>
-                  <Select value={editFormData.is_currently_active || ''} onValueChange={(value) => setEditFormData({...editFormData, is_currently_active: value})}>
-                    <SelectTrigger className="text-sm">
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="true">Yes</SelectItem>
-                      <SelectItem value="false">No</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="md:col-span-2">
                   <Label htmlFor="current_subjects">Current Subjects</Label>
                   <Input
                     id="current_subjects"
@@ -805,7 +891,7 @@ function CoordinatorTeacherListContent() {
                     className="text-sm"
                   />
                 </div>
-                <div className="md:col-span-2">
+                <div>
                   <Label htmlFor="current_classes_taught">Current Classes Taught</Label>
                   <Input
                     id="current_classes_taught"
@@ -815,7 +901,37 @@ function CoordinatorTeacherListContent() {
                     className="text-sm"
                   />
                 </div>
-              </div>
+                <div>
+                  <Label htmlFor="shift">Shift <span className="text-xs text-gray-500">(Read Only)</span></Label>
+                  <Input
+                    id="shift"
+                    value={editFormData.shift ? editFormData.shift.charAt(0).toUpperCase() + editFormData.shift.slice(1) : 'Not Set'}
+                    readOnly
+                    className="text-sm bg-gray-100 cursor-not-allowed"
+                    placeholder="Not editable"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="is_class_teacher">Is Class Teacher <span className="text-xs text-gray-500">(Read Only)</span></Label>
+                  <Input
+                    id="is_class_teacher"
+                    value={editFormData.is_class_teacher || 'No'}
+                    readOnly
+                    className="text-sm bg-gray-100 cursor-not-allowed"
+                    placeholder="Not editable"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="class_teacher_of">Class Teacher Of <span className="text-xs text-gray-500">(Read Only)</span></Label>
+                  <Input
+                    id="class_teacher_of"
+                    value={editFormData.class_teacher_of || 'Not Assigned'}
+                    readOnly
+                    className="text-sm bg-gray-100 cursor-not-allowed"
+                    placeholder="Not editable"
+                  />
+                </div>
+               </div>
             </div>
           </div>
 

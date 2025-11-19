@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   Bell,
   Check,
@@ -16,7 +16,6 @@ import { formatDistanceToNow } from "date-fns"
 import { useWebSocketNotifications } from "@/hooks/useWebSocketNotifications"
 import type { Notification } from "@/types/notification"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 
 function formatRelative(timestamp: string) {
   try {
@@ -27,6 +26,7 @@ function formatRelative(timestamp: string) {
 }
 
 export default function NotificationsPage() {
+  const router = useRouter()
   const { notifications, unreadCount, isConnected, markAsRead, markAllAsRead, refetch } =
     useWebSocketNotifications()
   const [query, setQuery] = useState("")
@@ -50,10 +50,13 @@ export default function NotificationsPage() {
   return (
     <div className="space-y-6 py-4 sm:py-6">
       <div className="flex items-center gap-2 text-sm text-gray-500">
-        <Link href="/admin" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800">
+        <button 
+          onClick={() => router.back()}
+          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 transition-colors"
+        >
           <ChevronLeft className="w-4 h-4" />
-          Back to dashboard
-        </Link>
+          Back
+        </button>
       </div>
 
       <section className="rounded-3xl bg-gradient-to-br from-[#274c77] via-[#356c9b] to-[#6096ba] text-white p-6 shadow-2xl border border-white/10">

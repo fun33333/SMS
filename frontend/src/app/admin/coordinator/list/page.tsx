@@ -583,7 +583,7 @@ export default function CoordinatorListPage() {
 
       {/* Edit Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto px-4 sm:px-6 py-6 rounded-3xl hide-scrollbar">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold" style={{ color: '#274c77' }}>
               Edit Coordinator
