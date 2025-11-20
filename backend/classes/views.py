@@ -5,7 +5,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.utils import timezone
 from .models import Level, Grade, ClassRoom
 from .serializers import LevelSerializer, GradeSerializer, ClassRoomSerializer
@@ -288,6 +288,25 @@ class ClassRoomViewSet(viewsets.ModelViewSet):
                 pass
         
         return queryset
+    
+    @action(detail=False, methods=['get'], url_path='campus_stats')
+    def campus_stats(self, request):
+        """Get campus-wise classroom distribution"""
+        queryset = self.get_queryset()
+        
+        campus_data = queryset.values('grade__level__campus__campus_name').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        data = []
+        for item in campus_data:
+            campus_name = item['grade__level__campus__campus_name'] or 'Unknown Campus'
+            data.append({
+                'campus': campus_name,
+                'count': item['count']
+            })
+        
+        return Response(data)
     
     @action(detail=False, methods=['get'])
     def available_teachers(self, request):

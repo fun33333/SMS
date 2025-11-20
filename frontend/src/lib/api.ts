@@ -388,6 +388,11 @@ export interface DashboardStats {
   campusStats: Array<{ campus: string; count: number }>;
 }
 
+export interface CampusCountStat {
+  campus: string;
+  count: number;
+}
+
 export async function getDashboardStats(): Promise<DashboardStats> {
   try {
     const [totalRes, genderRes, campusRes] = await Promise.all([
@@ -419,6 +424,39 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       other: 0,
       campusStats: []
     };
+  }
+}
+
+// Simple helpers for campus-wise counts (students & teachers)
+export async function getStudentCampusStats(): Promise<CampusCountStat[]> {
+  try {
+    const data = await apiGet<CampusCountStat[]>(API_ENDPOINTS.STUDENTS_CAMPUS_STATS);
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('Failed to fetch student campus stats:', error);
+    return [];
+  }
+}
+
+export async function getTeacherCampusStats(): Promise<CampusCountStat[]> {
+  try {
+    const url = `${API_ENDPOINTS.TEACHERS}campus_stats/`;
+    const data = await apiGet<CampusCountStat[]>(url);
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('Failed to fetch teacher campus stats:', error);
+    return [];
+  }
+}
+
+export async function getClassroomCampusStats(): Promise<CampusCountStat[]> {
+  try {
+    const url = `${API_ENDPOINTS.CLASSROOMS}campus_stats/`;
+    const data = await apiGet<CampusCountStat[]>(url);
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('Failed to fetch classroom campus stats:', error);
+    return [];
   }
 }
 

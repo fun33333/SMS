@@ -51,26 +51,48 @@ interface RadialChartProps {
 }
 
 export function StudentRadialChart({ data }: RadialChartProps) {
+  // Normalize values against a fixed "max" so visual rings look staggered and comparable
+  // You can tweak this cap if your campuses generally have more or fewer students
+  const MAX_CAP = 1000
+
+  const clampToCap = (value: number) => {
+    const safe = Math.max(0, value || 0)
+    return Math.min(safe, MAX_CAP)
+  }
+
+  const maleRaw = clampToCap(data.male_students)
+  const femaleRaw = clampToCap(data.female_students)
+  const morningRaw = clampToCap(data.morning_students)
+  const afternoonRaw = clampToCap(data.afternoon_students)
+
+  // For the chart radius itself we only care about relative size, so map to 0–100 scale
+  const toPercent = (value: number) =>
+    MAX_CAP ? Math.round((clampToCap(value) / MAX_CAP) * 100) : 0
+
   const chartData = [
     { 
       category: "male", 
-      students: data.male_students, 
-      fill: "#274c77" 
+      students: toPercent(maleRaw),
+      raw: maleRaw,
+      fill: "#274c77",
     },
     { 
       category: "female", 
-      students: data.female_students, 
-      fill: "#6096ba" 
+      students: toPercent(femaleRaw),
+      raw: femaleRaw,
+      fill: "#6096ba",
     },
     { 
       category: "morning", 
-      students: data.morning_students, 
-      fill: "#a3cef1" 
+      students: toPercent(morningRaw),
+      raw: morningRaw,
+      fill: "#a3cef1",
     },
     { 
       category: "afternoon", 
-      students: data.afternoon_students, 
-      fill: "#8b8c89" 
+      students: toPercent(afternoonRaw),
+      raw: afternoonRaw,
+      fill: "#8b8c89",
     },
   ]
 
@@ -97,7 +119,21 @@ export function StudentRadialChart({ data }: RadialChartProps) {
           >
             <ChartTooltip
               cursor={false}
-              content={<ChartTooltipContent hideLabel nameKey="category" />}
+              content={
+                <ChartTooltipContent
+                  hideLabel
+                  nameKey="category"
+                  // Show real counts in tooltip, not the 0–100 normalized value
+                  formatter={(value, name, item) => {
+                    const raw = (item.payload as any)?.raw ?? value
+                    return (
+                      <span className="text-foreground font-mono font-medium tabular-nums">
+                        {Number(raw || 0).toLocaleString()}
+                      </span>
+                    )
+                  }}
+                />
+              }
             />
             <RadialBar dataKey="students" background>
               <LabelList

@@ -5,13 +5,13 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 // mock data removed; using real API data only
-import { apiGet, getAllCampuses } from "@/lib/api"
+import { getAllCampuses, getStudentCampusStats, getTeacherCampusStats, getClassroomCampusStats } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Plus, Search, Building2, MapPin, Users, GraduationCap, ChevronRight, Loader2 } from "lucide-react"
+import { Plus, Search, Building2, MapPin, Users, GraduationCap, ChevronRight, Loader2, LayoutGrid } from "lucide-react"
 import { getCurrentUserRole } from "@/lib/permissions"
-import { getAllStudents, getFilteredTeachers } from "@/lib/api"
+import { CacheManager } from "@/lib/cache"
 
 export default function CampusListPage() {
   useEffect(() => {
@@ -25,6 +25,7 @@ export default function CampusListPage() {
   const [error, setError] = React.useState<string | null>(null)
   const [realStudentCounts, setRealStudentCounts] = React.useState<Record<number, number>>({})
   const [realTeacherCounts, setRealTeacherCounts] = React.useState<Record<number, number>>({})
+  const [realClassroomCounts, setRealClassroomCounts] = React.useState<Record<number, number>>({})
   
   // Role-based access control
   const [userRole, setUserRole] = React.useState<string>("")
@@ -42,92 +43,79 @@ export default function CampusListPage() {
 
   React.useEffect(() => {
     let mounted = true
-    setLoading(true)
-    
-    // Fetch campuses and real counts
-    Promise.all([
-      getAllCampuses(),
-      getAllStudents(true) // Force refresh to get latest data
-    ])
-      .then(([campusesData, studentsData]) => {
-        if (!mounted) return
-        
-        const list = Array.isArray(campusesData) 
-          ? campusesData 
-          : (Array.isArray((campusesData as any)?.results) ? (campusesData as any).results : [])
-        setCampuses(list)
-        
-        // Calculate real student counts per campus
-        const studentsArray = Array.isArray(studentsData) ? studentsData : (studentsData?.results || [])
-        const studentCounts: Record<number, number> = {}
-        
-        // Initialize all campuses with 0 (to ensure all campuses have real count, even if 0)
-        list.forEach((campus: any) => {
-          if (campus.id) {
-            studentCounts[campus.id] = 0
-          }
-        })
-        
-        // Count students per campus (only active students)
-        studentsArray.forEach((student: any) => {
-          if (student?.current_state && String(student.current_state).toLowerCase() !== 'active') return
-          // Resolve campus id from multiple possible shapes
-          const candidates = [
-            student?.campus?.id,
-            student?.campus?.pk,
-            student?.campus_id,
-            student?.current_campus,
-            student?.current_campus_id,
-            student?.campus
-          ]
-          const found = candidates.find((v: any) => v !== null && v !== undefined && String(v).trim() !== '')
-          const campusId = found !== undefined ? Number(found) : null
-          if (campusId !== null && Object.prototype.hasOwnProperty.call(studentCounts, campusId)) {
-            studentCounts[campusId] = (studentCounts[campusId] || 0) + 1
-          }
-        })
-        
-        setRealStudentCounts(studentCounts)
-        
-        // Fetch teacher counts for each campus
-        const teacherCounts: Record<number, number> = {}
-        
-        // Initialize all campuses with 0
-        list.forEach((campus: any) => {
-          if (campus.id) {
-            teacherCounts[campus.id] = 0
-          }
-        })
-        
-        const teacherPromises = list.map((campus: any) => 
-          getFilteredTeachers({ 
-            current_campus: campus.id, 
-            is_currently_active: true 
-          }).then((response) => {
-            const count = Array.isArray(response) ? response.length : (response?.count || 0)
-            return { campusId: campus.id, count }
-          }).catch(() => {
-            // Return 0 on error
-            return { campusId: campus.id, count: 0 }
-          })
-        )
-        
-        Promise.all(teacherPromises).then((results) => {
+
+    // Try to hydrate from cache first so revisits are instant
+    const cachedCampuses = CacheManager.get(CacheManager.KEYS.CAMPUSES) as any[] | null
+    const cachedStudentCounts = CacheManager.get(CacheManager.KEYS.CAMPUS_STUDENT_COUNTS) as Record<number, number> | null
+    const cachedTeacherCounts = CacheManager.get(CacheManager.KEYS.CAMPUS_TEACHER_COUNTS) as Record<number, number> | null
+    const cachedClassroomCounts = CacheManager.get(CacheManager.KEYS.CAMPUS_CLASSROOM_COUNTS) as Record<number, number> | null
+
+    if (cachedCampuses && mounted) setCampuses(cachedCampuses)
+    if (cachedStudentCounts && mounted) setRealStudentCounts(cachedStudentCounts)
+    if (cachedTeacherCounts && mounted) setRealTeacherCounts(cachedTeacherCounts)
+    if (cachedClassroomCounts && mounted) setRealClassroomCounts(cachedClassroomCounts)
+
+    const hasFullCache = !!(cachedCampuses && cachedStudentCounts && cachedTeacherCounts && cachedClassroomCounts)
+
+    if (!hasFullCache) {
+      setLoading(true)
+
+      // Fetch campuses and aggregate counts (students + teachers) using lightweight stats APIs
+      Promise.all([
+        getAllCampuses(),
+        getStudentCampusStats(),
+        getTeacherCampusStats(),
+        getClassroomCampusStats()
+      ])
+        .then(([campusesData, studentStats, teacherStats, classroomStats]) => {
           if (!mounted) return
-          results.forEach(({ campusId, count }) => {
-            if (campusId && teacherCounts.hasOwnProperty(campusId)) {
-              teacherCounts[campusId] = count
-            }
+
+          const list = Array.isArray(campusesData)
+            ? campusesData
+            : (Array.isArray((campusesData as any)?.results) ? (campusesData as any).results : [])
+
+          setCampuses(list)
+
+          const studentCounts: Record<number, number> = {}
+          const teacherCounts: Record<number, number> = {}
+          const classroomCounts: Record<number, number> = {}
+
+          list.forEach((campus: any) => {
+            if (!campus?.id) return
+            const campusName = campus.campus_name || campus.name
+
+            const studentStat = Array.isArray(studentStats)
+              ? studentStats.find((s) => s.campus === campusName)
+              : undefined
+            const teacherStat = Array.isArray(teacherStats)
+              ? teacherStats.find((t) => t.campus === campusName)
+              : undefined
+            const classroomStat = Array.isArray(classroomStats)
+              ? classroomStats.find((cl) => cl.campus === campusName)
+              : undefined
+
+            studentCounts[campus.id] = studentStat?.count ?? 0
+            teacherCounts[campus.id] = teacherStat?.count ?? 0
+            classroomCounts[campus.id] = classroomStat?.count ?? 0
           })
+
+          setRealStudentCounts(studentCounts)
           setRealTeacherCounts(teacherCounts)
+          setRealClassroomCounts(classroomCounts)
+
+          // Cache the final data for fast revisits while the user is logged in
+          CacheManager.set(CacheManager.KEYS.CAMPUSES, list, 30 * 60 * 1000)
+          CacheManager.set(CacheManager.KEYS.CAMPUS_STUDENT_COUNTS, studentCounts, 30 * 60 * 1000)
+          CacheManager.set(CacheManager.KEYS.CAMPUS_TEACHER_COUNTS, teacherCounts, 30 * 60 * 1000)
+          CacheManager.set(CacheManager.KEYS.CAMPUS_CLASSROOM_COUNTS, classroomCounts, 30 * 60 * 1000)
         })
-      })
-      .catch((err) => {
-        console.error(err)
-        if (!mounted) return
-        setError(err.message || "Failed to load campuses")
-      })
-      .finally(() => mounted && setLoading(false))
+        .catch((err) => {
+          console.error(err)
+          if (!mounted) return
+          setError(err.message || "Failed to load campuses")
+        })
+        .finally(() => mounted && setLoading(false))
+    }
     
     return () => {
       mounted = false
@@ -145,6 +133,55 @@ export default function CampusListPage() {
       : 'http://127.0.0.1:8000'
     return `${apiBase}${imagePath.startsWith('/') ? '' : '/'}${imagePath}`
   }
+
+  const isSuperAdmin = userRole === "superadmin"
+
+  // Aggregate metrics for superadmin overview cards
+  const summary = React.useMemo(() => {
+    const campusArray = Array.isArray(campuses) ? campuses : []
+    let totalStudents = 0
+    let totalTeachers = 0
+    let totalClassrooms = 0
+
+    campusArray.forEach((c: any) => {
+      if (!c?.id) return
+      const s = realStudentCounts.hasOwnProperty(c.id)
+        ? realStudentCounts[c.id]
+        : (typeof c.num_students === 'number' ? c.num_students : (c.total_students || 0))
+      const t = realTeacherCounts.hasOwnProperty(c.id)
+        ? realTeacherCounts[c.id]
+        : (c.total_teachers || 0)
+      const cl = realClassroomCounts.hasOwnProperty(c.id)
+        ? realClassroomCounts[c.id]
+        : (c.total_classrooms || c.num_classrooms || 0)
+
+      totalStudents += s || 0
+      totalTeachers += t || 0
+      totalClassrooms += cl || 0
+    })
+
+    return {
+      totalCampuses: campusArray.length,
+      totalStudents,
+      totalTeachers,
+      totalClassrooms,
+    }
+  }, [campuses, realStudentCounts, realTeacherCounts, realClassroomCounts])
+
+  const topCampusesByStudents = React.useMemo(() => {
+    const campusArray = Array.isArray(campuses) ? campuses : []
+    const scored = campusArray.map((c: any) => {
+      const hasRealStudentCount = realStudentCounts.hasOwnProperty(c.id)
+      const studentCount = hasRealStudentCount
+        ? realStudentCounts[c.id]
+        : (typeof c.num_students === 'number' ? c.num_students : (c.total_students || 0))
+      return { campus: c, studentCount }
+    })
+      .sort((a, b) => (b.studentCount || 0) - (a.studentCount || 0))
+      .slice(0, 5)
+
+    return scored
+  }, [campuses, realStudentCounts])
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
@@ -181,6 +218,92 @@ export default function CampusListPage() {
           )}
         </div>
       </div>
+        {isSuperAdmin && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <Card className="border border-slate-200 shadow-sm">
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-slate-100 text-slate-700">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Total Campuses</div>
+                  <div className="text-xl font-bold text-slate-900">{summary.totalCampuses}</div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border border-slate-200 shadow-sm">
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-blue-100 text-blue-700">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Total Students</div>
+                  <div className="text-xl font-bold text-slate-900">{summary.totalStudents}</div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border border-slate-200 shadow-sm">
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-green-100 text-green-700">
+                  <GraduationCap className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Total Teachers</div>
+                  <div className="text-xl font-bold text-slate-900">{summary.totalTeachers}</div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border border-slate-200 shadow-sm">
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-purple-100 text-purple-700">
+                  <LayoutGrid className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Total Classrooms</div>
+                  <div className="text-xl font-bold text-slate-900">{summary.totalClassrooms}</div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {isSuperAdmin && topCampusesByStudents.length > 0 && (
+          <Card className="mb-8 border border-slate-200 shadow-sm">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-800 uppercase tracking-wide">Top Campuses by Enrollment</h2>
+                  <p className="text-xs text-slate-500">Quick view of which campuses hold most students</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {topCampusesByStudents.map(({ campus: c, studentCount }, index) => {
+                  const total = summary.totalStudents || 1
+                  const percentage = Math.round(((studentCount || 0) / total) * 100)
+                  return (
+                    <div key={c.id || index} className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-semibold text-slate-700">
+                        {index + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <p className="text-sm font-medium text-slate-800 truncate">{c.campus_name || c.name || 'Unknown Campus'}</p>
+                          <span className="text-xs font-semibold text-slate-600">{studentCount} students</span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-[#274c77] via-[#6096ba] to-[#a3cef1]"
+                            style={{ width: `${Math.max(5, percentage)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
         </div>
 
         {/* Campus Cards */}
@@ -225,6 +348,9 @@ export default function CampusListPage() {
               const hasRealTeacherCount = realTeacherCounts.hasOwnProperty(c.id)
               const realTeacherCount = hasRealTeacherCount ? realTeacherCounts[c.id] : null
               const teacherCount = hasRealTeacherCount ? realTeacherCounts[c.id] : (c.total_teachers || 0)
+              
+              const hasRealClassroomCount = realClassroomCounts.hasOwnProperty(c.id)
+              const classroomCount = hasRealClassroomCount ? realClassroomCounts[c.id] : (c.total_classrooms || c.num_classrooms || 0)
               
               const campusImageUrl = getImageUrl(c.campus_photo)
               
@@ -289,6 +415,23 @@ export default function CampusListPage() {
                                 {c.city} {c.district ? `, ${c.district}` : ''}
                               </div>
                             )}
+                            <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px] text-slate-600">
+                              {c.campus_type && (
+                                <Badge variant="outline" className="px-2 py-0.5 rounded-full border-slate-200 bg-slate-50">
+                                  {c.campus_type === 'main' ? 'Main Campus' : 'Branch Campus'}
+                                </Badge>
+                              )}
+                              {c.shift_available && (
+                                <Badge variant="outline" className="px-2 py-0.5 rounded-full border-blue-100 bg-blue-50 text-blue-700">
+                                  Shift: {c.shift_available}
+                                </Badge>
+                              )}
+                              {c.campus_head_name && (
+                                <span className="truncate">
+                                  Head: <span className="font-medium">{c.campus_head_name}</span>
+                                </span>
+                              )}
+                            </div>
                           </div>
                           {!campusImageUrl && (
                             <div className="flex-shrink-0">
@@ -305,7 +448,7 @@ export default function CampusListPage() {
                     </div>
 
                         {/* Stats Grid */}
-                        <div className="grid grid-cols-2 gap-3 sm:gap-4 pt-4 border-t border-slate-200">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 pt-4 border-t border-slate-200">
                           <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-blue-50 rounded-lg">
                             <div className="p-1.5 sm:p-2 bg-blue-100 rounded-lg">
                               <Users className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
@@ -330,8 +473,21 @@ export default function CampusListPage() {
                                 <div className="text-xs text-green-600 font-semibold mt-0.5">Real Database Count</div>
                               )}
                             </div>
-                    </div>
-                    </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-purple-50 rounded-lg">
+                            <div className="p-1.5 sm:p-2 bg-purple-100 rounded-lg">
+                              <LayoutGrid className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />
+                            </div>
+                            <div>
+                              <div className="text-lg sm:text-xl font-bold text-slate-800">{classroomCount}</div>
+                              <div className="text-xs text-slate-600">Classrooms</div>
+                              {hasRealClassroomCount && (
+                                <div className="text-xs text-purple-600 font-semibold mt-0.5">Real Database Count</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
 
                         {/* Footer with arrow */}
                         <div className="flex items-center justify-end mt-4 pt-3 border-t border-slate-100">

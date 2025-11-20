@@ -23,25 +23,32 @@ function CampusProfileContent() {
   const [error, setError] = useState<string | null>(null)
   const [canEdit, setCanEdit] = useState(false)
 
-  // Function to calculate real student statistics
-  const calculateRealStudentStats = (students: any[], campusId: string) => {
+  // Function to calculate real student statistics using real DB data
+  const calculateRealStudentStats = (students: any[], campusId: string | number) => {
     console.log('Calculating stats for campus ID:', campusId)
     console.log('Total students fetched:', students.length)
     
-    // Try different ways to match campus ID
+    const campusIdStr = String(campusId)
+
+    // Try different ways to match campus ID and include only active / non-deleted students
     const campusStudents = students.filter(student => {
-      let studentCampusId = null
-      
+      let studentCampusId: any = null
+
       if (typeof student.campus === 'object' && student.campus) {
         studentCampusId = student.campus.id || student.campus.pk || student.campus.campus_id
-      } else if (student.campus) {
+      } else if (student.campus !== undefined && student.campus !== null) {
         studentCampusId = student.campus
       }
-      
-      const isActive = student.current_state === 'active'
-      const matchesCampus = studentCampusId == campusId || studentCampusId === campusId
-      
-      console.log('Student campus ID:', studentCampusId, 'Matches:', matchesCampus, 'Active:', isActive, 'Student:', student.name)
+
+      const matchesCampus =
+        studentCampusId !== null &&
+        studentCampusId !== undefined &&
+        String(studentCampusId) === campusIdStr
+
+      // Prefer is_active / is_deleted flags from backend instead of non-existent current_state
+      const isActive =
+        (student.is_active === undefined || student.is_active === true) &&
+        student.is_deleted !== true
       
       return matchesCampus && isActive
     })
@@ -49,10 +56,29 @@ function CampusProfileContent() {
     console.log('Campus students found:', campusStudents.length)
 
     const total = campusStudents.length
-    const male = campusStudents.filter(s => s.gender === 'male').length
-    const female = campusStudents.filter(s => s.gender === 'female').length
-    const morning = campusStudents.filter(s => s.shift === 'M' || s.shift === 'morning').length
-    const afternoon = campusStudents.filter(s => s.shift === 'E' || s.shift === 'afternoon').length
+
+    // Gender totals (independent of shift)
+    const male = campusStudents.filter(s => String(s.gender || '').toLowerCase() === 'male').length
+    const female = campusStudents.filter(s => String(s.gender || '').toLowerCase() === 'female').length
+
+    // Derive effective shift for each student using both student.shift and classroom.shift (and legacy values)
+    const getEffectiveShift = (s: any): 'morning' | 'afternoon' | null => {
+      const rawShift =
+        s.shift ||
+        s?.classroom_data?.shift ||
+        s?.classroom?.shift ||
+        null
+
+      if (!rawShift) return null
+
+      const v = String(rawShift).toLowerCase()
+      if (v === 'm' || v === 'morning') return 'morning'
+      if (v === 'a' || v === 'e' || v === 'evening' || v === 'afternoon') return 'afternoon'
+      return null
+    }
+
+    const morning = campusStudents.filter(s => getEffectiveShift(s) === 'morning').length
+    const afternoon = campusStudents.filter(s => getEffectiveShift(s) === 'afternoon').length
 
     console.log('Calculated stats:', { total, male, female, morning, afternoon })
 
@@ -86,20 +112,20 @@ function CampusProfileContent() {
     
     // Fetch real data from database
     Promise.all([
-    // Fetch real student data
-      getAllStudents(true) // Force refresh to get latest data
-      .then((students) => {
-        console.log('Fetched students data:', students)
-        if (mounted) {
+      // Fetch real student data (all campuses) and then filter by campus + active flag
+      getAllStudents(true)
+        .then((students) => {
+          console.log('Fetched students data:', students)
+          if (mounted) {
             const studentsArray = Array.isArray(students) ? students : (students?.results || [])
             const realStats = calculateRealStudentStats(studentsArray, id)
-          console.log('Setting real student data:', realStats)
-          setRealStudentData(realStats)
-        }
+            console.log('Setting real student data:', realStats)
+            setRealStudentData(realStats)
+          }
           return students
-      })
-      .catch((err) => {
-        console.warn('Failed to fetch real student data:', err)
+        })
+        .catch((err) => {
+          console.warn('Failed to fetch real student data:', err)
           if (mounted) {
             // Set to empty stats on error so chart knows we attempted to fetch real data
             setRealStudentData({ total: 0, male: 0, female: 0, morning: 0, afternoon: 0 })
@@ -377,87 +403,109 @@ function CampusProfileContent() {
               {/* Main Content Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
             {/* Basic Information */}
-                <Card className="shadow-lg border-0 overflow-hidden" style={{backgroundColor: '#e7ecef'}}>
-                  <CardHeader className="p-0">
-                    <div className="p-4" style={{background: 'linear-gradient(135deg, #274c77 0%, #6096ba 100%)'}}>
-                      <CardTitle className="flex items-center gap-2 text-white text-lg">
-                        <div className="p-1.5 rounded" style={{backgroundColor: 'rgba(255,255,255,0.2)'}}>
-                          <Building className="w-4 h-4" />
-                        </div>
-                  Basic Information
-                </CardTitle>
+                <Card className="shadow-sm border border-slate-200 bg-white/90 rounded-2xl overflow-hidden">
+                  <CardHeader className="pb-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-sky-50">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-xl bg-[#274c77]/10 flex items-center justify-center text-[#274c77]">
+                        <Building className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base font-semibold text-slate-900">
+                          Basic Information
+                        </CardTitle>
+                        <p className="text-xs text-slate-500">
+                          Identity & governance details of this campus
+                        </p>
+                      </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Campus ID</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: '#a3cef1', borderColor: '#6096ba'}}>
-                          <p className="text-sm font-bold" style={{color: '#274c77'}}>{renderValue(campus?.campus_id)}</p>
+                  <CardContent className="p-4 sm:p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Campus ID
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800">
+                          {renderValue(campus?.campus_id)}
                         </div>
                       </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Campus Code</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: '#a3cef1', borderColor: '#6096ba'}}>
-                          <p className="text-sm font-bold" style={{color: '#274c77'}}>{renderValue(campus?.campus_code)}</p>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Campus Code
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800">
+                          {renderValue(campus?.campus_code)}
                         </div>
                       </div>
-                      <div className="group md:col-span-2">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Campus Name</label>
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: '#274c77', borderColor: '#274c77'}}>
-                          <p className="text-lg font-bold text-white">{renderValue(campus?.campus_name)}</p>
+                      <div className="md:col-span-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Campus Name
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm sm:text-base font-semibold text-slate-900">
+                          {renderValue(campus?.campus_name)}
                         </div>
                       </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Campus Type</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#6096ba'}}>
-                          <Badge 
-                            className="text-sm px-2 py-1 font-semibold"
-                            style={{backgroundColor: '#6096ba', color: 'white'}}
-                          >
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Campus Type
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                          <Badge className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200 text-xs font-semibold">
                             {renderValue(campus?.campus_type)}
                           </Badge>
                         </div>
                       </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Established Year</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                          <p className="text-sm font-bold" style={{color: '#274c77'}}>{renderValue(campus?.established_year)}</p>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Established Year
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800">
+                          {renderValue(campus?.established_year)}
                         </div>
                       </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Governing Body</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.governing_body)}</p>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Governing Body
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
+                          {renderValue(campus?.governing_body)}
                         </div>
                       </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Accreditation</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.accreditation)}</p>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Accreditation
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
+                          {renderValue(campus?.accreditation)}
                         </div>
                       </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Instruction Language</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.instruction_language)}</p>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Instruction Language
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
+                          {renderValue(campus?.instruction_language)}
                         </div>
                       </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Registration Number</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.registration_number)}</p>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Registration Number
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
+                          {renderValue(campus?.registration_number)}
                         </div>
                       </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Status</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <Badge 
-                            className="text-sm px-3 py-1 font-bold rounded-full"
-                            style={{
-                              backgroundColor: campus?.status === 'active' ? '#6096ba' : '#8b8c89',
-                              color: 'white'
-                            }}
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Status
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                          <Badge
+                            className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${
+                              campus?.status === 'active'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}
                           >
                             {renderValue(campus?.status)}
                           </Badge>
@@ -466,345 +514,430 @@ function CampusProfileContent() {
                     </div>
                   </CardContent>
                 </Card>
-                <Card className="shadow-lg border-0 overflow-hidden" style={{backgroundColor: '#e7ecef'}}>
-                  <CardHeader className="p-0">
-                    <div className="p-4" style={{background: 'linear-gradient(135deg, #6096ba 0%, #a3cef1 100%)'}}>
-                      <CardTitle className="flex items-center gap-2 text-white text-lg">
-                        <div className="p-1.5 rounded" style={{backgroundColor: 'rgba(255,255,255,0.2)'}}>
-                          <GraduationCap className="w-4 h-4" />
-                        </div>
-                        Staff Information
-                      </CardTitle>
+
+                {/* Staff Information */}
+                <Card className="shadow-sm border border-slate-200 bg-white/90 rounded-2xl overflow-hidden">
+                  <CardHeader className="pb-3 border-b border-slate-100 bg-gradient-to-r from-sky-50 to-emerald-50">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+                        <GraduationCap className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base font-semibold text-slate-900">
+                          Staff Information
+                        </CardTitle>
+                        <p className="text-xs text-slate-500">
+                          Teaching & non‑teaching staff overview
+                        </p>
+                      </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="p-4">
+                  <CardContent className="p-4 sm:p-6">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: '#a3cef1', borderColor: '#6096ba'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>
-                            {realTeachersCount !== null ? realTeachersCount : renderValue(campus?.total_teachers)}
-                          </div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Total Teachers</div>
-                          {realTeachersCount !== null && (
-                            <div className="text-xs mt-1" style={{color: '#6096ba'}}>Real</div>
-                          )}
-                        </div>
+                      <div className="text-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Total Teachers
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {realTeachersCount !== null ? realTeachersCount : renderValue(campus?.total_teachers)}
+                        </p>
+                        {realTeachersCount !== null && (
+                          <p className="mt-1 text-[11px] text-emerald-600 font-medium">Real</p>
+                        )}
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.total_non_teaching_staff)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Non-Teaching Staff</div>
-                        </div>
+                      <div className="text-center rounded-xl border border-slate-200 bg-white px-3 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Non‑Teaching Staff
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {renderValue(campus?.total_non_teaching_staff)}
+                        </p>
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.total_maids)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Total Maids</div>
-                        </div>
+                      <div className="text-center rounded-xl border border-slate-200 bg-white px-3 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Total Maids
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {renderValue(campus?.total_maids)}
+                        </p>
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#6096ba'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>
-                            {realCoordinatorsCount !== null ? realCoordinatorsCount : renderValue(campus?.total_coordinators)}
-                          </div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Coordinators</div>
-                          {realCoordinatorsCount !== null && (
-                            <div className="text-xs mt-1" style={{color: '#6096ba'}}>Real</div>
-                          )}
-                        </div>
+                      <div className="text-center rounded-xl border border-slate-200 bg-white px-3 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Coordinators
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {realCoordinatorsCount !== null ? realCoordinatorsCount : renderValue(campus?.total_coordinators)}
+                        </p>
+                        {realCoordinatorsCount !== null && (
+                          <p className="mt-1 text-[11px] text-emerald-600 font-medium">Real</p>
+                        )}
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.total_guards)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Guards</div>
-                        </div>
+                      <div className="text-center rounded-xl border border-slate-200 bg-white px-3 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Guards
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {renderValue(campus?.total_guards)}
+                        </p>
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.other_staff)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Other Staff</div>
+                      <div className="text-center rounded-xl border border-slate-200 bg-white px-3 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Other Staff
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {renderValue(campus?.other_staff)}
+                        </p>
+                      </div>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-3 mt-2">
+                      <div className="text-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Male Teachers
+                        </p>
+                        <p className="mt-1 text-sm sm:text-base font-bold text-slate-900">
+                          {renderValue(campus?.male_teachers)}
+                        </p>
                       </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 sm:gap-3 mt-4">
-                      <div className="text-center p-2 sm:p-3 rounded-lg border" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                        <div className="text-sm sm:text-base font-bold" style={{color: '#274c77'}}>{renderValue(campus?.male_teachers)}</div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Male Teachers</div>
+                      <div className="text-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Female Teachers
+                        </p>
+                        <p className="mt-1 text-sm sm:text-base font-bold text-slate-900">
+                          {renderValue(campus?.female_teachers)}
+                        </p>
                       </div>
-                      <div className="text-center p-2 sm:p-3 rounded-lg border" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                        <div className="text-sm sm:text-base font-bold" style={{color: '#274c77'}}>{renderValue(campus?.female_teachers)}</div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Female Teachers</div>
-                  </div>
                     </div>
                   </CardContent>
                 </Card>
 
 
                 {/* Location & Contact Information */}
-                <Card className="shadow-lg border-0 overflow-hidden lg:col-span-2" style={{backgroundColor: '#e7ecef'}}>
-                  <CardHeader className="p-0">
-                    <div className="p-4" style={{background: 'linear-gradient(135deg, #6096ba 0%, #a3cef1 100%)'}}>
-                      <CardTitle className="flex items-center gap-2 text-white text-lg">
-                        <div className="p-1.5 rounded" style={{backgroundColor: 'rgba(255,255,255,0.2)'}}>
-                          <MapPin className="w-4 h-4" />
-                        </div>
-                        Location & Contact Information
-                      </CardTitle>
+                <Card className="shadow-sm border border-slate-200 bg-white/90 rounded-2xl overflow-hidden lg:col-span-2">
+                  <CardHeader className="pb-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-sky-50">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-xl bg-[#274c77]/10 flex items-center justify-center text-[#274c77]">
+                        <MapPin className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base font-semibold text-slate-900">
+                          Location & Contact
+                        </CardTitle>
+                        <p className="text-xs text-slate-500">
+                          Address and key contact channels
+                        </p>
+                      </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="p-4">
-                    <div className="mb-4">
-                      <label className="text-xs font-semibold uppercase tracking-wide mb-2 block" style={{color: '#8b8c89'}}>Full Address</label>
-                      <div className="p-3 rounded-lg border" style={{backgroundColor: '#a3cef1', borderColor: '#6096ba'}}>
-                        <p className="text-sm leading-relaxed" style={{color: '#274c77'}}>{renderValue(campus?.address_full)}</p>
+                  <CardContent className="p-4 sm:p-6 space-y-4">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                        Full Address
+                      </p>
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm leading-relaxed text-slate-800">
+                        {renderValue(campus?.address_full)}
                       </div>
                     </div>
                     
-                    {/* Location Details */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#6096ba'}}>
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center mx-auto mb-2" style={{backgroundColor: '#a3cef1'}}>
-                            <MapPin className="w-4 h-4" style={{color: '#274c77'}} />
-                          </div>
-                          <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>City</label>
-                          <p className="text-sm font-bold" style={{color: '#274c77'}}>{renderValue(campus?.city)}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          City
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-sky-600" />
+                          <span className="text-sm font-medium text-slate-900">
+                            {renderValue(campus?.city)}
+                          </span>
                         </div>
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center mx-auto mb-2" style={{backgroundColor: '#e7ecef'}}>
-                            <Building className="w-4 h-4" style={{color: '#6096ba'}} />
-                          </div>
-                          <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>District</label>
-                          <p className="text-sm font-bold" style={{color: '#274c77'}}>{renderValue(campus?.district)}</p>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          District
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 flex items-center gap-2">
+                          <Building className="w-4 h-4 text-slate-500" />
+                          <span className="text-sm font-medium text-slate-900">
+                            {renderValue(campus?.district)}
+                          </span>
                         </div>
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center mx-auto mb-2" style={{backgroundColor: '#a3cef1'}}>
-                            <Mail className="w-4 h-4" style={{color: '#274c77'}} />
-                          </div>
-                          <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Postal Code</label>
-                          <p className="text-sm font-bold" style={{color: '#274c77'}}>{renderValue(campus?.postal_code)}</p>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Postal Code
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 flex items-center gap-2">
+                          <Mail className="w-4 h-4 text-sky-600" />
+                          <span className="text-sm font-medium text-slate-900">
+                            {renderValue(campus?.postal_code)}
+                          </span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Contact Details */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Primary Phone</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#6096ba'}}>
-                          <div className="flex items-center gap-2">
-                            <Phone className="w-4 h-4" style={{color: '#6096ba'}} />
-                            <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.primary_phone)}</p>
-                          </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Primary Phone
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 flex items-center gap-2">
+                          <Phone className="w-4 h-4 text-sky-600" />
+                          <span className="text-sm font-medium text-slate-900">
+                            {renderValue(campus?.primary_phone)}
+                          </span>
                         </div>
                       </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Secondary Phone</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <div className="flex items-center gap-2">
-                            <Phone className="w-4 h-4" style={{color: '#8b8c89'}} />
-                            <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.secondary_phone)}</p>
-                          </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Secondary Phone
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 flex items-center gap-2">
+                          <Phone className="w-4 h-4 text-slate-500" />
+                          <span className="text-sm font-medium text-slate-900">
+                            {renderValue(campus?.secondary_phone)}
+                          </span>
                         </div>
                       </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Official Email</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                          <div className="flex items-center gap-2">
-                            <Mail className="w-4 h-4" style={{color: '#274c77'}} />
-                            <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.official_email)}</p>
-                          </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Official Email
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 flex items-center gap-2">
+                          <Mail className="w-4 h-4 text-[#274c77]" />
+                          <span className="text-sm font-medium text-slate-900">
+                            {renderValue(campus?.official_email)}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-              </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
 
                 {/* Administration */}
-                <Card className="shadow-lg border-0 overflow-hidden" style={{backgroundColor: '#e7ecef'}}>
-                  <CardHeader className="p-0">
-                    <div className="p-4" style={{background: 'linear-gradient(135deg, #6096ba 0%, #a3cef1 100%)'}}>
-                      <CardTitle className="flex items-center gap-2 text-white text-lg">
-                        <div className="p-1.5 rounded" style={{backgroundColor: 'rgba(255,255,255,0.2)'}}>
-                          <UserCheck className="w-4 h-4" />
-                        </div>
-                        Administration
-                </CardTitle>
+                <Card className="shadow-sm border border-slate-200 bg-white/90 rounded-2xl overflow-hidden">
+                  <CardHeader className="pb-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-sky-50">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-xl bg-[#274c77]/10 flex items-center justify-center text-[#274c77]">
+                        <UserCheck className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base font-semibold text-slate-900">
+                          Administration
+                        </CardTitle>
+                        <p className="text-xs text-slate-500">
+                          Campus leadership and key contacts
+                        </p>
+                      </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Campus Head Name</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#6096ba'}}>
-                          <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.campus_head_name)}</p>
+                  <CardContent className="p-4 sm:p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Campus Head Name
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900">
+                          {renderValue(campus?.campus_head_name)}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Campus Head Phone
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
+                          {renderValue(campus?.campus_head_phone)}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Campus Head Email
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
+                          {renderValue(campus?.campus_head_email)}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Total Staff Members
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900 text-center">
+                          {renderValue(campus?.total_staff_members)}
+                        </div>
+                      </div>
                     </div>
-                    </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Campus Head Phone</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.campus_head_phone)}</p>
-                    </div>
-                  </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Campus Head Email</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                          <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.campus_head_email)}</p>
-                    </div>
-                    </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Total Staff Members</label>
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: '#a3cef1', borderColor: '#6096ba'}}>
-                          <p className="text-xl font-bold text-center" style={{color: '#274c77'}}>{renderValue(campus?.total_staff_members)}</p>
-              </div>
-            </div>
-          </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
 
             {/* Academic Information */}
-                <Card className="shadow-lg border-0 overflow-hidden" style={{backgroundColor: '#e7ecef'}}>
-                  <CardHeader className="p-0">
-                    <div className="p-4" style={{background: 'linear-gradient(135deg, #274c77 0%, #6096ba 100%)'}}>
-                      <CardTitle className="flex items-center gap-2 text-white text-lg">
-                        <div className="p-1.5 rounded" style={{backgroundColor: 'rgba(255,255,255,0.2)'}}>
-                          <BookOpen className="w-4 h-4" />
-                        </div>
-                  Academic Information
-                </CardTitle>
+                <Card className="shadow-sm border border-slate-200 bg-white/90 rounded-2xl overflow-hidden">
+                  <CardHeader className="pb-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-sky-50">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-xl bg-[#274c77]/10 flex items-center justify-center text-[#274c77]">
+                        <BookOpen className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base font-semibold text-slate-900">
+                          Academic Information
+                        </CardTitle>
+                        <p className="text-xs text-slate-500">
+                          Academic calendar, shifts & grades
+                        </p>
+                      </div>
                     </div>
-              </CardHeader>
-                  <CardContent className="p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Academic Year Start Month</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#6096ba'}}>
-                          <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.academic_year_start_month)}</p>
-              </div>
-              </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Academic Year End Month</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.academic_year_end_month)}</p>
-              </div>
-            </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Shift Available</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                          <Badge 
-                            className="text-sm px-2 py-1 font-semibold"
-                            style={{backgroundColor: '#6096ba', color: 'white'}}
-                          >
+                  </CardHeader>
+                  <CardContent className="p-4 sm:p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Academic Year Start
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
+                          {renderValue(campus?.academic_year_start_month)}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Academic Year End
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
+                          {renderValue(campus?.academic_year_end_month)}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Shift Available
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                          <Badge className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200 text-xs font-semibold">
                             {renderValue(campus?.shift_available)}
                           </Badge>
-              </div>
-              </div>
-                      <div className="group">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Grades Available</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: '#a3cef1', borderColor: '#6096ba'}}>
-                          <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.grades_available)}</p>
-              </div>
-            </div>
-                      <div className="group md:col-span-2">
-                        <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Grades Offered</label>
-                        <div className="p-2 rounded-lg border transition-all duration-300 group-hover:shadow-sm" style={{backgroundColor: '#a3cef1', borderColor: '#6096ba'}}>
-                          <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.grades_offered)}</p>
-              </div>
-            </div>
-          </div>
-              </CardContent>
-            </Card>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Grades Available
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
+                          {renderValue(campus?.grades_available)}
+                        </div>
+                      </div>
+                      <div className="md:col-span-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                          Grades Offered
+                        </p>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
+                          {renderValue(campus?.grades_offered)}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
 
                 {/* Student Demographics - Large Card */}
-                <Card className="shadow-lg border-0 overflow-hidden lg:col-span-2" style={{backgroundColor: '#e7ecef'}}>
-                  <CardHeader className="p-0">
-                    <div className="p-4" style={{background: 'linear-gradient(135deg, #274c77 0%, #6096ba 100%)'}}>
-                      <CardTitle className="flex items-center gap-2 text-white text-lg">
-                        <div className="p-1.5 rounded" style={{backgroundColor: 'rgba(255,255,255,0.2)'}}>
-                          <Users className="w-4 h-4" />
-                        </div>
-                        Student Demographics
-                </CardTitle>
+                <Card className="shadow-sm border border-slate-200 bg-white/90 rounded-2xl overflow-hidden lg:col-span-2">
+                  <CardHeader className="pb-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-sky-50">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-xl bg-[#274c77]/10 flex items-center justify-center text-[#274c77]">
+                        <Users className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base font-semibold text-slate-900">
+                          Student Demographics
+                        </CardTitle>
+                        <p className="text-xs text-slate-500">
+                          Real enrollment, gender & shift overview
+                        </p>
+                      </div>
                     </div>
-              </CardHeader>
-                  <CardContent className="p-4">
+                  </CardHeader>
+                  <CardContent className="p-4 sm:p-6 space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div className="group text-center">
-                        <div className="p-4 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: '#a3cef1', borderColor: '#6096ba'}}>
-                          <div className="text-2xl font-bold mb-1" style={{color: '#274c77'}}>
-                            {realStudentData?.total !== undefined ? realStudentData.total : renderValue(campus?.total_students)}
-                          </div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Total Students</div>
-                          {realStudentData?.total !== undefined && (
-                            <div className="text-xs mt-1" style={{color: '#6096ba'}}>Real Count</div>
-                          )}
-                        </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Total Students
+                        </p>
+                        <p className="mt-1 text-2xl font-bold text-slate-900">
+                          {realStudentData?.total !== undefined ? realStudentData.total : renderValue(campus?.total_students)}
+                        </p>
+                        {realStudentData?.total !== undefined && (
+                          <p className="mt-1 text-[11px] text-sky-600 font-medium">Real Database Count</p>
+                        )}
                       </div>
-                      <div className="group text-center">
-                        <div className="p-4 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                          <div className="text-2xl font-bold mb-1" style={{color: '#274c77'}}>
-                            {realTeachersCount !== null ? realTeachersCount : renderValue(campus?.total_teachers)}
-                          </div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Total Teachers</div>
-                          {realTeachersCount !== null && (
-                            <div className="text-xs mt-1" style={{color: '#6096ba'}}>Real Count</div>
-                          )}
-                        </div>
+                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Total Teachers
+                        </p>
+                        <p className="mt-1 text-2xl font-bold text-slate-900">
+                          {realTeachersCount !== null ? realTeachersCount : renderValue(campus?.total_teachers)}
+                        </p>
+                        {realTeachersCount !== null && (
+                          <p className="mt-1 text-[11px] text-sky-600 font-medium">Real Count</p>
+                        )}
                       </div>
-                      <div className="group text-center">
-                        <div className="p-4 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <div className="text-2xl font-bold mb-1" style={{color: '#274c77'}}>
-                            {realCoordinatorsCount !== null ? realCoordinatorsCount : renderValue(campus?.total_coordinators)}
-                        </div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Coordinators</div>
-                          {realCoordinatorsCount !== null && (
-                            <div className="text-xs mt-1" style={{color: '#6096ba'}}>Real Count</div>
-                          )}
+                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Coordinators
+                        </p>
+                        <p className="mt-1 text-2xl font-bold text-slate-900">
+                          {realCoordinatorsCount !== null ? realCoordinatorsCount : renderValue(campus?.total_coordinators)}
+                        </p>
+                        {realCoordinatorsCount !== null && (
+                          <p className="mt-1 text-[11px] text-sky-600 font-medium">Real Count</p>
+                        )}
                       </div>
                     </div>
-                      </div>
-                    
-                    {/* Additional Stats Row */}
-                    <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mt-4">
-                      <div className="text-center p-2 sm:p-3 rounded-lg border" style={{backgroundColor: 'white', borderColor: '#6096ba'}}>
-                        <div className="text-base sm:text-lg font-bold" style={{color: '#274c77'}}>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Male Students
+                        </p>
+                        <p className="mt-1 text-sm sm:text-base font-bold text-slate-900">
                           {realStudentData?.male !== undefined ? realStudentData.male : renderValue(campus?.male_students)}
+                        </p>
                       </div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Male Students</div>
-                      </div>
-                      <div className="text-center p-2 sm:p-3 rounded-lg border" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                        <div className="text-base sm:text-lg font-bold" style={{color: '#274c77'}}>
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Female Students
+                        </p>
+                        <p className="mt-1 text-sm sm:text-base font-bold text-slate-900">
                           {realStudentData?.female !== undefined ? realStudentData.female : renderValue(campus?.female_students)}
-                        </div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Female Students</div>
+                        </p>
                       </div>
-                      <div className="text-center p-2 sm:p-3 rounded-lg border" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                        <div className="text-base sm:text-lg font-bold" style={{color: '#274c77'}}>
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Morning Shift
+                        </p>
+                        <p className="mt-1 text-sm sm:text-base font-bold text-slate-900">
                           {realStudentData?.morning !== undefined ? realStudentData.morning : renderValue(campus?.morning_students)}
-                        </div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Morning Shift</div>
+                        </p>
                       </div>
-                      <div className="text-center p-2 sm:p-3 rounded-lg border" style={{backgroundColor: 'white', borderColor: '#6096ba'}}>
-                        <div className="text-base sm:text-lg font-bold" style={{color: '#274c77'}}>
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Afternoon Shift
+                        </p>
+                        <p className="mt-1 text-sm sm:text-base font-bold text-slate-900">
                           {realStudentData?.afternoon !== undefined ? realStudentData.afternoon : renderValue(campus?.afternoon_students)}
-                        </div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Afternoon Shift</div>
+                        </p>
                       </div>
                     </div>
-                    
-                    {/* Capacity and Class Size Info */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-                      <div className="text-center p-3 rounded-lg border" style={{backgroundColor: '#f0f0f0', borderColor: '#8b8c89'}}>
-                        <div className="text-lg font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.student_capacity)}</div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Student Capacity</div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Student Capacity
+                        </p>
+                        <p className="mt-1 text-lg font-bold text-slate-900">
+                          {renderValue(campus?.student_capacity)}
+                        </p>
                       </div>
-                      <div className="text-center p-3 rounded-lg border" style={{backgroundColor: '#f0f0f0', borderColor: '#8b8c89'}}>
-                        <div className="text-lg font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.avg_class_size)}</div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Avg Class Size</div>
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Avg Class Size
+                        </p>
+                        <p className="mt-1 text-lg font-bold text-slate-900">
+                          {renderValue(campus?.avg_class_size)}
+                        </p>
                       </div>
                     </div>
                   </CardContent>
@@ -812,142 +945,201 @@ function CampusProfileContent() {
 
                 
                 {/* Infrastructure - Large Card */}
-                <Card className="shadow-lg border-0 overflow-hidden lg:col-span-2" style={{backgroundColor: '#e7ecef'}}>
-                  <CardHeader className="p-0">
-                    <div className="p-4" style={{background: 'linear-gradient(135deg, #274c77 0%, #6096ba 100%)'}}>
-                      <CardTitle className="flex items-center gap-2 text-white text-lg">
-                        <div className="p-1.5 rounded" style={{backgroundColor: 'rgba(255,255,255,0.2)'}}>
-                          <Building className="w-4 h-4" />
-                        </div>
-                        Infrastructure & Facilities
-                      </CardTitle>
+                <Card className="shadow-sm border border-slate-200 bg-white/90 rounded-2xl overflow-hidden lg:col-span-2">
+                  <CardHeader className="pb-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-sky-50">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-xl bg-[#274c77]/10 flex items-center justify-center text-[#274c77]">
+                        <Building className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base font-semibold text-slate-900">
+                          Infrastructure & Facilities
+                        </CardTitle>
+                        <p className="text-xs text-slate-500">
+                          Rooms, labs, washrooms and key facilities
+                        </p>
+                      </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="p-4">
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: '#a3cef1', borderColor: '#6096ba'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.total_rooms)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Total Rooms</div>
-                        </div>
+                  <CardContent className="p-4 sm:p-6 space-y-4">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Total Rooms
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {renderValue(campus?.total_rooms)}
+                        </p>
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.total_classrooms)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Classrooms</div>
-                        </div>
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Classrooms
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {renderValue(campus?.total_classrooms)}
+                        </p>
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.total_offices)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Offices</div>
-                        </div>
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Offices
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {renderValue(campus?.total_offices)}
+                        </p>
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#6096ba'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.num_computer_labs)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Computer Labs</div>
-                        </div>
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Computer Labs
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {renderValue(campus?.num_computer_labs)}
+                        </p>
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.num_science_labs)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Science Labs</div>
-                    </div>
-                  </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.num_biology_labs)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Biology Labs</div>
-                    </div>
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Science Labs
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {renderValue(campus?.num_science_labs)}
+                        </p>
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#6096ba'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.num_chemistry_labs)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Chemistry Labs</div>
-                        </div>
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Biology Labs
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {renderValue(campus?.num_biology_labs)}
+                        </p>
                       </div>
-                      <div className="group text-center">
-                        <div className="p-3 rounded-lg border transition-all duration-300 group-hover:shadow-sm group-hover:scale-105" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <div className="text-xl font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.num_physics_labs)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Physics Labs</div>
-                        </div>
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Chemistry Labs
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {renderValue(campus?.num_chemistry_labs)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Physics Labs
+                        </p>
+                        <p className="mt-1 text-xl font-bold text-slate-900">
+                          {renderValue(campus?.num_physics_labs)}
+                        </p>
                       </div>
                     </div>
 
                     {/* Washrooms Section */}
-                    <div className="mb-4">
-                      <label className="text-xs font-semibold uppercase tracking-wide mb-3 block" style={{color: '#8b8c89'}}>Washrooms</label>
+                    <div className="space-y-3 pt-2 border-t border-slate-100">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Washrooms
+                      </p>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="text-center p-3 rounded-lg border" style={{backgroundColor: '#a3cef1', borderColor: '#6096ba'}}>
-                          <div className="text-lg font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.total_washrooms)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Total Washrooms</div>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-center">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Total Washrooms
+                          </p>
+                          <p className="mt-1 text-lg font-bold text-slate-900">
+                            {renderValue(campus?.total_washrooms)}
+                          </p>
                         </div>
-                        <div className="text-center p-3 rounded-lg border" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                          <div className="text-lg font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.male_teachers_washrooms)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Male Teachers</div>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Male Teachers
+                          </p>
+                          <p className="mt-1 text-lg font-bold text-slate-900">
+                            {renderValue(campus?.male_teachers_washrooms)}
+                          </p>
                         </div>
-                        <div className="text-center p-3 rounded-lg border" style={{backgroundColor: 'white', borderColor: '#6096ba'}}>
-                          <div className="text-lg font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.female_teachers_washrooms)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Female Teachers</div>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Female Teachers
+                          </p>
+                          <p className="mt-1 text-lg font-bold text-slate-900">
+                            {renderValue(campus?.female_teachers_washrooms)}
+                          </p>
                         </div>
-                        <div className="text-center p-3 rounded-lg border" style={{backgroundColor: 'white', borderColor: '#8b8c89'}}>
-                          <div className="text-lg font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.male_student_washrooms)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Male Students</div>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Male Students
+                          </p>
+                          <p className="mt-1 text-lg font-bold text-slate-900">
+                            {renderValue(campus?.male_student_washrooms)}
+                          </p>
                         </div>
-                        <div className="text-center p-3 rounded-lg border md:col-start-2" style={{backgroundColor: 'white', borderColor: '#274c77'}}>
-                          <div className="text-lg font-bold mb-1" style={{color: '#274c77'}}>{renderValue(campus?.female_student_washrooms)}</div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Female Students</div>
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-center md:col-start-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Female Students
+                          </p>
+                          <p className="mt-1 text-lg font-bold text-slate-900">
+                            {renderValue(campus?.female_student_washrooms)}
+                          </p>
                         </div>
                       </div>
                     </div>
 
                     {/* Facilities */}
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wide mb-3 block" style={{color: '#8b8c89'}}>Facilities</label>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
-                        <div className={`p-2 sm:p-3 rounded-lg border text-center ${campus?.library_available ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
-                          <div className="text-sm sm:text-base font-bold" style={{color: campus?.library_available ? '#274c77' : '#8b8c89'}}>
-                          {campus?.library_available ? '✓' : '✗'}
+                    <div className="space-y-3 pt-2 border-t border-slate-100">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Facilities
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        <div className={`px-3 py-2.5 rounded-lg border text-center ${campus?.library_available ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Library
+                          </p>
+                          <p className="mt-1 text-sm font-bold text-slate-900">
+                            {campus?.library_available ? 'Available' : 'No'}
+                          </p>
                         </div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Library</div>
-                      </div>
-                        <div className={`p-2 sm:p-3 rounded-lg border text-center ${campus?.power_backup ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
-                          <div className="text-sm sm:text-base font-bold" style={{color: campus?.power_backup ? '#274c77' : '#8b8c89'}}>
-                          {campus?.power_backup ? '✓' : '✗'}
+                        <div className={`px-3 py-2.5 rounded-lg border text-center ${campus?.power_backup ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Power Backup
+                          </p>
+                          <p className="mt-1 text-sm font-bold text-slate-900">
+                            {campus?.power_backup ? 'Available' : 'No'}
+                          </p>
                         </div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Power Backup</div>
-                      </div>
-                        <div className={`p-2 sm:p-3 rounded-lg border text-center ${campus?.internet_available ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
-                          <div className="text-sm sm:text-base font-bold" style={{color: campus?.internet_available ? '#274c77' : '#8b8c89'}}>
-                          {campus?.internet_available ? '✓' : '✗'}
+                        <div className={`px-3 py-2.5 rounded-lg border text-center ${campus?.internet_available ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Internet
+                          </p>
+                          <p className="mt-1 text-sm font-bold text-slate-900">
+                            {campus?.internet_available ? 'Available' : 'No'}
+                          </p>
                         </div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Internet</div>
-                      </div>
-                        <div className={`p-2 sm:p-3 rounded-lg border text-center ${campus?.teacher_transport ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
-                          <div className="text-sm sm:text-base font-bold" style={{color: campus?.teacher_transport ? '#274c77' : '#8b8c89'}}>
-                            {campus?.teacher_transport ? '✓' : '✗'}
+                        <div className={`px-3 py-2.5 rounded-lg border text-center ${campus?.teacher_transport ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Teacher Transport
+                          </p>
+                          <p className="mt-1 text-sm font-bold text-slate-900">
+                            {campus?.teacher_transport ? 'Available' : 'No'}
+                          </p>
                         </div>
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Teacher Transport</div>
-                      </div>
-                        <div className={`p-2 sm:p-3 rounded-lg border text-center ${campus?.canteen_facility ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
-                          <div className="text-sm sm:text-base font-bold" style={{color: campus?.canteen_facility ? '#274c77' : '#8b8c89'}}>
-                          {campus?.canteen_facility ? '✓' : '✗'}
+                        <div className={`px-3 py-2.5 rounded-lg border text-center ${campus?.canteen_facility ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Canteen
+                          </p>
+                          <p className="mt-1 text-sm font-bold text-slate-900">
+                            {campus?.canteen_facility ? 'Available' : 'No'}
+                          </p>
                         </div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Canteen</div>
-                      </div>
-                        <div className={`p-2 sm:p-3 rounded-lg border text-center ${campus?.meal_program ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
-                          <div className="text-sm sm:text-base font-bold" style={{color: campus?.meal_program ? '#274c77' : '#8b8c89'}}>
-                          {campus?.meal_program ? '✓' : '✗'}
+                        <div className={`px-3 py-2.5 rounded-lg border text-center ${campus?.meal_program ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Meal Program
+                          </p>
+                          <p className="mt-1 text-sm font-bold text-slate-900">
+                            {campus?.meal_program ? 'Available' : 'No'}
+                          </p>
                         </div>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{color: '#8b8c89'}}>Meal Program</div>
-                      </div>
                       </div>
                       {campus?.sports_available && (
-                        <div className="mt-3">
-                          <label className="text-xs font-semibold uppercase tracking-wide mb-1 block" style={{color: '#8b8c89'}}>Sports Available</label>
-                          <div className="p-2 rounded-lg border" style={{backgroundColor: '#a3cef1', borderColor: '#6096ba'}}>
-                            <p className="text-sm font-semibold" style={{color: '#274c77'}}>{renderValue(campus?.sports_available)}</p>
+                        <div className="mt-1">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide mb-1 text-slate-500">
+                            Sports Available
+                          </p>
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
+                            {renderValue(campus?.sports_available)}
                           </div>
                         </div>
                       )}
@@ -1041,14 +1233,7 @@ function CampusProfileContent() {
                   total_students: realStudentData !== null ? (realStudentData.total || 0) : (campus?.total_students || 0)
                 }}
               />
-              {/* Info badge - Show only if real data was fetched (even if count is 0) */}
-              {realStudentData !== null && (
-                <div className="mt-2 text-xs text-center">
-                  <Badge variant="outline" className="text-blue-600 border-blue-300">
-                    Real Database Count: {realStudentData.total || 0} students
-                  </Badge>
-              </div>
-              )}
+              
             </div>
 
                 {/* Staff Distribution Chart */}

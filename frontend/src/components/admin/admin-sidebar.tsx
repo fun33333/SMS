@@ -183,7 +183,8 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
         icon: LayoutDashboard,
         href: "/admin/coordinator",
         subItems: [],
-      }, {
+      },
+      {
         key: "students",
         title: "Students",
         icon: Users,
@@ -192,13 +193,25 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
           { title: "Student List", href: "/admin/students/student-list" },
           { title: "Add Student", href: "/admin/students/add" },
         ],
-      }, {
+      },
+      {
         key: "attendance",
         title: "Attendance Review",
         icon: Calendar,
         href: "/admin/coordinator/attendance-review",
         subItems: [],
-      }, {
+      },
+
+      {
+        key: "transfers",
+        title: "Transfers Management",
+        icon: ArrowRightLeft,
+        href: "/admin/principals/transfers",
+        subItems: [
+          { title: "Transfer Management", href: "/admin/principals/transfers" },
+        ],
+      },
+      {
         key: "teachers",
         title: "Teachers",
         icon: GraduationCap,
@@ -237,18 +250,7 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
           { title: "Student List", href: "/admin/students/student-list" },
           { title: "Add Student", href: "/admin/students/add" },
         ],
-      },
-      // {
-      //   key: "principals",
-      //   title: "Principals",
-      //   icon: Award,
-      //   href: "/admin/principals/list",
-      //   subItems: [
-      //     { title: "Add Principal", href: "/admin/principals/add" },
-      //     { title: "Principal List", href: "/admin/principals/list" }
-      //   ],
-      // },
-      {
+      },{
         key: "teachers",
         title: "Teachers",
         icon: GraduationCap,
