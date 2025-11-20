@@ -10,58 +10,85 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { 
-  Plus, 
-  Eye, 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
-  User, 
-  GraduationCap, 
-  Building, 
+import {
+  Plus,
+  Eye,
+  CheckCircle,
+  XCircle,
+  Clock,
+  User,
+  GraduationCap,
+  Building,
   Calendar,
   AlertCircle,
   ArrowLeft,
-  FileText
+  FileText,
+  ArrowRightLeft,
+  ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { 
-  getTransferRequests, 
-  approveTransfer, 
-  declineTransfer, 
+import {
+  getTransferRequests,
+  approveTransfer,
+  declineTransfer,
   cancelTransfer,
-  TransferRequest 
+  TransferRequest,
+  ClassTransfer,
+  ShiftTransfer,
+  getClassTransfers,
+  getShiftTransfers,
+  approveClassTransfer,
+  declineClassTransfer,
+  approveShiftTransferOwn,
+  approveShiftTransferOther,
+  declineShiftTransfer,
 } from '@/lib/api';
 import { getCurrentUserRole } from '@/lib/permissions';
 
 export default function TransferManagementPage() {
   const router = useRouter();
   const userRole = getCurrentUserRole();
+  const isPrincipal = userRole === 'principal';
+  const isTeacher = userRole === 'teacher';
+  const isCoordinator = userRole === 'coordinator';
+
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
-  
-  
-  // Data
+
   const [outgoingRequests, setOutgoingRequests] = useState<TransferRequest[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<TransferRequest[]>([]);
-  
+
+  const [classTransfers, setClassTransfers] = useState<ClassTransfer[]>([]);
+  const [shiftTransfers, setShiftTransfers] = useState<ShiftTransfer[]>([]);
+  const [classStatusFilter, setClassStatusFilter] = useState<'pending' | 'history'>('pending');
+  const [shiftStatusFilter, setShiftStatusFilter] = useState<'pending' | 'history'>('pending');
+  const [expandedClassId, setExpandedClassId] = useState<number | null>(null);
+
   // UI State
   const [selectedRequest, setSelectedRequest] = useState<TransferRequest | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showDeclineDialog, setShowDeclineDialog] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
-  
-  // Load data
+
+  const [selectedClassTransfer, setSelectedClassTransfer] = useState<ClassTransfer | null>(null);
+  const [selectedShiftTransfer, setSelectedShiftTransfer] = useState<ShiftTransfer | null>(null);
+
+  // Load data on mount based on role
   useEffect(() => {
-    loadTransferRequests();
-  }, []);
-  
-  const loadTransferRequests = async () => {
+    if (isPrincipal) {
+      loadPrincipalTransferRequests();
+    } else {
+      loadTeacherCoordinatorTransfers();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPrincipal, isTeacher, isCoordinator]);
+
+  const loadPrincipalTransferRequests = async () => {
     try {
       setLoading(true);
       const [outgoing, incoming] = await Promise.all([
         getTransferRequests({ direction: 'outgoing' }),
-        getTransferRequests({ direction: 'incoming' })
+        getTransferRequests({ direction: 'incoming' }),
       ]);
       setOutgoingRequests(outgoing as TransferRequest[]);
       setIncomingRequests(incoming as TransferRequest[]);
@@ -72,13 +99,31 @@ export default function TransferManagementPage() {
       setLoading(false);
     }
   };
-  
+
+  const loadTeacherCoordinatorTransfers = async () => {
+    try {
+      setLoading(true);
+      const [classes, shifts] = await Promise.all([
+        getClassTransfers(),
+        getShiftTransfers(),
+      ]);
+      setClassTransfers(classes as ClassTransfer[]);
+      setShiftTransfers(shifts as ShiftTransfer[]);
+    } catch (error) {
+      console.error('Error loading transfers:', error);
+      toast.error('Failed to load transfer data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Principal actions
   const handleApprove = async (requestId: number) => {
     try {
       setActionLoading(requestId);
       await approveTransfer(requestId);
       toast.success('Transfer approved successfully');
-      await loadTransferRequests();
+      await loadPrincipalTransferRequests();
     } catch (error: any) {
       console.error('Error approving transfer:', error);
       toast.error(error.message || 'Failed to approve transfer');
@@ -86,13 +131,13 @@ export default function TransferManagementPage() {
       setActionLoading(null);
     }
   };
-  
+
   const handleDecline = async () => {
     if (!selectedRequest || !declineReason.trim()) {
       toast.error('Please provide a reason for declining');
       return;
     }
-    
+
     try {
       setActionLoading(selectedRequest.id);
       await declineTransfer(selectedRequest.id, declineReason);
@@ -100,7 +145,7 @@ export default function TransferManagementPage() {
       setShowDeclineDialog(false);
       setDeclineReason('');
       setSelectedRequest(null);
-      await loadTransferRequests();
+      await loadPrincipalTransferRequests();
     } catch (error: any) {
       console.error('Error declining transfer:', error);
       toast.error(error.message || 'Failed to decline transfer');
@@ -108,13 +153,13 @@ export default function TransferManagementPage() {
       setActionLoading(null);
     }
   };
-  
+
   const handleCancel = async (requestId: number) => {
     try {
       setActionLoading(requestId);
       await cancelTransfer(requestId);
       toast.success('Transfer cancelled successfully');
-      await loadTransferRequests();
+      await loadPrincipalTransferRequests();
     } catch (error: any) {
       console.error('Error cancelling transfer:', error);
       toast.error(error.message || 'Failed to cancel transfer');
@@ -276,7 +321,320 @@ export default function TransferManagementPage() {
       </CardContent>
     </Card>
   );
-  
+
+  // ---------------- Teacher/Coordinator: Class & Shift transfers ----------
+
+  const renderClassTransferCard = (transfer: ClassTransfer) => {
+    const isExpanded = expandedClassId === transfer.id;
+
+    const fromText = transfer.from_grade_name
+      ? `${transfer.from_grade_name}${transfer.from_section ? ` (${transfer.from_section})` : ''}`
+      : transfer.from_classroom_display || '-';
+
+    const toText = transfer.to_grade_name
+      ? `${transfer.to_grade_name}${transfer.to_section ? ` (${transfer.to_section})` : ''}`
+      : transfer.to_classroom_display || '-';
+
+    return (
+      <Card
+        key={transfer.id}
+        className="hover:shadow-md transition-shadow border border-gray-100 rounded-2xl bg-white/80"
+      >
+        <CardContent className="p-3 md:p-4">
+          {/* Clickable summary row */}
+          <button
+            type="button"
+            onClick={() =>
+              setExpandedClassId(prev => (prev === transfer.id ? null : transfer.id))
+            }
+            className="w-full flex items-center justify-between gap-3 text-left"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <GraduationCap className="h-5 w-5 text-blue-600 shrink-0" />
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-sm md:text-base text-gray-900 truncate">
+                    {transfer.student_name}
+                  </h3>
+                  {getStatusIcon(transfer.status)}
+                </div>
+                <p className="text-[11px] text-gray-500 truncate">
+                  {transfer.student_id}
+                </p>
+              </div>
+            </div>
+
+            <div className="hidden md:flex flex-col items-end text-[11px] text-gray-600 flex-1">
+              <span className="font-medium text-gray-700">
+                {fromText} <span className="mx-1 text-gray-400">→</span> {toText}
+              </span>
+              <span>
+                {new Date(transfer.requested_date).toLocaleDateString()}
+                {transfer.initiated_by_teacher_name
+                  ? ` · ${transfer.initiated_by_teacher_name}`
+                  : ''}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="hidden sm:block">{getStatusBadge(transfer.status)}</div>
+              <ChevronDown
+                className={`h-4 w-4 text-gray-400 transition-transform ${
+                  isExpanded ? 'rotate-180' : ''
+                }`}
+              />
+            </div>
+          </button>
+
+          {/* Expanded details */}
+          {isExpanded && (
+            <div className="mt-3 border-t border-blue-100 pt-3 space-y-3 text-xs md:text-sm">
+              {/* From / To summary */}
+              <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-2 text-blue-900">
+                <div className="flex items-center gap-2 mb-2">
+                  <ArrowRightLeft className="h-3 w-3 md:h-4 md:w-4" />
+                  <span className="font-semibold text-xs">Class Transfer</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] uppercase tracking-wide text-blue-700 font-semibold">
+                      From
+                    </p>
+                    <p className="font-semibold">{fromText}</p>
+                    {transfer.initiated_by_teacher_name && (
+                      <p className="text-[11px] text-blue-800">
+                        Class Teacher: {transfer.initiated_by_teacher_name}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] uppercase tracking-wide text-blue-700 font-semibold">
+                      To
+                    </p>
+                    <p className="font-semibold">{toText}</p>
+                    {transfer.coordinator_name && (
+                      <p className="text-[11px] text-blue-800">
+                        Coordinator: {transfer.coordinator_name}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Reason */}
+              <div className="text-sm text-gray-700">
+                <span className="font-medium">Reason:</span>{' '}
+                <span>{transfer.reason}</span>
+              </div>
+
+              {/* Footer: status + actions */}
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {getStatusBadge(transfer.status)}
+                  {transfer.decline_reason && (
+                    <Badge variant="outline" className="text-red-600">
+                      {transfer.decline_reason}
+                    </Badge>
+                  )}
+                </div>
+
+                {isCoordinator && transfer.status === 'pending' && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          setActionLoading(transfer.id);
+                          await approveClassTransfer(transfer.id);
+                          toast.success('Class transfer approved');
+                          await loadTeacherCoordinatorTransfers();
+                        } catch (error: any) {
+                          console.error('Error approving class transfer:', error);
+                          toast.error(
+                            error.message || 'Failed to approve class transfer',
+                          );
+                        } finally {
+                          setActionLoading(null);
+                        }
+                      }}
+                      disabled={actionLoading === transfer.id}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      {actionLoading === transfer.id ? 'Approving...' : 'Approve'}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedClassTransfer(transfer);
+                        setDeclineReason('');
+                        setShowDeclineDialog(true);
+                      }}
+                      disabled={actionLoading === transfer.id}
+                    >
+                      Decline
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderShiftTransferCard = (transfer: ShiftTransfer) => (
+    <Card
+      key={transfer.id}
+      className="hover:shadow-md transition-shadow border border-gray-100 rounded-2xl bg-white/80"
+    >
+      <CardContent className="p-5 md:p-6">
+        <div className="flex flex-col gap-3">
+          {/* Header: student + meta */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <GraduationCap className="h-5 w-5 text-indigo-600" />
+              <div>
+                <h3 className="font-semibold text-base md:text-lg text-gray-900">
+                  {transfer.student_name}
+                </h3>
+                <p className="text-xs text-gray-500">{transfer.student_id}</p>
+              </div>
+              {getStatusIcon(transfer.status)}
+            </div>
+            <div className="text-right text-xs text-gray-500 space-y-1">
+              <div>
+                <span className="font-medium text-gray-600">Requested:</span>{' '}
+                <span>
+                  {new Date(transfer.requested_date).toLocaleDateString()}
+                </span>
+              </div>
+              {transfer.requesting_teacher_name && (
+                <div>
+                  <span className="font-medium text-gray-600">By:</span>{' '}
+                  <span>{transfer.requesting_teacher_name}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Shift + class summary */}
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-xs md:text-sm text-indigo-900">
+            <div className="flex items-center gap-2 mb-2">
+              <ArrowRightLeft className="h-3 w-3 md:h-4 md:w-4" />
+              <span className="font-semibold">Shift Transfer</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-0.5">
+                <p className="text-[11px] uppercase tracking-wide text-indigo-700 font-semibold">
+                  From
+                </p>
+                <p className="font-semibold">
+                  {(transfer.from_classroom_display || 'Current class') +
+                    ' • ' +
+                    transfer.from_shift}
+                </p>
+                {transfer.from_shift_coordinator_name && (
+                  <p className="text-[11px] text-indigo-800">
+                    Coordinator: {transfer.from_shift_coordinator_name}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-[11px] uppercase tracking-wide text-indigo-700 font-semibold">
+                  To
+                </p>
+                <p className="font-semibold">
+                  {(transfer.to_classroom_display || 'Same grade/section') +
+                    ' • ' +
+                    transfer.to_shift}
+                </p>
+                {transfer.to_shift_coordinator_name && (
+                  <p className="text-[11px] text-indigo-800">
+                    Coordinator: {transfer.to_shift_coordinator_name}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="mt-2 text-[11px] text-indigo-800">
+              <span className="font-medium">Campus: </span>
+              <span>{transfer.campus_name}</span>
+            </div>
+          </div>
+
+          {/* Reason */}
+          <div className="text-sm text-gray-700">
+            <span className="font-medium">Reason:</span>{' '}
+            <span>{transfer.reason}</span>
+          </div>
+
+          {/* Footer: status + actions */}
+          <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              {getStatusBadge(transfer.status)}
+              {transfer.decline_reason && (
+                <Badge variant="outline" className="text-red-600">
+                  {transfer.decline_reason}
+                </Badge>
+              )}
+            </div>
+
+            {isCoordinator &&
+              (transfer.status === 'pending_own_coord' ||
+                transfer.status === 'pending_other_coord') && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        setActionLoading(transfer.id);
+                        if (transfer.status === 'pending_own_coord') {
+                          await approveShiftTransferOwn(transfer.id);
+                        } else {
+                          await approveShiftTransferOther(transfer.id);
+                        }
+                        toast.success('Shift transfer approved');
+                        await loadTeacherCoordinatorTransfers();
+                      } catch (error: any) {
+                        console.error(
+                          'Error approving shift transfer:',
+                          error,
+                        );
+                        toast.error(
+                          error.message || 'Failed to approve shift transfer',
+                        );
+                      } finally {
+                        setActionLoading(null);
+                      }
+                    }}
+                    disabled={actionLoading === transfer.id}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {actionLoading === transfer.id ? 'Approving...' : 'Approve'}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedShiftTransfer(transfer);
+                      setDeclineReason('');
+                      setShowDeclineDialog(true);
+                    }}
+                    disabled={actionLoading === transfer.id}
+                  >
+                    Decline
+                  </Button>
+                </div>
+              )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 p-6">
@@ -292,6 +650,260 @@ export default function TransferManagementPage() {
     );
   }
   
+  // Teacher / Coordinator view: only class + shift transfers
+  if (!isPrincipal) {
+    const pendingClassCount = classTransfers.filter(t => t.status === 'pending').length;
+    const historyClassCount = classTransfers.length - pendingClassCount;
+
+    const pendingShiftCount = shiftTransfers.filter(
+      t => t.status === 'pending_own_coord' || t.status === 'pending_other_coord',
+    ).length;
+    const historyShiftCount = shiftTransfers.length - pendingShiftCount;
+
+    const filteredClassTransfers =
+      classStatusFilter === 'pending'
+        ? classTransfers.filter(t => t.status === 'pending')
+        : classTransfers;
+
+    const filteredShiftTransfers =
+      shiftStatusFilter === 'pending'
+        ? shiftTransfers.filter(
+            t => t.status === 'pending_own_coord' || t.status === 'pending_other_coord',
+          )
+        : shiftTransfers;
+    return (
+      <div className="min-h-[60vh] bg-gray-50 p-6 pb-8">
+        <div className="max-w-6xl mx-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.back()}
+                className="flex items-center gap-2"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Transfer Management</h1>
+                <p className="text-gray-600">
+                  View and manage class and shift transfer requests
+                </p>
+              </div>
+            </div>
+            <Button
+              onClick={() => router.push('/admin/principals/transfers/create')}
+              className="flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Create Transfer Request
+            </Button>
+          </div>
+
+          <Tabs defaultValue="class" className="space-y-6">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="class">
+                Class Transfers
+              </TabsTrigger>
+              <TabsTrigger value="shift">
+                Shift Transfers
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="class" className="space-y-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-gray-700">Class Transfers</h2>
+                <div className="inline-flex rounded-full bg-gray-100 p-1 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setClassStatusFilter('pending')}
+                    className={`px-3 py-1 rounded-full transition ${
+                      classStatusFilter === 'pending'
+                        ? 'bg-white shadow-sm text-blue-600'
+                        : 'text-gray-500'
+                    }`}
+                  >
+                    Pending ({pendingClassCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setClassStatusFilter('history')}
+                    className={`px-3 py-1 rounded-full transition ${
+                      classStatusFilter === 'history'
+                        ? 'bg-white shadow-sm text-blue-600'
+                        : 'text-gray-500'
+                    }`}
+                  >
+                    History ({historyClassCount})
+                  </button>
+                </div>
+              </div>
+              {filteredClassTransfers.length === 0 ? (
+                <Card className="border-dashed border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
+                  <CardContent className="py-10 px-6 text-center flex flex-col items-center justify-center gap-3">
+                    <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center mb-1">
+                      <FileText className="h-6 w-6 text-blue-500" />
+                    </div>
+                    <p className="text-base font-semibold text-gray-800">
+                      {classStatusFilter === 'pending'
+                        ? 'No pending class transfers'
+                        : 'No class transfer history yet'}
+                    </p>
+                    <p className="text-xs text-gray-500 max-w-md">
+                      {classStatusFilter === 'pending'
+                        ? 'There are currently no class/section transfer requests waiting for your approval.'
+                        : 'When transfers are approved or declined, they will appear here for your reference.'}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid gap-3">
+                  {filteredClassTransfers.map(transfer => renderClassTransferCard(transfer))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="shift" className="space-y-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-gray-700">Shift Transfers</h2>
+                <div className="inline-flex rounded-full bg-gray-100 p-1 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setShiftStatusFilter('pending')}
+                    className={`px-3 py-1 rounded-full transition ${
+                      shiftStatusFilter === 'pending'
+                        ? 'bg-white shadow-sm text-blue-600'
+                        : 'text-gray-500'
+                    }`}
+                  >
+                    Pending ({pendingShiftCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShiftStatusFilter('history')}
+                    className={`px-3 py-1 rounded-full transition ${
+                      shiftStatusFilter === 'history'
+                        ? 'bg-white shadow-sm text-blue-600'
+                        : 'text-gray-500'
+                    }`}
+                  >
+                    History ({historyShiftCount})
+                  </button>
+                </div>
+              </div>
+              {filteredShiftTransfers.length === 0 ? (
+                <Card className="border-dashed border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
+                  <CardContent className="py-10 px-6 text-center flex flex-col items-center justify-center gap-3">
+                    <div className="h-12 w-12 rounded-full bg-indigo-50 flex items-center justify-center mb-1">
+                      <ArrowRightLeft className="h-6 w-6 text-indigo-500" />
+                    </div>
+                    <p className="text-base font-semibold text-gray-800">
+                      {shiftStatusFilter === 'pending'
+                        ? 'No pending shift transfers'
+                        : 'No shift transfer history yet'}
+                    </p>
+                    <p className="text-xs text-gray-500 max-w-md">
+                      {shiftStatusFilter === 'pending'
+                        ? 'There are currently no shift transfer requests waiting for your approval.'
+                        : 'Approved or declined shift transfers will be listed here for your records.'}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid gap-3">
+                  {filteredShiftTransfers.map(transfer => renderShiftTransferCard(transfer))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+
+          {/* Shared Decline Dialog for class/shift transfers (coordinator) */}
+          <Dialog open={showDeclineDialog} onOpenChange={setShowDeclineDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-red-600">
+                  <AlertCircle className="h-5 w-5" />
+                  Decline Transfer Request
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Are you sure you want to decline this transfer request? This action
+                    cannot be undone.
+                  </AlertDescription>
+                </Alert>
+
+                <div>
+                  <Label htmlFor="decline_reason">Reason for declining *</Label>
+                  <Textarea
+                    id="decline_reason"
+                    placeholder="Please provide a reason for declining this transfer..."
+                    value={declineReason}
+                    onChange={e => setDeclineReason(e.target.value)}
+                    rows={3}
+                    className="mt-1"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowDeclineDialog(false);
+                      setDeclineReason('');
+                      setSelectedClassTransfer(null);
+                      setSelectedShiftTransfer(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={async () => {
+                      if (!declineReason.trim()) {
+                        toast.error('Please provide a reason for declining');
+                        return;
+                      }
+                      try {
+                        if (selectedClassTransfer) {
+                          setActionLoading(selectedClassTransfer.id);
+                          await declineClassTransfer(selectedClassTransfer.id, declineReason);
+                          toast.success('Class transfer declined');
+                        } else if (selectedShiftTransfer) {
+                          setActionLoading(selectedShiftTransfer.id);
+                          await declineShiftTransfer(selectedShiftTransfer.id, declineReason);
+                          toast.success('Shift transfer declined');
+                        }
+                        setShowDeclineDialog(false);
+                        setDeclineReason('');
+                        setSelectedClassTransfer(null);
+                        setSelectedShiftTransfer(null);
+                        await loadTeacherCoordinatorTransfers();
+                      } catch (error: any) {
+                        console.error('Error declining transfer:', error);
+                        toast.error(error.message || 'Failed to decline transfer');
+                      } finally {
+                        setActionLoading(null);
+                      }
+                    }}
+                    disabled={!declineReason.trim()}
+                  >
+                    {actionLoading ? 'Declining...' : 'Decline Transfer'}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+    );
+  }
+
+  // Principal view (original)
   return (
     <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-6xl mx-auto">

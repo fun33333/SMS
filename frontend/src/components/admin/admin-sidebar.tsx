@@ -164,6 +164,13 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
         subItems: [],
       },
       {
+        key: "transfers",
+        title: "Transfers",
+        icon: ArrowRightLeft,
+        href: "/admin/principals/transfers",
+        subItems: [],
+      },
+      {
         key: "teachers",
         title: "Teachers",
         icon: GraduationCap,

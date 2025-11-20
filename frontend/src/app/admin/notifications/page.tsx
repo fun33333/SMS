@@ -27,10 +27,19 @@ function formatRelative(timestamp: string) {
 
 export default function NotificationsPage() {
   const router = useRouter()
-  const { notifications, unreadCount, isConnected, markAsRead, markAllAsRead, refetch } =
-    useWebSocketNotifications()
+  const {
+    notifications,
+    unreadCount,
+    isConnected,
+    markAsRead,
+    markAllAsRead,
+    refetch,
+    removeNotificationsLocal,
+    clearAllLocal,
+  } = useWebSocketNotifications()
   const [query, setQuery] = useState("")
   const [view, setView] = useState<"unread" | "all">("unread")
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
 
   const filtered = useMemo(() => {
     if (!Array.isArray(notifications)) return []
@@ -46,6 +55,25 @@ export default function NotificationsPage() {
       return matchesQuery && matchesView
     })
   }, [notifications, query, view])
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id],
+    )
+  }
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.length === 0) return
+    removeNotificationsLocal(selectedIds)
+    setSelectedIds([])
+  }
+
+  const handleDeleteAllVisible = () => {
+    const ids = filtered.map(n => n.id)
+    if (ids.length === 0) return
+    removeNotificationsLocal(ids)
+    setSelectedIds([])
+  }
 
   return (
     <div className="space-y-6 py-4 sm:py-6">
@@ -130,6 +158,27 @@ export default function NotificationsPage() {
                   Mark all read
                 </Button>
               )}
+              {filtered.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDeleteSelected}
+                    disabled={selectedIds.length === 0}
+                    className="whitespace-nowrap border-red-200 text-red-600 hover:bg-red-50"
+                  >
+                    Delete selected
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleDeleteAllVisible}
+                    className="whitespace-nowrap text-gray-500 hover:text-gray-700"
+                  >
+                    Clear this list
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -145,6 +194,8 @@ export default function NotificationsPage() {
                 <NotificationRow
                   key={notification.id}
                   notification={notification}
+                  selected={selectedIds.includes(notification.id)}
+                  onToggleSelect={toggleSelect}
                   onMarkAsRead={(id) => markAsRead(id)}
                 />
               ))}
@@ -213,13 +264,27 @@ function StatCard({
 
 function NotificationRow({
   notification,
+  selected,
+  onToggleSelect,
   onMarkAsRead,
 }: {
   notification: Notification
+  selected: boolean
+  onToggleSelect: (id: number) => void
   onMarkAsRead: (id: number) => void
 }) {
   return (
-    <li className="p-4 sm:p-5 hover:bg-gray-50 transition flex gap-4">
+    <li className="p-4 sm:p-5 hover:bg-gray-50 transition flex gap-4 items-start">
+      <button
+        type="button"
+        onClick={() => onToggleSelect(notification.id)}
+        className={`mt-2 w-4 h-4 rounded border flex-shrink-0 mr-1 ${
+          selected ? "bg-blue-600 border-blue-600" : "border-gray-300 bg-white"
+        }`}
+        aria-label={selected ? "Deselect notification" : "Select notification"}
+      >
+        {selected && <Check className="w-3 h-3 text-white mx-auto" />}
+      </button>
       <div
         className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center ${
           notification.unread

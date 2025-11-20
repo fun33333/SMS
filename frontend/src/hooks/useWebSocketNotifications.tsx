@@ -15,9 +15,12 @@ interface WebSocketNotification {
   unread: boolean
 }
 
+const HIDDEN_KEY = 'sis_hidden_notifications'
+
 export function useWebSocketNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
+  const [hiddenIds, setHiddenIds] = useState<number[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [isConnected, setIsConnected] = useState(false)
@@ -42,6 +45,22 @@ export function useWebSocketNotifications() {
         return `UNKNOWN (${state})`
     }
   }
+
+  // Load hidden IDs from localStorage on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = window.localStorage.getItem(HIDDEN_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as number[]
+        if (Array.isArray(parsed)) {
+          setHiddenIds(parsed)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading hidden notifications from localStorage:', error)
+    }
+  }, [])
 
   const connectWebSocket = useCallback(() => {
     const token = localStorage.getItem('sis_access_token')
@@ -275,21 +294,20 @@ export function useWebSocketNotifications() {
 
         if (response.ok) {
           const data = await response.json()
-          // Handle paginated response (results array) or direct array
           const notificationsList = Array.isArray(data) ? data : (data.results || [])
-          // Store all notifications (both read and unread)
-          setNotifications(notificationsList)
-          // Calculate unread count
-          const unreadCount = notificationsList.filter((n: Notification) => n.unread === true).length
+          const visible = notificationsList.filter(
+            (n: Notification) => !hiddenIds.includes(n.id),
+          )
+          setNotifications(visible)
+          const unreadCount = visible.filter((n: Notification) => n.unread === true).length
           setUnreadCount(unreadCount)
         }
       } catch (error) {
         console.error('Error polling notifications:', error)
       }
-    }, 15000) // Poll every 15 seconds
-  }, [])
+    }, 15000) 
+  }, [hiddenIds])
 
-  // Connect on mount, disconnect on unmount
   useEffect(() => {
     if (usePolling) {
       startPolling()
@@ -306,7 +324,6 @@ export function useWebSocketNotifications() {
     }
   }, [connectWebSocket, disconnectWebSocket, usePolling, startPolling])
 
-  // Fetch all notifications (both read and unread)
   const fetchNotifications = useCallback(async () => {
     try {
       const token = localStorage.getItem('sis_access_token')
@@ -324,20 +341,19 @@ export function useWebSocketNotifications() {
 
       if (response.ok) {
         const data = await response.json()
-        // Handle paginated response (results array) or direct array
         const notificationsList = Array.isArray(data) ? data : (data.results || [])
-        // Store all notifications (both read and unread) for the page to filter
-        setNotifications(notificationsList)
-        // Calculate unread count
-        const unreadCount = notificationsList.filter((n: Notification) => n.unread === true).length
+        const visible = notificationsList.filter(
+          (n: Notification) => !hiddenIds.includes(n.id),
+        )
+        setNotifications(visible)
+        const unreadCount = visible.filter((n: Notification) => n.unread === true).length
         setUnreadCount(unreadCount)
       }
     } catch (error) {
       console.error('Error fetching notifications:', error)
     }
-  }, [])
+  }, [hiddenIds])
 
-  // Mark notification as read
   const markAsRead = useCallback(async (notificationId: number) => {
     try {
       const token = localStorage.getItem('sis_access_token')
@@ -355,20 +371,20 @@ export function useWebSocketNotifications() {
       })
 
       if (response.ok) {
-        // Update notification to mark as read in the list
         setNotifications((prev) =>
-          prev.map((n) => n.id === notificationId ? { ...n, unread: false } : n)
+          prev.map((n) => (n.id === notificationId ? { ...n, unread: false } : n)),
         )
         setUnreadCount((prev) => Math.max(0, prev - 1))
-        // Refetch to ensure state is in sync with backend
         await fetchNotifications()
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sis-notifications-sync'))
+        }
       }
     } catch (error) {
       console.error('Error marking notification as read:', error)
     }
   }, [fetchNotifications])
 
-  // Mark all notifications as read
   const markAllAsRead = useCallback(async () => {
     try {
       const token = localStorage.getItem('sis_access_token')
@@ -387,12 +403,14 @@ export function useWebSocketNotifications() {
 
       if (response.ok) {
         // Update all notifications to mark as read
-        setNotifications((prev) =>
-          prev.map((n) => ({ ...n, unread: false }))
-        )
+        setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })))
         setUnreadCount(0)
         // Refetch to ensure state is in sync with backend
         await fetchNotifications()
+        // Broadcast to other hook instances
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sis-notifications-sync'))
+        }
       }
     } catch (error) {
       console.error('Error marking all notifications as read:', error)
@@ -403,6 +421,50 @@ export function useWebSocketNotifications() {
     fetchNotifications()
   }, [fetchNotifications])
 
+  const removeNotificationsLocal = useCallback((ids: number[]) => {
+    setHiddenIds(prev => {
+      const merged = Array.from(new Set([...prev, ...ids]))
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(HIDDEN_KEY, JSON.stringify(merged))
+      }
+      return merged
+    })
+
+    setNotifications(prev => {
+      const remaining = prev.filter(n => !ids.includes(n.id))
+      const unread = remaining.filter(n => n.unread).length
+      setUnreadCount(unread)
+      return remaining
+    })
+  }, [])
+
+  const clearAllLocal = useCallback(() => {
+    // Hide all current notifications so they don't come back on refresh
+    setHiddenIds(prev => {
+      const allIds = notifications.map(n => n.id)
+      const merged = Array.from(new Set([...prev, ...allIds]))
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(HIDDEN_KEY, JSON.stringify(merged))
+      }
+      return merged
+    })
+    setNotifications([])
+    setUnreadCount(0)
+  }, [notifications])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const handler = () => {
+      fetchNotifications()
+    }
+
+    window.addEventListener('sis-notifications-sync', handler)
+    return () => {
+      window.removeEventListener('sis-notifications-sync', handler)
+    }
+  }, [fetchNotifications])
+
   return {
     notifications,
     unreadCount,
@@ -410,6 +472,8 @@ export function useWebSocketNotifications() {
     refetch: fetchNotifications,
     markAsRead,
     markAllAsRead,
+    removeNotificationsLocal,
+    clearAllLocal,
   }
 }
 

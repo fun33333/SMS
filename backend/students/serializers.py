@@ -16,12 +16,23 @@ class StudentSerializer(serializers.ModelSerializer):
     class_name = serializers.SerializerMethodField()
     class_teacher_name = serializers.SerializerMethodField()
     class_teacher_code = serializers.SerializerMethodField()
+    coordinator_name = serializers.SerializerMethodField()
     age = serializers.SerializerMethodField()
     
     class Meta:
         model = Student
         fields = '__all__'
-        extra_fields = ['campus_data', 'classroom_data', 'campus_name', 'classroom_name', 'class_name', 'class_teacher_name', 'class_teacher_code', 'age']
+        extra_fields = [
+            'campus_data',
+            'classroom_data',
+            'campus_name',
+            'classroom_name',
+            'class_name',
+            'class_teacher_name',
+            'class_teacher_code',
+            'coordinator_name',
+            'age',
+        ]
     
     def get_campus_name(self, obj):
         """Get campus name for display"""
@@ -49,6 +60,22 @@ class StudentSerializer(serializers.ModelSerializer):
         """Get class teacher employee code"""
         if obj.classroom and obj.classroom.class_teacher:
             return obj.classroom.class_teacher.employee_code
+        return None
+
+    def get_coordinator_name(self, obj):
+        """
+        Get coordinator name based on the student's classroom level.
+        This uses the Level.coordinator_name property so that the UI can
+        show the coordinator for the current class/grade.
+        """
+        try:
+            if obj.classroom and obj.classroom.grade and obj.classroom.grade.level:
+                level = obj.classroom.grade.level
+                # Level has a coordinator_name property that aggregates direct + M2M coordinators
+                return level.coordinator_name
+        except Exception:
+            # Fail silently – coordinator is purely display information
+            return None
         return None
     
     def get_age(self, obj):

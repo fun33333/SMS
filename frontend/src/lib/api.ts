@@ -2072,6 +2072,7 @@ export async function getRealtimeMetrics() {
 export interface TransferRequest {
   id: number;
   request_type: 'student' | 'teacher';
+  transfer_category?: string | null;
   status: 'draft' | 'pending' | 'approved' | 'declined' | 'cancelled';
   entity_name: string;
   current_id: string;
@@ -2134,6 +2135,75 @@ export interface IDPreview {
   };
 }
 
+// Class/Section Transfer
+export interface ClassTransfer {
+  id: number;
+  student: number;
+  student_name: string;
+  student_id: string;
+  from_classroom: number | null;
+  from_classroom_display?: string | null;
+  to_classroom: number | null;
+  to_classroom_display?: string | null;
+  from_section?: string | null;
+  to_section?: string | null;
+  from_grade_name?: string | null;
+  to_grade_name?: string | null;
+  initiated_by_teacher: number | null;
+  initiated_by_teacher_name?: string | null;
+  coordinator: number | null;
+  coordinator_name?: string | null;
+  principal: number | null;
+  principal_name?: string | null;
+  status: 'pending' | 'approved' | 'declined' | 'cancelled';
+  reason: string;
+  requested_date: string;
+  decline_reason?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Shift Transfer
+export interface ShiftTransfer {
+  id: number;
+  student: number;
+  student_name: string;
+  student_id: string;
+  campus: number;
+  campus_name: string;
+  from_shift: 'morning' | 'afternoon';
+  to_shift: 'morning' | 'afternoon';
+  from_classroom: number | null;
+  from_classroom_display?: string | null;
+  to_classroom: number | null;
+  to_classroom_display?: string | null;
+  requesting_teacher: number | null;
+  requesting_teacher_name?: string | null;
+  from_shift_coordinator: number | null;
+  from_shift_coordinator_name?: string | null;
+  to_shift_coordinator: number | null;
+  to_shift_coordinator_name?: string | null;
+  principal: number | null;
+  principal_name?: string | null;
+  transfer_request: number | null;
+  status: 'pending_own_coord' | 'pending_other_coord' | 'approved' | 'declined' | 'cancelled';
+  reason: string;
+  requested_date: string;
+  decline_reason?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AvailableClassroomOption {
+  id: number;
+  label: string;
+  grade_name: string;
+  section: string;
+  shift: string;
+  class_teacher_name?: string | null;
+  coordinator_name?: string | null;
+}
+
 // Transfer Request APIs
 export async function createTransferRequest(data: {
   request_type: 'student' | 'teacher';
@@ -2147,6 +2217,7 @@ export async function createTransferRequest(data: {
   requested_date: string;
   notes?: string;
   transfer_type?: 'campus' | 'shift';
+  transfer_category?: string;
 }) {
   try {
     return await apiPost('/api/transfers/request/', data);
@@ -2245,6 +2316,129 @@ export async function previewIDChange(data: {
   } catch (error) {
     console.error('Failed to preview ID change:', error);
     throw error;
+  }
+}
+
+// Class Transfer APIs
+export async function createClassTransfer(data: {
+  student: number;
+  to_classroom: number;
+  reason: string;
+  requested_date: string;
+}) {
+  try {
+    return await apiPost('/api/transfers/class/request/', data);
+  } catch (error) {
+    console.error('Failed to create class transfer:', error);
+    throw error;
+  }
+}
+
+export async function getClassTransfers(params?: { status?: string }) {
+  try {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.append('status', params.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return await apiGet<ClassTransfer[]>(`/api/transfers/class/list/${suffix}`);
+  } catch (error) {
+    console.error('Failed to fetch class transfers:', error);
+    return [];
+  }
+}
+
+export async function approveClassTransfer(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/class/${transferId}/approve/`, {});
+  } catch (error) {
+    console.error('Failed to approve class transfer:', error);
+    throw error;
+  }
+}
+
+export async function declineClassTransfer(transferId: number, reason: string) {
+  try {
+    return await apiPost(`/api/transfers/class/${transferId}/decline/`, { reason });
+  } catch (error) {
+    console.error('Failed to decline class transfer:', error);
+    throw error;
+  }
+}
+
+export async function getAvailableClassSections(studentId: number) {
+  try {
+    const url = `/api/transfers/available-class-sections/?student=${studentId}`;
+    return await apiGet<AvailableClassroomOption[]>(url);
+  } catch (error) {
+    console.error('Failed to fetch available class sections:', error);
+    return [];
+  }
+}
+
+// Shift Transfer APIs
+export async function createShiftTransfer(data: {
+  student: number;
+  to_shift: 'morning' | 'afternoon';
+  to_classroom?: number;
+  reason: string;
+  requested_date: string;
+}) {
+  try {
+    return await apiPost('/api/transfers/shift/request/', data);
+  } catch (error) {
+    console.error('Failed to create shift transfer:', error);
+    throw error;
+  }
+}
+
+export async function getShiftTransfers(params?: { status?: string }) {
+  try {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.append('status', params.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return await apiGet<ShiftTransfer[]>(`/api/transfers/shift/list/${suffix}`);
+  } catch (error) {
+    console.error('Failed to fetch shift transfers:', error);
+    return [];
+  }
+}
+
+export async function approveShiftTransferOwn(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/shift/${transferId}/approve-own/`, {});
+  } catch (error) {
+    console.error('Failed to approve shift transfer (own coordinator):', error);
+    throw error;
+  }
+}
+
+export async function approveShiftTransferOther(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/shift/${transferId}/approve-other/`, {});
+  } catch (error) {
+    console.error('Failed to approve shift transfer (other coordinator):', error);
+    throw error;
+  }
+}
+
+export async function declineShiftTransfer(transferId: number, reason: string) {
+  try {
+    return await apiPost(`/api/transfers/shift/${transferId}/decline/`, { reason });
+  } catch (error) {
+    console.error('Failed to decline shift transfer:', error);
+    throw error;
+  }
+}
+
+export async function getAvailableShiftSections(studentId: number, toShift: 'morning' | 'afternoon') {
+  try {
+    const qs = new URLSearchParams();
+    qs.append('student', studentId.toString());
+    qs.append('to_shift', toShift);
+    const url = `/api/transfers/available-shift-sections/?${qs.toString()}`;
+    return await apiGet<AvailableClassroomOption[]>(url);
+  } catch (error) {
+    console.error('Failed to fetch available shift sections:', error);
+    return [];
   }
 }
 
