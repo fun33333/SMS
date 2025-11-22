@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Search, User, GraduationCap, FileText, CheckCircle, XCircle, ArrowRightLeft } from 'lucide-react';
+import { ArrowLeft, Search, User, GraduationCap, FileText, CheckCircle, XCircle, ArrowRightLeft, AlertCircle, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   createTransferRequest,
@@ -23,6 +23,7 @@ import {
   AvailableClassroomOption,
 } from '@/lib/api';
 import { getCurrentUserRole } from '@/lib/permissions';
+import { TransferRequestLetter } from '@/components/admin/transfer-request-letter';
 
 interface Campus {
   id: number;
@@ -87,7 +88,6 @@ export default function CreateTransferRequestPage() {
     to_shift: 'M' as 'M' | 'A' | 'B',
     entity_id: '',
     reason: '',
-    requested_date: '',
     notes: ''
   });
   
@@ -106,18 +106,94 @@ export default function CreateTransferRequestPage() {
   const [availableClassSections, setAvailableClassSections] = useState<AvailableClassroomOption[]>([]);
   const [availableShiftSections, setAvailableShiftSections] = useState<AvailableClassroomOption[]>([]);
   const [selectedToClassroomId, setSelectedToClassroomId] = useState<string>('');
+
+  // Transfer letter state
+  const [showLetter, setShowLetter] = useState(false);
+  const [letterData, setLetterData] = useState<any>(null);
   
   // Load initial data
   useEffect(() => {
     loadInitialData();
   }, []);
   
-  // Load preview when form changes
+  // Load preview when form changes (for principal-initiated transfers)
   useEffect(() => {
     if (isPrincipal && selectedEntity && formData.to_campus && formData.to_shift) {
       loadIDPreview();
     }
   }, [isPrincipal, selectedEntity, formData.to_campus, formData.to_shift]);
+
+  // Load preview for shift transfers when campus is set
+  useEffect(() => {
+    if (!isPrincipal && selectedEntity && formData.transfer_type === 'shift' && formData.to_campus && formData.to_shift) {
+      const timer = setTimeout(() => {
+        loadIDPreview();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isPrincipal, selectedEntity, formData.transfer_type, formData.to_campus, formData.to_shift]);
+
+  // Load ID preview for shift transfers (non-principal, same campus)
+  useEffect(() => {
+    if (!isPrincipal && selectedEntity && formData.transfer_type === 'shift' && formData.to_shift) {
+      // For shift transfers, use the same campus as the student's current campus
+      const anyEntity = selectedEntity as any;
+      const campusId = anyEntity.current_campus || anyEntity.campus || anyEntity.current_campus_id || anyEntity.campus_id;
+      
+      if (campusId) {
+        // Set the campus in formData for preview
+        const campusIdStr = campusId.toString();
+        setFormData(prev => {
+          if (prev.to_campus !== campusIdStr) {
+            return { ...prev, to_campus: campusIdStr };
+          }
+          return prev;
+        });
+        
+        // Load preview after a short delay to ensure formData is updated
+        const timer = setTimeout(() => {
+          // Force reload by calling loadIDPreview directly with the campus
+          if (selectedEntity) {
+            loadIDPreview();
+          }
+        }, 300);
+        
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isPrincipal, selectedEntity, formData.transfer_type, formData.to_shift]);
+
+  // Auto-set opposite shift when shift transfer is selected and entity is chosen
+  useEffect(() => {
+    if (!isPrincipal && selectedEntity && formData.transfer_type === 'shift') {
+      const currentShift = selectedEntity.shift;
+      // Normalize shift value (handle both 'M'/'A' and 'morning'/'afternoon')
+      const shiftStr = String(currentShift).toLowerCase();
+      const normalizedShift = 
+        currentShift === 'M' || shiftStr === 'morning' ? 'M' :
+        currentShift === 'A' || shiftStr === 'afternoon' ? 'A' :
+        null;
+      
+      // Determine opposite shift
+      const oppositeShift = normalizedShift === 'M' ? 'A' : normalizedShift === 'A' ? 'M' : null;
+      
+      // Always set to opposite shift if it's different
+      if (oppositeShift && formData.to_shift !== oppositeShift) {
+        setFormData(prev => ({ ...prev, to_shift: oppositeShift }));
+      }
+    }
+  }, [isPrincipal, selectedEntity, formData.transfer_type]);
+
+  // Reload ID preview when destination classroom is selected for shift transfers
+  useEffect(() => {
+    if (!isPrincipal && selectedEntity && formData.transfer_type === 'shift' && formData.to_shift && selectedToClassroomId) {
+      // Small delay to ensure state is updated
+      const timer = setTimeout(() => {
+        loadIDPreview();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isPrincipal, selectedEntity, formData.transfer_type, formData.to_shift, selectedToClassroomId]);
 
   // Load available class sections for class transfer (same campus, same shift)
   useEffect(() => {
@@ -127,7 +203,6 @@ export default function CreateTransferRequestPage() {
         const options = await getAvailableClassSections(selectedEntity.id);
         setAvailableClassSections(options || []);
       } catch (error) {
-        console.error('Error loading available class sections:', error);
         toast.error('Failed to load available class sections');
       }
     };
@@ -139,7 +214,10 @@ export default function CreateTransferRequestPage() {
   // Load available shift sections for shift transfer
   useEffect(() => {
     const load = async () => {
-      if (!selectedEntity || formData.transfer_type !== 'shift' || !formData.to_shift) return;
+      if (!selectedEntity || formData.transfer_type !== 'shift' || !formData.to_shift) {
+        setAvailableShiftSections([]);
+        return;
+      }
       try {
         // Map internal shift code (M/A/B) to API shift values
         const toShift =
@@ -148,25 +226,33 @@ export default function CreateTransferRequestPage() {
             : formData.to_shift === 'A'
             ? 'afternoon'
             : 'morning';
+        
         const options = await getAvailableShiftSections(selectedEntity.id, toShift as 'morning' | 'afternoon');
-        setAvailableShiftSections(options || []);
+        
+        // Client-side filter: Only show sections with the correct shift (or 'both')
+        // This is a safety measure in case backend filtering has issues
+        const normalizedToShift = toShift.toLowerCase();
+        const filteredOptions = (options || []).filter(opt => {
+          const optShift = String(opt.shift || '').toLowerCase();
+          // Include if shift matches exactly, or if option has 'both' shift
+          return optShift === normalizedToShift || optShift === 'both';
+        });
+        
+        setAvailableShiftSections(filteredOptions);
       } catch (error) {
-        console.error('Error loading available shift sections:', error);
         toast.error('Failed to load available shift sections');
+        setAvailableShiftSections([]);
       }
     };
     if (!isPrincipal && selectedEntity && formData.transfer_type === 'shift' && formData.to_shift) {
       load();
+    } else {
+      setAvailableShiftSections([]);
     }
   }, [isPrincipal, selectedEntity, formData.transfer_type, formData.to_shift]);
 
   // Debug form data changes
   useEffect(() => {
-    console.log('=== FORM DATA DEBUG ===');
-    console.log('Form data changed:', formData);
-    console.log('to_shift value:', formData.to_shift);
-    console.log('to_shift type:', typeof formData.to_shift);
-    console.log('=== END FORM DEBUG ===');
   }, [formData]);
 
   // Selected destination classroom option (for summary UI)
@@ -183,7 +269,6 @@ export default function CreateTransferRequestPage() {
       
       if (isPrincipal) {
         // Principals can choose destination campus; load from API
-        console.log('Loading campuses using getAllCampuses...');
         const campusesData = await getAllCampuses();
 
         if (Array.isArray(campusesData) && campusesData.length > 0) {
@@ -193,7 +278,6 @@ export default function CreateTransferRequestPage() {
         }
       }
     } catch (error) {
-      console.error('Error loading initial data:', error);
       toast.error('Failed to load campus data, using sample data');
       
       // Fallback to sample data
@@ -243,7 +327,6 @@ export default function CreateTransferRequestPage() {
         }
       }
     } catch (error) {
-      console.error('Error searching entities:', error);
       toast.error('Failed to search entities');
     } finally {
       setSearching(false);
@@ -251,14 +334,6 @@ export default function CreateTransferRequestPage() {
   };
   
   const selectEntity = (entity: Student | Teacher) => {
-    console.log('=== SELECTED ENTITY DEBUG ===');
-    console.log('Selected entity:', entity);
-    console.log('Entity keys:', Object.keys(entity));
-    console.log('Entity current_campus:', entity.current_campus);
-    console.log('Entity campus:', (entity as any).campus);
-    console.log('Entity current_campus_id:', (entity as any).current_campus_id);
-    console.log('Available campuses:', campuses);
-    console.log('=== END ENTITY DEBUG ===');
     setSelectedEntity(entity);
     setFormData(prev => ({ ...prev, entity_id: entity.id.toString() }));
     setSearchResults([]);
@@ -273,31 +348,46 @@ export default function CreateTransferRequestPage() {
       setPreviewLoading(true);
       const oldId = 'student_id' in selectedEntity ? selectedEntity.student_id : selectedEntity.employee_code;
       
-      // Debug the selectedEntity structure
-      console.log('Selected entity structure:', {
-        keys: Object.keys(selectedEntity),
-        student_id: 'student_id' in selectedEntity ? selectedEntity.student_id : 'not found',
-        employee_code: 'employee_code' in selectedEntity ? selectedEntity.employee_code : 'not found',
-        id: selectedEntity.id,
-        name: 'name' in selectedEntity ? selectedEntity.name : 'not found',
-        full_name: 'full_name' in selectedEntity ? selectedEntity.full_name : 'not found'
-      });
-      const toCampus = campuses.find(c => c.id.toString() === formData.to_campus);
-      
-      console.log('ID Preview Debug:', {
-        selectedEntity,
-        oldId,
-        toCampus,
-        to_shift: formData.to_shift
-      });
-      
-      if (!toCampus) {
-        console.log('No destination campus found');
+      if (!oldId) {
+        setPreviewLoading(false);
         return;
       }
       
+      // For shift transfers (non-principal), use the student's current campus
+      let campusIdToUse = formData.to_campus;
+      if (!isPrincipal && formData.transfer_type === 'shift' && !campusIdToUse) {
+        const anyEntity = selectedEntity as any;
+        campusIdToUse = (anyEntity.current_campus || anyEntity.campus || anyEntity.current_campus_id || anyEntity.campus_id)?.toString();
+      }
+      
+      if (!campusIdToUse) {
+        setPreviewLoading(false);
+        return;
+      }
+      
+      let toCampus = campuses.find(c => c.id.toString() === campusIdToUse);
+      
+      // If campus not found in campuses array, try to get campus code from entity
+      if (!toCampus) {
+        const anyEntity = selectedEntity as any;
+        // Try to extract campus code from the student ID (e.g., C06 from C06-M-25-01109)
+        const idParts = oldId.split('-');
+        if (idParts.length > 0) {
+          const campusCodeFromId = idParts[0];
+          // Create a temporary campus object
+          toCampus = {
+            id: parseInt(campusIdToUse),
+            campus_name: anyEntity.campus_name || `Campus ${campusIdToUse}`,
+            campus_code: campusCodeFromId,
+            code: campusCodeFromId,
+          } as Campus;
+        } else {
+          setPreviewLoading(false);
+          return;
+        }
+      }
+      
       if (!oldId) {
-        console.log('No old ID found, using mock ID for preview');
         // Use a mock ID for preview if real ID is not available
         const mockId = formData.request_type === 'student' 
           ? `STU${selectedEntity.id.toString().padStart(3, '0')}` 
@@ -365,7 +455,6 @@ export default function CreateTransferRequestPage() {
       
       setIdPreview(preview as IDPreview);
     } catch (error: any) {
-      console.error('Error loading ID preview:', error);
       
       // Better error handling for ID preview
       if (error.message?.includes('KeyError')) {
@@ -404,10 +493,18 @@ export default function CreateTransferRequestPage() {
       return;
     }
     
-    if (!formData.reason || !formData.requested_date) {
-      toast.error('Please fill in all required fields');
+    if (!formData.reason || formData.reason.trim().length < 20) {
+      toast.error('Reason for transfer must be at least 20 characters long');
       return;
     }
+    
+    if (formData.reason.length > 500) {
+      toast.error('Reason for transfer cannot exceed 500 characters');
+      return;
+    }
+    
+    // Set requested_date to current date automatically
+    const currentDate = new Date().toISOString().split('T')[0];
     
     try {
       setLoading(true);
@@ -416,12 +513,16 @@ export default function CreateTransferRequestPage() {
       if (!isPrincipal) {
         const toClassroomIdNum = parseInt(selectedToClassroomId, 10);
 
+        const selectedDestinationOption = formData.transfer_type === 'class'
+          ? availableClassSections.find(opt => opt.id.toString() === selectedToClassroomId)
+          : availableShiftSections.find(opt => opt.id.toString() === selectedToClassroomId);
+
         if (formData.transfer_type === 'class') {
           await createClassTransfer({
             student: selectedEntity.id,
             to_classroom: toClassroomIdNum,
             reason: formData.reason,
-            requested_date: formData.requested_date,
+            requested_date: currentDate,
           });
           toast.success('Class transfer request created successfully!');
         } else if (formData.transfer_type === 'shift') {
@@ -438,23 +539,40 @@ export default function CreateTransferRequestPage() {
             to_shift: toShift as 'morning' | 'afternoon',
             to_classroom: toClassroomIdNum,
             reason: formData.reason,
-            requested_date: formData.requested_date,
+            requested_date: currentDate,
           });
           toast.success('Shift transfer request created successfully!');
         }
 
-        router.push('/admin/principals/transfers');
+        // Prepare letter data
+        const anyEntity = selectedEntity as any;
+        const fromCampusId = anyEntity.current_campus || anyEntity.campus;
+        const fromCampus = campuses.find(c => c.id === fromCampusId)?.campus_name || anyEntity.campus_name || 'Current Campus';
+        // For class/shift transfers, to campus is same as from campus
+        const toCampus = fromCampus;
+        const fromClass = `${anyEntity.current_grade || anyEntity.grade || ''} - ${anyEntity.section || ''}`.trim();
+        const toClass = selectedDestinationOption ? `${selectedDestinationOption.grade_name} - ${selectedDestinationOption.section}` : '';
+
+        setLetterData({
+          entityName: 'name' in selectedEntity ? selectedEntity.name : selectedEntity.full_name,
+          entityId: 'student_id' in selectedEntity ? selectedEntity.student_id : selectedEntity.employee_code,
+          entityType: formData.request_type,
+          fromCampus,
+          fromShift: anyEntity.shift || formData.from_shift,
+          fromClass: fromClass || undefined,
+          toCampus,
+          toShift: formData.to_shift === 'M' ? 'morning' : formData.to_shift === 'A' ? 'afternoon' : undefined,
+          toClass: toClass || undefined,
+          reason: formData.reason,
+          requestedDate: currentDate,
+          transferType: formData.transfer_type,
+        });
+
+        setShowLetter(true);
         return;
       }
 
       // Principal: keep existing campus/shift TransferRequest flow
-      console.log('Transfer Data Debug:', {
-        selectedEntity,
-        formData,
-        current_campus: (selectedEntity as any).current_campus,
-        shift: (selectedEntity as any).shift,
-      });
-
       // Get the first available campus as default if current_campus is not available
       const defaultCampus = campuses.length > 0 ? campuses[0].id : 1;
 
@@ -512,7 +630,7 @@ export default function CreateTransferRequestPage() {
             : fromCampusId,
         to_shift: convertedToShift,
         reason: formData.reason,
-        requested_date: formData.requested_date,
+        requested_date: currentDate,
         notes: formData.notes,
         transfer_type: transferTypeForRequest,
         ...(formData.request_type === 'student'
@@ -522,9 +640,26 @@ export default function CreateTransferRequestPage() {
 
       await createTransferRequest(transferData);
       toast.success('Transfer request created successfully!');
-      router.push('/admin/principals/transfers');
+
+      // Prepare letter data for principal transfers
+      const fromCampusObj = campuses.find(c => c.id === fromCampusId);
+      const toCampusObj = campuses.find(c => c.id === (formData.transfer_type === 'campus' ? parseInt(formData.to_campus) : fromCampusId));
+      
+      setLetterData({
+        entityName: 'name' in selectedEntity ? selectedEntity.name : selectedEntity.full_name,
+        entityId: 'student_id' in selectedEntity ? selectedEntity.student_id : selectedEntity.employee_code,
+        entityType: formData.request_type,
+        fromCampus: fromCampusObj?.campus_name || 'Current Campus',
+        fromShift: convertedFromShift,
+        toCampus: toCampusObj?.campus_name || fromCampusObj?.campus_name || 'Destination Campus',
+        toShift: convertedToShift,
+        reason: formData.reason,
+        requestedDate: currentDate,
+        transferType: formData.transfer_type,
+      });
+
+      setShowLetter(true);
     } catch (error: any) {
-      console.error('Error creating transfer request:', error);
 
       // Better error handling with specific messages
       if (error.message?.includes('not a valid choice')) {
@@ -553,7 +688,6 @@ export default function CreateTransferRequestPage() {
       to_shift: 'M',
       entity_id: '',
       reason: '',
-      requested_date: '',
       notes: ''
     });
     setSelectedEntity(null);
@@ -568,25 +702,28 @@ export default function CreateTransferRequestPage() {
   };
   
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+    <div className="bg-gray-50 p-3 sm:p-4 md:p-6 pb-4 sm:pb-6">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 mb-4 sm:mb-6 md:mb-8">
           <Button
             variant="outline"
             size="sm"
             onClick={() => router.back()}
-            className="flex items-center gap-2 hover:bg-blue-50 border-blue-200"
+            className="flex items-center gap-2 hover:bg-[#f2f6fa] border-[#a3cef1] w-full sm:w-auto"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back
+            <span className="sm:hidden">Go Back</span>
+            <span className="hidden sm:inline">Back</span>
           </Button>
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              <ArrowRightLeft className="h-8 w-8 text-blue-600" />
-              Create Transfer Request
+          <div className="flex-1 w-full sm:w-auto">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <ArrowRightLeft className="h-6 w-6 sm:h-7 sm:w-7 md:h-8 md:w-8 flex-shrink-0" style={{ color: '#274c77' }} />
+                <span>Create Transfer Request</span>
+              </div>
             </h1>
-            <p className="text-gray-600 mt-1">
+            <p className="text-sm sm:text-base text-gray-600 mt-1">
               {isPrincipal
                 ? 'Create campus or shift transfers between campuses'
                 : 'Create class or shift transfer requests for students'}
@@ -594,159 +731,160 @@ export default function CreateTransferRequestPage() {
           </div>
         </div>
         
-        <form onSubmit={handleSubmit} className="space-y-8">
+        <form onSubmit={handleSubmit} className="space-y-4 md:space-y-6">
           {/* Main Form Container */}
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-6">
-              <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-                    <FileText className="h-5 w-5" />
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+            <div className="px-4 py-3 sm:px-6 sm:py-4 md:px-8 md:py-5" style={{ background: 'linear-gradient(to right, #274c77, #6096ba)' }}>
+              <h2 className="text-base sm:text-lg md:text-xl font-semibold text-white flex items-center gap-2">
+                    <FileText className="h-4 w-4 sm:h-5 sm:w-5" />
                 Transfer Information
               </h2>
-              <p className="text-blue-100 mt-1">Fill in the details below to create a transfer request</p>
+              <p className="text-xs sm:text-sm md:text-base text-white/90 mt-0.5 sm:mt-1">Fill in the details below to create a transfer request</p>
             </div>
             
-            <div className="p-8 space-y-8">
+            <div className="p-4 sm:p-5 md:p-6 space-y-4 md:space-y-5">
               {/* Top Controls: Transfer Type + Category */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
                 {/* Transfer Type Selection (Student vs Teacher) */}
-                <div className="space-y-3">
-                  <Label className="text-sm font-semibold text-gray-700 tracking-wide">
+                <div className="space-y-2">
+                  <Label className="text-xs sm:text-sm font-semibold text-gray-700 tracking-wide">
                     Transfer Type
                   </Label>
-                  <div className="flex flex-wrap gap-3">
-                    <Button
-                      type="button"
-                      variant={formData.request_type === 'student' ? 'default' : 'outline'}
-                      onClick={() => {
-                        setFormData(prev => ({ ...prev, request_type: 'student' }));
-                        setSelectedEntity(null);
-                        setSearchResults([]);
-                        setSearchQuery('');
-                      }}
-                      className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full transition-all duration-200 ${
-                        formData.request_type === 'student'
-                          ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg'
-                          : 'border border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                      }`}
-                    >
-                      <GraduationCap className="h-4 w-4" />
-                      Student Transfer
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={formData.request_type === 'teacher' ? 'default' : 'outline'}
-                      onClick={() => {
-                        if (!isPrincipal) return; // Only principals can create teacher transfers for now
-                        setFormData(prev => ({ ...prev, request_type: 'teacher' }));
-                        setSelectedEntity(null);
-                        setSearchResults([]);
-                        setSearchQuery('');
-                      }}
-                      className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full transition-all duration-200 ${
-                        formData.request_type === 'teacher'
-                          ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg'
-                          : 'border border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                      }`}
-                    >
-                      <User className="h-4 w-4" />
-                      Teacher Transfer
-                    </Button>
-                  </div>
+                  <Select
+                    value={formData.request_type}
+                    onValueChange={(value: 'student' | 'teacher') => {
+                      if (value === 'teacher' && !isPrincipal) return; // Only principals can create teacher transfers
+                      setFormData(prev => ({ ...prev, request_type: value }));
+                      setSelectedEntity(null);
+                      setSearchResults([]);
+                      setSearchQuery('');
+                    }}
+                  >
+                    <SelectTrigger className="w-full py-3 text-base border-2 border-gray-200 rounded-xl transition-all duration-200" style={{ borderColor: '#a3cef1' }}>
+                      <SelectValue placeholder="Select transfer type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="student">
+                        <div className="flex items-center gap-2">
+                          <GraduationCap className="h-4 w-4" />
+                          Student Transfer
+                        </div>
+                      </SelectItem>
+                      {isPrincipal && (
+                        <SelectItem value="teacher">
+                          <div className="flex items-center gap-2">
+                            <User className="h-4 w-4" />
+                            Teacher Transfer
+                          </div>
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* Transfer Category Selection */}
-                <div className="space-y-3">
-                  <Label className="text-sm font-semibold text-gray-700 tracking-wide">
+                <div className="space-y-2">
+                  <Label className="text-xs sm:text-sm font-semibold text-gray-700 tracking-wide">
                     Transfer Category
                   </Label>
-                  <div className="flex flex-wrap gap-3">
-                  {!isPrincipal && (
-                    <>
-                      <Button
-                        type="button"
-                        variant={formData.transfer_type === 'class' ? 'default' : 'outline'}
-                        onClick={() => {
-                          setFormData(prev => ({ ...prev, transfer_type: 'class' }));
-                          setSelectedToClassroomId('');
-                        }}
-                        className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full transition-all duration-200 ${
-                          formData.transfer_type === 'class'
-                            ? 'bg-green-600 hover:bg-green-700 text-white shadow-lg'
-                            : 'border border-gray-300 hover:border-green-400 hover:bg-green-50'
-                        }`}
-                      >
-                        <ArrowRightLeft className="h-4 w-4" />
-                        Class Transfer
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={formData.transfer_type === 'shift' ? 'default' : 'outline'}
-                        onClick={() => {
-                          setFormData(prev => ({ ...prev, transfer_type: 'shift' }));
-                          setSelectedToClassroomId('');
-                        }}
-                        className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full transition-all duration-200 ${
-                          formData.transfer_type === 'shift'
-                            ? 'bg-green-600 hover:bg-green-700 text-white shadow-lg'
-                            : 'border border-gray-300 hover:border-green-400 hover:bg-green-50'
-                        }`}
-                      >
-                        <ArrowRightLeft className="h-4 w-4" />
-                        Shift Transfer
-                      </Button>
-                    </>
+                  {!isPrincipal ? (
+                    <Select
+                      value={formData.transfer_type}
+                      onValueChange={(value: 'class' | 'shift') => {
+                        setFormData(prev => {
+                          const newData = { ...prev, transfer_type: value };
+                          // Auto-select opposite shift for shift transfer
+                          if (value === 'shift' && selectedEntity) {
+                            const currentShift = selectedEntity.shift;
+                            // Normalize shift value (handle both 'M'/'A' and 'morning'/'afternoon')
+                            const shiftStr = String(currentShift).toLowerCase();
+                            const normalizedShift = 
+                              currentShift === 'M' || shiftStr === 'morning' ? 'M' :
+                              currentShift === 'A' || shiftStr === 'afternoon' ? 'A' :
+                              null;
+                            
+                            if (normalizedShift === 'M') {
+                              newData.to_shift = 'A'; // Afternoon
+                            } else if (normalizedShift === 'A') {
+                              newData.to_shift = 'M'; // Morning
+                            }
+                          }
+                          return newData;
+                        });
+                        setSelectedToClassroomId('');
+                      }}
+                    >
+                      <SelectTrigger className="w-full py-3 text-base border-2 border-gray-200 rounded-xl transition-all duration-200" style={{ borderColor: '#a3cef1' }}>
+                        <SelectValue placeholder="Select transfer category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="class">
+                          <div className="flex items-center gap-2">
+                            <ArrowRightLeft className="h-4 w-4" />
+                            Class Transfer
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="shift">
+                          <div className="flex items-center gap-2">
+                            <ArrowRightLeft className="h-4 w-4" />
+                            Shift Transfer
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Select
+                      value={formData.transfer_type}
+                      onValueChange={(value: 'campus' | 'shift') => {
+                        setFormData(prev => ({ ...prev, transfer_type: value }));
+                      }}
+                    >
+                      <SelectTrigger className="w-full py-3 text-base border-2 border-gray-200 rounded-xl transition-all duration-200" style={{ borderColor: '#a3cef1' }}>
+                        <SelectValue placeholder="Select transfer category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="campus">
+                          <div className="flex items-center gap-2">
+                            <ArrowRightLeft className="h-4 w-4" />
+                            Campus Transfer
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="shift">
+                          <div className="flex items-center gap-2">
+                            <ArrowRightLeft className="h-4 w-4" />
+                            Shift Transfer
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
                   )}
-
-                  {/* Principals: Campus + Shift transfers (existing behaviour) */}
-                  {isPrincipal && (
-                    <>
-                      <Button
-                        type="button"
-                        variant={formData.transfer_type === 'campus' ? 'default' : 'outline'}
-                        onClick={() => setFormData(prev => ({ ...prev, transfer_type: 'campus' }))}
-                        className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full transition-all duration-200 ${
-                          formData.transfer_type === 'campus'
-                            ? 'bg-green-600 hover:bg-green-700 text-white shadow-lg'
-                            : 'border border-gray-300 hover:border-green-400 hover:bg-green-50'
-                        }`}
-                      >
-                        <ArrowRightLeft className="h-4 w-4" />
-                        Campus Transfer
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={formData.transfer_type === 'shift' ? 'default' : 'outline'}
-                        onClick={() => setFormData(prev => ({ ...prev, transfer_type: 'shift' }))}
-                        className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full transition-all duration-200 ${
-                          formData.transfer_type === 'shift'
-                            ? 'bg-green-600 hover:bg-green-700 text-white shadow-lg'
-                            : 'border border-gray-300 hover:border-green-400 hover:bg-green-50'
-                        }`}
-                      >
-                        <ArrowRightLeft className="h-4 w-4" />
-                        Shift Transfer
-                      </Button>
-                    </>
-                  )}
-                  </div>
                 </div>
               </div>
 
               {/* Entity Search Section */}
-              <div className="space-y-4">
-                <Label className="text-lg font-semibold text-gray-700">
+              <div className="space-y-2 sm:space-y-3">
+                <Label className="text-sm sm:text-base font-semibold text-gray-700">
                     Select {formData.request_type === 'student' ? 'Student' : 'Teacher'}
                 </Label>
                 
                 {/* Search Input with Button */}
-                <div className="flex gap-3">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <div className="flex-1 relative">
-                    <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <Search className="absolute left-3 sm:left-4 top-1/2 transform -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
                         <Input
                       placeholder={`Search ${formData.request_type}s by name or ID...`}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-12 pr-4 py-3 text-base border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
+                      className="pl-10 sm:pl-12 pr-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl transition-all duration-200"
+                      style={{ '--tw-ring-color': '#a3cef1' } as React.CSSProperties}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = '#6096ba';
+                        e.target.style.boxShadow = '0 0 0 2px rgba(96, 150, 186, 0.2)';
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = '';
+                        e.target.style.boxShadow = '';
+                      }}
                       onKeyPress={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
@@ -759,17 +897,20 @@ export default function CreateTransferRequestPage() {
                     type="button"
                     onClick={searchEntity}
                     disabled={searching || !searchQuery.trim()}
-                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base text-white font-medium rounded-lg sm:rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: '#274c77' }}
+                    onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = '#356c9b'; }}
+                    onMouseLeave={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = '#274c77'; }}
                   >
                     {searching ? (
                       <div className="flex items-center gap-2">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        Searching...
+                        <span className="hidden sm:inline">Searching...</span>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         <Search className="h-4 w-4" />
-                        Search
+                        <span>Search</span>
                       </div>
                     )}
                   </Button>
@@ -789,11 +930,11 @@ export default function CreateTransferRequestPage() {
                           >
                             <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                            <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: '#d7e3ef' }}>
                               {formData.request_type === 'student' ? (
-                                <GraduationCap className="h-5 w-5 text-blue-600" />
+                                <GraduationCap className="h-5 w-5" style={{ color: '#274c77' }} />
                               ) : (
-                                <User className="h-5 w-5 text-blue-600" />
+                                <User className="h-5 w-5" style={{ color: '#274c77' }} />
                               )}
                             </div>
                               <div>
@@ -805,7 +946,7 @@ export default function CreateTransferRequestPage() {
                                 </p>
                               </div>
                           </div>
-                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                          <Badge variant="outline" className="border-[#a3cef1]" style={{ backgroundColor: '#f2f6fa', color: '#274c77' }}>
                             {formData.request_type === 'student' ? 'Student' : 'Teacher'}
                               </Badge>
                             </div>
@@ -816,21 +957,21 @@ export default function CreateTransferRequestPage() {
                     
                     {/* Selected Entity */}
                     {selectedEntity && (
-                  <div className="p-4 bg-green-50 border-2 border-green-200 rounded-xl">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                  <div className="p-3 sm:p-4 rounded-lg sm:rounded-xl" style={{ backgroundColor: '#f2f6fa', border: '2px solid #a3cef1' }}>
+                    <div className="flex items-center justify-between gap-2 sm:gap-3">
+                      <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#d7e3ef' }}>
                           {formData.request_type === 'student' ? (
-                            <GraduationCap className="h-6 w-6 text-green-600" />
+                            <GraduationCap className="h-5 w-5 sm:h-6 sm:w-6" style={{ color: '#274c77' }} />
                           ) : (
-                            <User className="h-6 w-6 text-green-600" />
+                            <User className="h-5 w-5 sm:h-6 sm:w-6" style={{ color: '#274c77' }} />
                           )}
                         </div>
-                        <div>
-                          <p className="font-semibold text-green-900">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-sm sm:text-base truncate" style={{ color: '#274c77' }}>
                             {'name' in selectedEntity ? selectedEntity.name : selectedEntity.full_name}
                           </p>
-                          <p className="text-sm text-green-700">
+                          <p className="text-xs sm:text-sm truncate" style={{ color: '#6096ba' }}>
                             {'student_id' in selectedEntity ? selectedEntity.student_id : selectedEntity.employee_code}
                           </p>
                         </div>
@@ -843,7 +984,8 @@ export default function CreateTransferRequestPage() {
                           setSelectedEntity(null);
                           setFormData(prev => ({ ...prev, entity_id: '' }));
                         }}
-                        className="border-green-300 text-green-700 hover:bg-green-100"
+                        className="border-[#a3cef1] hover:bg-[#f2f6fa] flex-shrink-0"
+                        style={{ color: '#274c77' }}
                       >
                         <XCircle className="h-4 w-4" />
                       </Button>
@@ -853,36 +995,36 @@ export default function CreateTransferRequestPage() {
               </div>
 
               {/* Two-Column Layout: Current vs New (balanced cards) */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5 items-stretch">
                 {/* Left Column - Current/Old Data */}
-                <div className="space-y-4 h-full">
-                  <div className="bg-gradient-to-r from-gray-50 to-gray-100 p-4 rounded-xl border-2 border-gray-200 h-full flex flex-col">
-                    <h3 className="text-lg font-bold text-gray-800 mb-3 flex items-center gap-2">
-                      <div className="w-7 h-7 bg-gray-600 rounded-full flex items-center justify-center">
-                        <span className="text-white font-bold">O</span>
+                <div className="space-y-2 sm:space-y-3 h-full">
+                  <div className="bg-gradient-to-r from-gray-50 to-gray-100 p-3 sm:p-4 rounded-lg sm:rounded-xl border-2 border-gray-200 h-full flex flex-col">
+                    <h3 className="text-sm sm:text-base md:text-lg font-bold text-gray-800 mb-2 flex items-center gap-2">
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 bg-gray-600 rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-white font-bold text-sm sm:text-base">O</span>
                       </div>
-                      Current Information
+                      <span>Current Information</span>
                     </h3>
                     
                     {selectedEntity ? (
-                      <div className="space-y-3 flex-1">
-                        <div className="bg-white p-3 rounded-lg border border-gray-200">
-                          <Label className="text-sm font-medium text-gray-600">Name</Label>
-                          <p className="text-base font-semibold text-gray-900 mt-1 leading-snug">
+                      <div className="space-y-2 flex-1">
+                        <div className="bg-white p-2.5 sm:p-3 rounded-lg border border-gray-200">
+                          <Label className="text-xs sm:text-sm font-medium text-gray-600">Name</Label>
+                          <p className="text-xs sm:text-sm md:text-base font-semibold text-gray-900 mt-0.5 sm:mt-1 leading-snug break-words">
                             {'name' in selectedEntity ? selectedEntity.name : selectedEntity.full_name}
                           </p>
                         </div>
                         
-                        <div className="bg-white p-3 rounded-lg border border-gray-200">
-                          <Label className="text-sm font-medium text-gray-600">ID</Label>
-                          <p className="text-base font-semibold text-gray-900 mt-1 leading-snug">
+                        <div className="bg-white p-2.5 sm:p-3 rounded-lg border border-gray-200">
+                          <Label className="text-xs sm:text-sm font-medium text-gray-600">ID</Label>
+                          <p className="text-xs sm:text-sm md:text-base font-semibold text-gray-900 mt-0.5 sm:mt-1 leading-snug break-all">
                             {'student_id' in selectedEntity ? selectedEntity.student_id : selectedEntity.employee_code}
                           </p>
                         </div>
                         
-                        <div className="bg-white p-3 rounded-lg border border-gray-200">
-                          <Label className="text-sm font-medium text-gray-600">Current Campus</Label>
-                          <p className="text-base font-semibold text-gray-900 mt-1 leading-snug">
+                        <div className="bg-white p-2.5 sm:p-3 rounded-lg border border-gray-200">
+                          <Label className="text-xs sm:text-sm font-medium text-gray-600">Current Campus</Label>
+                          <p className="text-xs sm:text-sm md:text-base font-semibold text-gray-900 mt-0.5 sm:mt-1 leading-snug break-words">
                             {(() => {
                               // Prefer campus_name from entity if present
                               const anyEntity = selectedEntity as any;
@@ -906,10 +1048,10 @@ export default function CreateTransferRequestPage() {
                           </p>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div className="bg-white p-3 rounded-lg border border-gray-200">
-                            <Label className="text-sm font-medium text-gray-600">Current Shift</Label>
-                            <p className="text-sm font-semibold text-gray-900 mt-1 leading-snug">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div className="bg-white p-2.5 sm:p-3 rounded-lg border border-gray-200">
+                            <Label className="text-xs sm:text-sm font-medium text-gray-600">Current Shift</Label>
+                            <p className="text-xs sm:text-sm font-semibold text-gray-900 mt-0.5 sm:mt-1 leading-snug">
                               {selectedEntity.shift === 'M'
                                 ? 'Morning'
                                 : selectedEntity.shift === 'A'
@@ -917,11 +1059,11 @@ export default function CreateTransferRequestPage() {
                                 : (selectedEntity as any).shift || 'Not Available'}
                             </p>
                           </div>
-                          <div className="bg-white p-3 rounded-lg border border-gray-200">
-                            <Label className="text-sm font-medium text-gray-600">
+                          <div className="bg-white p-2.5 sm:p-3 rounded-lg border border-gray-200">
+                            <Label className="text-xs sm:text-sm font-medium text-gray-600">
                               Current Grade / Section
                             </Label>
-                            <p className="text-sm font-semibold text-gray-900 mt-1 leading-snug">
+                            <p className="text-xs sm:text-sm font-semibold text-gray-900 mt-0.5 sm:mt-1 leading-snug">
                               {(() => {
                                 const anyEntity = selectedEntity as any;
                                 const grade =
@@ -939,12 +1081,12 @@ export default function CreateTransferRequestPage() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div className="bg-white p-3 rounded-lg border border-gray-200">
-                            <Label className="text-sm font-medium text-gray-600">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div className="bg-white p-2.5 sm:p-3 rounded-lg border border-gray-200">
+                            <Label className="text-xs sm:text-sm font-medium text-gray-600">
                               Class Teacher
                             </Label>
-                            <p className="text-sm font-semibold text-gray-900 mt-1">
+                            <p className="text-xs sm:text-sm font-semibold text-gray-900 mt-0.5 sm:mt-1 break-words">
                               {(() => {
                                 const anyEntity = selectedEntity as any;
                                 return (
@@ -955,11 +1097,11 @@ export default function CreateTransferRequestPage() {
                               })()}
                             </p>
                           </div>
-                          <div className="bg-white p-3 rounded-lg border border-gray-200">
-                            <Label className="text-sm font-medium text-gray-600">
+                          <div className="bg-white p-2.5 sm:p-3 rounded-lg border border-gray-200">
+                            <Label className="text-xs sm:text-sm font-medium text-gray-600">
                               Coordinator
                             </Label>
-                            <p className="text-sm font-semibold text-gray-900 mt-1">
+                            <p className="text-xs sm:text-sm font-semibold text-gray-900 mt-0.5 sm:mt-1 break-words">
                               {(() => {
                                 const anyEntity = selectedEntity as any;
                                 return (
@@ -982,25 +1124,25 @@ export default function CreateTransferRequestPage() {
                 </div>
 
                 {/* Right Column - New/Transfer Data */}
-                <div className="space-y-6 h-full">
-                  <div className="bg-gradient-to-r from-blue-50 to-indigo-100 p-6 rounded-xl border-2 border-blue-200 h-full flex flex-col">
-                    <h3 className="text-xl font-bold text-blue-800 mb-4 flex items-center gap-2">
-                      <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-                        <span className="text-white font-bold">N</span>
+                <div className="space-y-2 sm:space-y-3 h-full">
+                  <div className="p-3 sm:p-4 rounded-lg sm:rounded-xl h-full flex flex-col" style={{ background: 'linear-gradient(to right, #f2f6fa, #e7ecef)', border: '2px solid #a3cef1' }}>
+                    <h3 className="text-sm sm:text-base md:text-lg font-bold mb-2 flex items-center gap-2" style={{ color: '#274c77' }}>
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#274c77' }}>
+                        <span className="text-white font-bold text-xs sm:text-sm">N</span>
                       </div>
-                      Transfer Information
+                      <span>Transfer Information</span>
                     </h3>
                     
-                  <div className="space-y-4 flex-1">
+                  <div className="space-y-2 sm:space-y-3 flex-1">
                       {/* Dynamic Form Based on Transfer Type */}
                       {isPrincipal && formData.transfer_type === 'campus' && (
-                        <div className="bg-white p-4 rounded-lg border border-blue-200">
-                          <Label className="text-sm font-medium text-blue-600">Destination Campus</Label>
+                        <div className="bg-white p-2.5 sm:p-3 rounded-lg" style={{ border: '1px solid #a3cef1' }}>
+                          <Label className="text-xs sm:text-sm font-medium" style={{ color: '#274c77' }}>Destination Campus</Label>
                       <Select
                         value={formData.to_campus}
                         onValueChange={(value) => setFormData(prev => ({ ...prev, to_campus: value }))}
                       >
-                            <SelectTrigger className="py-3 text-base border-2 border-blue-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 mt-2">
+                            <SelectTrigger className="py-2 sm:py-2.5 text-sm rounded-lg transition-all duration-200 mt-1.5" style={{ border: '2px solid #a3cef1' }}>
                           <SelectValue placeholder="Select destination campus" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1020,40 +1162,69 @@ export default function CreateTransferRequestPage() {
                         </div>
                       )}
                       
-                      {formData.transfer_type === 'shift' && (
-                        <div className="bg-white p-4 rounded-lg border border-blue-200">
-                          <Label className="text-sm font-medium text-blue-600">Destination Shift</Label>
-                          <Select
-                            value={formData.to_shift}
-                            onValueChange={(value: 'M' | 'A' | 'B') => {
-                              console.log('Select value changed to:', value);
-                              setFormData(prev => ({ ...prev, to_shift: value }));
-                            }}
-                          >
-                            <SelectTrigger className="py-3 text-base border-2 border-blue-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 mt-2">
-                              <SelectValue placeholder="Select destination shift" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="M">Morning</SelectItem>
-                              <SelectItem value="A">Afternoon</SelectItem>
-                              <SelectItem value="B">Both</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                      )}
+                      {formData.transfer_type === 'shift' && selectedEntity && (() => {
+                        // Get current shift and determine opposite shift
+                        const currentShift = selectedEntity.shift;
+                        // Normalize shift value (handle both 'M'/'A' and 'morning'/'afternoon')
+                        const shiftStr = String(currentShift).toLowerCase();
+                        const normalizedShift = 
+                          currentShift === 'M' || shiftStr === 'morning' ? 'M' :
+                          currentShift === 'A' || shiftStr === 'afternoon' ? 'A' :
+                          null;
+                        
+                        const oppositeShift = normalizedShift === 'M' ? 'A' : normalizedShift === 'A' ? 'M' : null;
+                        
+                        // Use the opposite shift directly, don't rely on formData.to_shift
+                        const displayValue = oppositeShift || 'A';
+                        
+                        return (
+                          <div className="bg-white p-2.5 sm:p-3 rounded-lg" style={{ border: '1px solid #a3cef1' }}>
+                            <Label className="text-xs sm:text-sm font-medium" style={{ color: '#274c77' }}>Destination Shift</Label>
+                            <Select
+                              value={displayValue} // Always use opposite shift
+                              onValueChange={(value: 'M' | 'A') => {
+                                // Always update to the opposite shift value
+                                if (oppositeShift && value === oppositeShift) {
+                                  setFormData(prev => ({ ...prev, to_shift: value }));
+                                } else if (oppositeShift) {
+                                  // Force to opposite shift if wrong value selected
+                                  setFormData(prev => ({ ...prev, to_shift: oppositeShift }));
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="py-2 sm:py-2.5 text-sm rounded-lg transition-all duration-200 mt-1.5" style={{ border: '2px solid #a3cef1' }}>
+                                <SelectValue placeholder="Select destination shift" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {oppositeShift ? (
+                                  // Only show opposite shift
+                                  <SelectItem value={oppositeShift}>
+                                    {oppositeShift === 'M' ? 'Morning' : 'Afternoon'}
+                                  </SelectItem>
+                                ) : (
+                                  // Fallback: show both if shift is unknown
+                                  <>
+                                    <SelectItem value="M">Morning</SelectItem>
+                                    <SelectItem value="A">Afternoon</SelectItem>
+                                  </>
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      })()}
                       
                       {/* Both campus and shift for campus transfer (principal only) */}
                       {isPrincipal && formData.transfer_type === 'campus' && (
-                        <div className="bg-white p-4 rounded-lg border border-blue-200">
-                          <Label className="text-sm font-medium text-blue-600">Destination Shift</Label>
+                        <div className="bg-white p-2.5 sm:p-3 rounded-lg" style={{ border: '1px solid #a3cef1' }}>
+                          <Label className="text-xs sm:text-sm font-medium" style={{ color: '#274c77' }}>Destination Shift</Label>
                       <Select
                         value={formData.to_shift}
                             onValueChange={(value: 'M' | 'A') => {
-                              console.log('Select value changed to:', value);
                               setFormData(prev => ({ ...prev, to_shift: value }));
                             }}
                       >
-                            <SelectTrigger className="py-3 text-base border-2 border-blue-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 mt-2">
+                            <SelectTrigger className="py-2 sm:py-2.5 text-sm rounded-lg transition-all duration-200 mt-1.5" style={{ border: '2px solid #a3cef1' }}>
                               <SelectValue placeholder="Select destination shift" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1066,15 +1237,15 @@ export default function CreateTransferRequestPage() {
 
                       {/* Destination classroom for class/shift transfers (teacher/coordinator) */}
                       {!isPrincipal && (formData.transfer_type === 'class' || formData.transfer_type === 'shift') && (
-                        <div className="bg-white p-4 rounded-lg border border-blue-200 space-y-3">
-                          <Label className="text-sm font-medium text-blue-600">
+                        <div className="bg-white p-2.5 sm:p-3 rounded-lg space-y-2" style={{ border: '1px solid #a3cef1' }}>
+                          <Label className="text-xs sm:text-sm font-medium" style={{ color: '#274c77' }}>
                             Destination Class / Section
                           </Label>
                           <Select
                             value={selectedToClassroomId}
                             onValueChange={value => setSelectedToClassroomId(value)}
                           >
-                            <SelectTrigger className="py-3 text-base border-2 border-blue-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 mt-2">
+                            <SelectTrigger className="py-2 sm:py-2.5 text-sm rounded-lg transition-all duration-200 mt-1.5" style={{ border: '2px solid #a3cef1' }}>
                               <SelectValue placeholder="Select destination class / section" />
                             </SelectTrigger>
                             <SelectContent>
@@ -1098,14 +1269,35 @@ export default function CreateTransferRequestPage() {
                             </SelectContent>
                           </Select>
 
-                          {/* Compact summary of from → to for clarity */}
+                          {/* Message when no classes/sections available */}
+                          {selectedEntity && (formData.transfer_type === 'class'
+                            ? availableClassSections
+                            : availableShiftSections
+                          ).length === 0 && (
+                            <div className="mt-2 p-3 sm:p-4 rounded-lg flex flex-col items-center justify-center text-center min-h-[120px] sm:min-h-[150px]" style={{ backgroundColor: '#fff3cd', border: '2px solid #ffc107' }}>
+                              <div className="mb-2 sm:mb-3">
+                                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center" style={{ backgroundColor: '#ffc107' }}>
+                                  <AlertCircle className="h-5 w-5 sm:h-6 sm:w-6" style={{ color: '#856404' }} />
+                                </div>
+                              </div>
+                              <h3 className="text-sm sm:text-base font-bold mb-1.5" style={{ color: '#856404' }}>
+                                No Available Classes/Sections
+                              </h3>
+                              <p className="text-xs leading-relaxed max-w-md px-2" style={{ color: '#856404' }}>
+                                {formData.transfer_type === 'class' 
+                                  ? 'No suitable classes are available for transfer in the same campus and shift. Please contact the administrator for assistance.'
+                                  : 'No suitable classes are available for transfer in the selected shift. Please contact the administrator for assistance.'}
+                              </p>
+                            </div>
+                          )}
+
                           {selectedEntity && selectedDestinationOption && (
-                            <div className="mt-3 rounded-lg bg-blue-50 border border-blue-100 p-3 text-xs text-blue-900 space-y-1">
+                            <div className="mt-3 rounded-lg p-2.5 sm:p-3 text-xs space-y-1" style={{ backgroundColor: '#f2f6fa', border: '1px solid #d7e3ef', color: '#274c77' }}>
                               <div className="font-semibold flex items-center gap-2">
                                 <ArrowRightLeft className="h-3 w-3" />
                                 Transfer Summary
                               </div>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <div className="space-y-1.5">
                                   <p className="font-medium">From</p>
                                   <p className="text-xs font-semibold text-gray-900">
@@ -1131,6 +1323,14 @@ export default function CreateTransferRequestPage() {
                                     })()}
                                   </p>
                                   <div className="text-[11px] text-gray-700 space-y-0.5">
+                                    <div>
+                                      <span className="text-[11px] font-medium text-gray-500">
+                                        Student ID
+                                      </span>
+                                      <div className="text-[11px] font-mono font-semibold text-gray-900">
+                                        {'student_id' in selectedEntity ? selectedEntity.student_id : selectedEntity.employee_code}
+                                      </div>
+                                    </div>
                                     <div>
                                       <span className="text-[11px] font-medium text-gray-500">
                                         Class Teacher
@@ -1171,6 +1371,16 @@ export default function CreateTransferRequestPage() {
                                     {selectedDestinationOption.shift}
                                   </p>
                                   <div className="text-[11px] text-gray-700 space-y-0.5">
+                                    {formData.transfer_type === 'shift' && idPreview && (
+                                      <div>
+                                        <span className="text-[11px] font-medium text-gray-500">
+                                          New Student ID
+                                        </span>
+                                        <div className="text-[11px] font-mono font-semibold" style={{ color: '#274c77' }}>
+                                          {idPreview.new_id}
+                                        </div>
+                                      </div>
+                                    )}
                                     <div>
                                       <span className="text-[11px] font-medium text-gray-500">
                                         Class Teacher
@@ -1202,13 +1412,13 @@ export default function CreateTransferRequestPage() {
               </div>
 
               {/* ID Preview */}
-              {selectedEntity && formData.to_campus && formData.to_shift && (
+              {selectedEntity && formData.to_shift && (formData.to_campus || (!isPrincipal && formData.transfer_type === 'shift')) && (
                 <div className="space-y-4">
                   <Label className="text-lg font-semibold text-gray-700">ID Preview</Label>
-                  <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+                  <div className="p-6 rounded-xl" style={{ background: 'linear-gradient(to right, #f2f6fa, #e7ecef)', border: '2px solid #a3cef1' }}>
                     {previewLoading ? (
                       <div className="text-center py-4">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 mx-auto mb-2" style={{ borderColor: '#274c77' }}></div>
                         <p className="text-sm text-gray-600">Loading preview...</p>
                       </div>
                     ) : idPreview ? (
@@ -1218,10 +1428,10 @@ export default function CreateTransferRequestPage() {
                             <p className="text-sm text-gray-600 mb-1">Current ID</p>
                             <p className="font-mono font-bold text-lg text-gray-900">{idPreview.old_id}</p>
                           </div>
-                          <ArrowRightLeft className="h-6 w-6 text-blue-500" />
+                          <ArrowRightLeft className="h-6 w-6" style={{ color: '#6096ba' }} />
                           <div className="text-center">
                             <p className="text-sm text-gray-600 mb-1">New ID</p>
-                            <p className="font-mono font-bold text-lg text-blue-600">{idPreview.new_id}</p>
+                            <p className="font-mono font-bold text-lg" style={{ color: '#274c77' }}>{idPreview.new_id}</p>
                           </div>
                         </div>
                         <div className="grid grid-cols-3 gap-4 text-sm">
@@ -1254,45 +1464,60 @@ export default function CreateTransferRequestPage() {
                   </Label>
                 </div>
 
-                <div className="space-y-4 bg-white border border-gray-200 rounded-xl p-4">
+                <div className="space-y-2 bg-white border border-gray-200 rounded-lg p-3 sm:p-4">
                   <div className="space-y-1">
-                    <Label htmlFor="reason" className="text-xs font-medium text-gray-600">
+                    <Label htmlFor="reason" className="text-xs sm:text-sm font-medium text-gray-600">
                       Reason for Transfer <span className="text-red-500">*</span>
                     </Label>
                     <Textarea
                       id="reason"
                       placeholder="Enter clear reason for this transfer (capacity, behaviour, parent request, etc.)"
                       value={formData.reason}
-                      onChange={(e) => setFormData(prev => ({ ...prev, reason: e.target.value }))}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value.length <= 500) {
+                          setFormData(prev => ({ ...prev, reason: value }));
+                        }
+                      }}
                       rows={3}
-                      className="mt-1 text-sm border border-gray-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 resize-none"
+                      minLength={20}
+                      maxLength={500}
+                      className="mt-1 text-sm border border-gray-200 rounded-lg transition-all duration-200 resize-none"
+                      onFocus={(e) => {
+                        e.target.style.borderColor = '#6096ba';
+                        e.target.style.boxShadow = '0 0 0 2px rgba(96, 150, 186, 0.2)';
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = '';
+                        e.target.style.boxShadow = '';
+                      }}
                     />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <Label htmlFor="requested_date" className="text-xs font-medium text-gray-600">
-                        Requested Transfer Date <span className="text-red-500">*</span>
-                      </Label>
-                      <Input
-                        id="requested_date"
-                        type="date"
-                        value={formData.requested_date}
-                        onChange={(e) => setFormData(prev => ({ ...prev, requested_date: e.target.value }))}
-                        className="mt-1 py-2 text-sm border border-gray-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200"
-                      />
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-xs text-gray-500">
+                        {formData.reason.length < 20 ? (
+                          <span className="text-orange-600 font-medium">
+                            Minimum {20 - formData.reason.length} more characters required
+                          </span>
+                        ) : (
+                          <span>Minimum 20 characters required</span>
+                        )}
+                      </p>
+                      <p className={`text-xs ${formData.reason.length > 500 ? 'text-red-600 font-medium' : formData.reason.length > 450 ? 'text-orange-600' : 'text-gray-500'}`}>
+                        {formData.reason.length} / 500
+                      </p>
                     </div>
                   </div>
+
                 </div>
               </div>
               
               {/* Action Buttons */}
-              <div className="flex justify-end gap-4">
+              <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-2 pb-0">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={resetForm}
-                  className="px-8 py-3 text-base font-medium border-2 border-gray-300 rounded-xl hover:bg-gray-50 transition-all duration-200"
+                  className="w-full sm:w-auto px-5 sm:px-6 py-2 sm:py-2.5 text-sm font-medium border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200"
                 >
                   Reset Form
                 </Button>
@@ -1302,21 +1527,27 @@ export default function CreateTransferRequestPage() {
                     loading ||
                     !selectedEntity ||
                     !formData.reason ||
-                    !formData.requested_date ||
+                    formData.reason.trim().length < 20 ||
+                    formData.reason.length > 500 ||
                     (formData.transfer_type === 'campus' && !formData.to_campus) ||
                     (formData.transfer_type === 'shift' && !formData.to_shift)
                   }
-                  className="px-8 py-3 text-base font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="w-full sm:w-auto px-5 sm:px-6 py-2 sm:py-2.5 text-sm font-medium text-white rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  style={{ backgroundColor: '#274c77' }}
+                  onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = '#356c9b'; }}
+                  onMouseLeave={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = '#274c77'; }}
                 >
                   {loading ? (
                     <>
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                      Creating Transfer...
+                      <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-b-2 border-white"></div>
+                      <span className="hidden sm:inline">Creating Transfer...</span>
+                      <span className="sm:hidden">Creating...</span>
                     </>
                   ) : (
                     <>
-                      <CheckCircle className="h-5 w-5" />
-                      Create Transfer Request
+                      <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5" />
+                      <span className="hidden sm:inline">Create Transfer Request</span>
+                      <span className="sm:hidden">Create Request</span>
                     </>
                   )}
                 </Button>
@@ -1325,6 +1556,18 @@ export default function CreateTransferRequestPage() {
           </div>
         </form>
       </div>
+
+      {/* Transfer Request Letter */}
+      {letterData && (
+        <TransferRequestLetter
+          isOpen={showLetter}
+          onClose={() => {
+            setShowLetter(false);
+            router.push('/admin/principals/transfers');
+          }}
+          transferData={letterData}
+        />
+      )}
     </div>
   );
 }

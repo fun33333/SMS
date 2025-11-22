@@ -242,6 +242,7 @@ def link_and_apply_shift_transfer(
     """
     Link a ShiftTransfer to a TransferRequest and apply the resulting ID + campus/shift changes.
     This function is called after all approvals are complete.
+    Immediately moves student to new shift and classroom.
     """
     student = shift_transfer.student
     campus = shift_transfer.campus
@@ -249,6 +250,7 @@ def link_and_apply_shift_transfer(
     # Convert 'morning'/'afternoon' to ID shift codes 'M'/'A'
     target_shift_code = 'M' if shift_transfer.to_shift == 'morning' else 'A'
 
+    # Update student ID (this also updates shift and campus)
     result = IDUpdateService.update_student_id(
         student=student,
         new_campus=campus,
@@ -257,14 +259,29 @@ def link_and_apply_shift_transfer(
         changed_by=changed_by,
         reason=reason,
     )
-
-    # Optionally move classroom if destination classroom is chosen
+    
+    # Note: IDUpdateService.update_student_id already updates:
+    # - student.student_id (new ID with new shift code)
+    # - student.campus (new campus)
+    # - student.shift ('morning'/'afternoon' format)
+    
+    # Move student to new classroom if destination classroom is chosen
     if shift_transfer.to_classroom:
         student.classroom = shift_transfer.to_classroom
         student.current_grade = shift_transfer.to_classroom.grade.name
         student.section = shift_transfer.to_classroom.section
-        student.save()
+        # Update campus from classroom if different
+        if shift_transfer.to_classroom.campus:
+            student.campus = shift_transfer.to_classroom.campus
+    
+    # Mark actor and skip generic student profile notifications
+    student._actor = changed_by
+    student._skip_notifications = True
+    
+    # Save all changes at once
+    student.save()
 
+    # Link transfer request to shift transfer
     shift_transfer.transfer_request = transfer_request
     shift_transfer.save()
 
@@ -275,6 +292,8 @@ def link_and_apply_shift_transfer(
             'shift_transfer_id': shift_transfer.id,
             'transfer_request_id': transfer_request.id,
             'new_id': result.get('new_id'),
+            'old_classroom_id': shift_transfer.from_classroom.id if shift_transfer.from_classroom else None,
+            'new_classroom_id': shift_transfer.to_classroom.id if shift_transfer.to_classroom else None,
             'changed_by_id': changed_by.id if changed_by else None,
         },
     )

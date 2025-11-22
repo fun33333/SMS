@@ -8,9 +8,11 @@ import {
   CheckCheck,
   ChevronLeft,
   RefreshCw,
-  Search,
   Inbox,
   WifiOff,
+  Search,
+  Trash2,
+  XCircle,
 } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { useWebSocketNotifications } from "@/hooks/useWebSocketNotifications"
@@ -35,11 +37,11 @@ export default function NotificationsPage() {
     markAllAsRead,
     refetch,
     removeNotificationsLocal,
-    clearAllLocal,
   } = useWebSocketNotifications()
   const [query, setQuery] = useState("")
   const [view, setView] = useState<"unread" | "all">("unread")
   const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [deletingIds, setDeletingIds] = useState<number[]>([])
 
   const filtered = useMemo(() => {
     if (!Array.isArray(notifications)) return []
@@ -64,19 +66,28 @@ export default function NotificationsPage() {
 
   const handleDeleteSelected = () => {
     if (selectedIds.length === 0) return
-    removeNotificationsLocal(selectedIds)
-    setSelectedIds([])
+    setDeletingIds(selectedIds)
+    // Wait for exit animation then remove from list
+    setTimeout(() => {
+      removeNotificationsLocal(selectedIds)
+      setSelectedIds([])
+      setDeletingIds([])
+    }, 220)
   }
 
   const handleDeleteAllVisible = () => {
     const ids = filtered.map(n => n.id)
     if (ids.length === 0) return
-    removeNotificationsLocal(ids)
-    setSelectedIds([])
+    setDeletingIds(ids)
+    setTimeout(() => {
+      removeNotificationsLocal(ids)
+      setSelectedIds([])
+      setDeletingIds([])
+    }, 220)
   }
 
   return (
-    <div className="space-y-6 py-4 sm:py-6">
+    <div className="space-y-6 py-4 sm:py-6 max-w-6xl mx-auto px-2 sm:px-4">
       <div className="flex items-center gap-2 text-sm text-gray-500">
         <button 
           onClick={() => router.back()}
@@ -87,7 +98,7 @@ export default function NotificationsPage() {
         </button>
       </div>
 
-      <section className="rounded-3xl bg-gradient-to-br from-[#274c77] via-[#356c9b] to-[#6096ba] text-white p-6 shadow-2xl border border-white/10">
+      <section className="rounded-3xl bg-gradient-to-br from-[#274c77] via-[#356c9b] to-[#6096ba] text-white p-6 sm:p-7 shadow-2xl border border-white/10 relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
           <div className="flex items-center gap-4">
             <div className="p-4 bg-white/20 rounded-2xl shadow-lg shadow-black/10">
@@ -115,7 +126,7 @@ export default function NotificationsPage() {
             </Button>
           </div>
         </div>
-        <div className="flex flex-wrap gap-6 mt-6">
+        <div className="flex flex-wrap gap-4 sm:gap-6 mt-6">
           <StatCard label="Unread" value={unreadCount} highlight />
           <StatCard label="Showing" value={filtered.length} />
           <StatCard label="Connection" value={isConnected ? "Realtime" : "Polling"} subtle={!isConnected} />
@@ -125,14 +136,26 @@ export default function NotificationsPage() {
       <div className="grid lg:grid-cols-3 gap-6">
         <section className="lg:col-span-2 bg-white rounded-3xl shadow-xl border border-[#d7e3ef] overflow-hidden">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between p-4 sm:p-6 border-b border-[#d7e3ef] gap-4">
-            <div>
+            <div className="space-y-1">
               <h2 className="text-xl font-semibold text-gray-900">News & Alerts</h2>
               <p className="text-sm text-gray-500">
                 Filter and manage all your unread notifications in one place.
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="inline-flex rounded-full bg-[#e7ecef] p-1">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 w-full md:w-auto">
+              <div className="flex-1 min-w-[160px]">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search notifications..."
+                    className="w-full pl-9 pr-3 py-2 rounded-full border border-[#d7e3ef] text-sm focus:outline-none focus:ring-2 focus:ring-[#6096ba]/40"
+                  />
+                </div>
+              </div>
+              <div className="inline-flex rounded-full bg-[#e7ecef] p-1 self-start sm:self-auto">
                 {(["unread", "all"] as const).map((option) => (
                   <button
                     key={option}
@@ -147,38 +170,42 @@ export default function NotificationsPage() {
                   </button>
                 ))}
               </div>
-              {unreadCount > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={markAllAsRead}
-                  className="whitespace-nowrap border-[#a3cef1] text-[#274c77] hover:bg-[#f2f6fa]"
-                >
-                  <CheckCheck className="w-4 h-4 mr-2" />
-                  Mark all read
-                </Button>
-              )}
-              {filtered.length > 0 && (
-                <div className="flex items-center gap-1">
+              <div className="flex items-center gap-2 sm:gap-3 self-start sm:self-auto">
+                {unreadCount > 0 && (
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={handleDeleteSelected}
-                    disabled={selectedIds.length === 0}
-                    className="whitespace-nowrap border-red-200 text-red-600 hover:bg-red-50"
+                    onClick={markAllAsRead}
+                    className="whitespace-nowrap border-[#a3cef1] text-[#274c77] hover:bg-[#f2f6fa]"
                   >
-                    Delete selected
+                    <CheckCheck className="w-4 h-4 mr-2" />
+                    Mark all read
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleDeleteAllVisible}
-                    className="whitespace-nowrap text-gray-500 hover:text-gray-700"
-                  >
-                    Clear this list
-                  </Button>
-                </div>
-              )}
+                )}
+                {filtered.length > 0 && (
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handleDeleteSelected}
+                      disabled={selectedIds.length === 0}
+                      className="border-red-200 text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span className="sr-only">Delete selected notifications</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleDeleteAllVisible}
+                      className="text-gray-500 hover:text-gray-700"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      <span className="sr-only">Clear visible notifications</span>
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -189,7 +216,7 @@ export default function NotificationsPage() {
               icon={<Inbox className="w-12 h-12 text-blue-500" />}
             />
           ) : (
-            <ul className="divide-y divide-gray-100">
+            <ul className="divide-y divide-gray-100 max-h-[560px] overflow-y-auto">
               {filtered.map((notification) => (
                 <NotificationRow
                   key={notification.id}
@@ -197,6 +224,7 @@ export default function NotificationsPage() {
                   selected={selectedIds.includes(notification.id)}
                   onToggleSelect={toggleSelect}
                   onMarkAsRead={(id) => markAsRead(id)}
+                  isDeleting={deletingIds.includes(notification.id)}
                 />
               ))}
             </ul>
@@ -267,14 +295,27 @@ function NotificationRow({
   selected,
   onToggleSelect,
   onMarkAsRead,
+  isDeleting = false,
 }: {
   notification: Notification
   selected: boolean
   onToggleSelect: (id: number) => void
   onMarkAsRead: (id: number) => void
+  isDeleting?: boolean
 }) {
+  const isUnread = notification.unread
+
   return (
-    <li className="p-4 sm:p-5 hover:bg-gray-50 transition flex gap-4 items-start">
+    <li className="px-3 sm:px-4 py-3 sm:py-3.5">
+      <div
+        className={`rounded-2xl border flex gap-4 items-start p-3 sm:p-4 shadow-sm hover:shadow-md bg-white transform transition-all duration-200 ease-out ${
+          isUnread ? "border-blue-100 bg-blue-50/40" : "border-gray-100"
+        } ${
+          isDeleting
+            ? "opacity-0 translate-x-4 scale-[0.97] blur-[1px] pointer-events-none"
+            : "opacity-100 translate-x-0 scale-100"
+        }`}
+      >
       <button
         type="button"
         onClick={() => onToggleSelect(notification.id)}
@@ -286,8 +327,8 @@ function NotificationRow({
         {selected && <Check className="w-3 h-3 text-white mx-auto" />}
       </button>
       <div
-        className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center ${
-          notification.unread
+        className={`flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center ${
+          isUnread
             ? "bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg"
             : "bg-gray-200 text-gray-600"
         }`}
@@ -295,25 +336,44 @@ function NotificationRow({
         <Bell className="w-5 h-5" />
       </div>
       <div className="flex-1 min-w-0 space-y-1.5">
-        <p className={`text-base font-semibold ${notification.unread ? "text-gray-900" : "text-gray-700"}`}>
-          {notification.verb}
-        </p>
-        {notification.target_text && <p className="text-sm text-gray-600">{notification.target_text}</p>}
-        <div className="flex items-center gap-3 text-xs text-gray-500">
-          {notification.actor_name && <span>{notification.actor_name}</span>}
-          <span>{formatRelative(notification.timestamp)}</span>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p
+              className={`text-sm sm:text-base font-semibold line-clamp-2 ${
+                isUnread ? "text-gray-900" : "text-gray-700"
+              }`}
+            >
+              {notification.verb}
+            </p>
+            {notification.target_text && (
+              <p className="text-xs sm:text-sm text-gray-600 line-clamp-2">{notification.target_text}</p>
+            )}
+            <div className="flex flex-wrap items-center gap-2 text-[11px] sm:text-xs text-gray-500 mt-1.5">
+              {notification.actor_name && <span className="font-medium">{notification.actor_name}</span>}
+              <span className="inline-flex items-center gap-1">
+                <span className="h-1 w-1 rounded-full bg-gray-300" />
+                {formatRelative(notification.timestamp)}
+              </span>
+              {isUnread && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-700 border border-blue-200">
+                  New
+                </span>
+              )}
+            </div>
+          </div>
+          {isUnread && (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => onMarkAsRead(notification.id)}
+              className="text-blue-600 hover:text-blue-800 flex-shrink-0"
+            >
+              <Check className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       </div>
-      {notification.unread && (
-        <Button
-          size="icon"
-          variant="ghost"
-          onClick={() => onMarkAsRead(notification.id)}
-          className="text-blue-600 hover:text-blue-800"
-        >
-          <Check className="w-5 h-5" />
-        </Button>
-      )}
+      </div>
     </li>
   )
 }

@@ -81,6 +81,7 @@ export default function StudentListPage() {
   const [showSectionFilter, setShowSectionFilter] = useState(true);
   const [teacherGrades, setTeacherGrades] = useState<string[]>([]);
   const [showGradeFilter, setShowGradeFilter] = useState(true);
+  const [teacherGradeSectionMap, setTeacherGradeSectionMap] = useState<Record<string, string[]>>({});
 
   // Edit functionality
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -129,6 +130,9 @@ export default function StudentListPage() {
     // For teachers, fetch their profile and classrooms to determine shifts
     if (role === 'teacher') {
       try {
+        // Teachers never see the Shift filter
+        setShowShiftFilter(false);
+
         const profile: any = await getCurrentUserProfile();
         if (profile) {
           // Get teacher's campus ID
@@ -159,6 +163,7 @@ export default function StudentListPage() {
             const shifts = new Set<string>();
             const sections = new Set<string>();
             const grades = new Set<string>();
+            const gradeSectionMap: Record<string, Set<string>> = {};
 
             classroomsList.forEach((classroom: any) => {
               console.log('Processing classroom:', classroom);
@@ -169,14 +174,27 @@ export default function StudentListPage() {
                 sections.add(classroom.section.toUpperCase());
               }
               // Backend returns grade as string in 'grade' field
+              let gradeLabel: string | null = null;
               if (classroom.grade) {
                 if (typeof classroom.grade === 'string') {
-                  grades.add(classroom.grade);
+                  gradeLabel = classroom.grade;
                 } else if (classroom.grade?.name) {
-                  grades.add(classroom.grade.name);
+                  gradeLabel = classroom.grade.name;
                 }
               } else if (classroom.grade_name) {
-                grades.add(classroom.grade_name);
+                gradeLabel = classroom.grade_name;
+              }
+
+              if (gradeLabel) {
+                grades.add(gradeLabel);
+                const key = gradeLabel.toString();
+                const sectionLabel = classroom.section ? classroom.section.toUpperCase() : '';
+                if (sectionLabel) {
+                  if (!gradeSectionMap[key]) {
+                    gradeSectionMap[key] = new Set<string>();
+                  }
+                  gradeSectionMap[key].add(sectionLabel);
+                }
               }
             });
 
@@ -189,18 +207,15 @@ export default function StudentListPage() {
             setTeacherShifts(shiftsArray);
             setTeacherSections(sectionsArray);
             setTeacherGrades(gradesArray);
+            // Convert grade→sections map to plain arrays for easier use in filters
+            const mapObj: Record<string, string[]> = {};
+            Object.entries(gradeSectionMap).forEach(([gradeKey, sectionSet]) => {
+              mapObj[gradeKey] = Array.from(sectionSet as Set<string>);
+            });
+            setTeacherGradeSectionMap(mapObj);
 
-            // Auto-fill and hide filters if teacher has only one option
+            // Auto-fill grade filter if teacher has only one grade
             const newFilters: any = {};
-
-            // Shift filter logic
-            if (shiftsArray.length === 1) {
-              newFilters.shift = shiftsArray[0];
-              setShowShiftFilter(false);
-              console.log('Hiding shift filter, auto-filling:', shiftsArray[0]);
-            } else {
-              setShowShiftFilter(true);
-            }
 
             // Section filter logic - DON'T auto-filter by section
             // A classroom can have students from multiple sections, so we shouldn't auto-filter
@@ -243,13 +258,8 @@ export default function StudentListPage() {
               const shiftsArray = Array.from(shifts);
               setTeacherShifts(shiftsArray);
 
-              // If teacher teaches only one shift, auto-filter by that shift and hide filter
-              if (shiftsArray.length === 1) {
-                setFilters(prev => ({ ...prev, shift: shiftsArray[0] }));
-                setShowShiftFilter(false);
-              } else {
-                setShowShiftFilter(true);
-              }
+              // For teachers we don't expose shift filter; don't auto-set or show it
+              setShowShiftFilter(false);
             }
           }
         }
@@ -424,7 +434,19 @@ export default function StudentListPage() {
   };
 
   const handleFilterChange = (key: string, value: string) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
+    setFilters(prev => {
+      const next = { ...prev, [key]: value };
+
+      // For teachers: when grade changes, auto-select a matching section (if we know one)
+      if (userRole === 'teacher' && key === 'current_grade' && value) {
+        const sectionsForGrade = teacherGradeSectionMap[value] || [];
+        if (sectionsForGrade.length > 0) {
+          next.section = sectionsForGrade[0];
+        }
+      }
+
+      return next;
+    });
     setCurrentPage(1); // Reset to first page when filtering
   };
 
@@ -950,7 +972,11 @@ export default function StudentListPage() {
                 className="w-full px-2.5 sm:px-3 py-2.5 sm:py-2 text-sm sm:text-base border rounded-lg focus:outline-none focus:ring-2 touch-manipulation"
                 style={{ borderColor: '#a3cef1', minHeight: '44px', maxWidth: '100%' }}
               >
-                <option value="">All Sections</option>
+                <option value="">
+                  {userRole === 'teacher' && filters.current_grade && teacherGradeSectionMap[filters.current_grade]?.length === 1
+                    ? teacherGradeSectionMap[filters.current_grade][0]
+                    : 'All Sections'}
+                </option>
                 {userRole === 'teacher' && teacherSections.length > 0 ? (
                   teacherSections.map((section: string) => (
                     <option key={section} value={section}>{section}</option>
@@ -966,7 +992,7 @@ export default function StudentListPage() {
               </select>
             </div>
           )}
-          {showShiftFilter && (
+          {showShiftFilter && userRole !== 'teacher' && (
             <div>
               <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
                 Shift

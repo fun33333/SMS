@@ -308,6 +308,21 @@ export function PersonalInfoStep({ formData, invalidFields, onInputChange, field
             )}
           </div>
 
+          <div>
+            <Label htmlFor="marital_status">Marital Status</Label>
+            <Select value={formData.marital_status || ""} onValueChange={(v) => onInputChange("marital_status", v)}>
+              <SelectTrigger className="border-2 focus:border-primary">
+                <SelectValue placeholder="Select status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="single">Single</SelectItem>
+                <SelectItem value="married">Married</SelectItem>
+                <SelectItem value="divorced">Divorced</SelectItem>
+                <SelectItem value="widowed">Widowed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="md:col-span-2">
             <Label htmlFor="email">Email Address *</Label>
             <Input
@@ -351,20 +366,7 @@ export function PersonalInfoStep({ formData, invalidFields, onInputChange, field
             {invalidFields.includes("current_address") && <p className="text-sm text-red-600 mt-1">Current address is required</p>}
           </div>
 
-          <div>
-            <Label htmlFor="marital_status">Marital Status</Label>
-            <Select value={formData.marital_status || ""} onValueChange={(v) => onInputChange("marital_status", v)}>
-              <SelectTrigger className="border-2 focus:border-primary">
-                <SelectValue placeholder="Select status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="single">Single</SelectItem>
-                <SelectItem value="married">Married</SelectItem>
-                <SelectItem value="divorced">Divorced</SelectItem>
-                <SelectItem value="widowed">Widowed</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          
 
           <div className="md:col-span-2">
             <Label htmlFor="permanent_address">Permanent Address (Optional)</Label>

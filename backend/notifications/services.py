@@ -9,7 +9,6 @@ def create_notification(recipient, actor: Optional[settings.AUTH_USER_MODEL] = N
     """Helper to create a notification record and send via WebSocket."""
     if data is None:
         data = {}
-    print(f"\n[DEBUG] Creating notification - recipient={recipient}, verb={verb}, target_text={target_text}")
     # recipient may be a user instance or id
     try:
         # Get recipient user ID
@@ -37,7 +36,6 @@ def create_notification(recipient, actor: Optional[settings.AUTH_USER_MODEL] = N
             target_text=target_text or '',
             data=data or {},
         )
-        print(f"[DEBUG] Successfully created notification: {notification}")
         
         # Send notification via WebSocket
         try:
@@ -62,15 +60,10 @@ def create_notification(recipient, actor: Optional[settings.AUTH_USER_MODEL] = N
                         'message': notification_data
                     }
                 )
-                print(f"[DEBUG] Sent WebSocket notification to user_{recipient_id}")
         except Exception as ws_error:
             print(f"[DEBUG] Failed to send WebSocket notification: {ws_error}")
             # Don't fail notification creation if WebSocket fails
         
         return notification
     except Exception as e:
-        print(f"[DEBUG] Failed to create notification: {e}")
-        print(f"[DEBUG] Error details: recipient={type(recipient)}, recipient_id={getattr(recipient, 'id', None)}")
-        import traceback
-        print(f"[DEBUG] Traceback: {traceback.format_exc()}")
         return None

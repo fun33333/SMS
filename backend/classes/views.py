@@ -9,6 +9,7 @@ from django.db.models import Q, Count
 from django.utils import timezone
 from .models import Level, Grade, ClassRoom
 from .serializers import LevelSerializer, GradeSerializer, ClassRoomSerializer
+from notifications.services import create_notification
 
 class LevelViewSet(viewsets.ModelViewSet):
     queryset = Level.objects.all()
@@ -132,14 +133,75 @@ class LevelViewSet(viewsets.ModelViewSet):
             classroom.assigned_at = timezone.now()
             classroom.save()
 
-            # Update teacher flags
-            old_teacher.assigned_classroom = None
-            old_teacher.is_class_teacher = False
-            old_teacher.classroom_assigned_by = None
-            old_teacher.classroom_assigned_at = None
+            # Update teacher flags (respect multi-classroom setup)
+            # Remove this classroom from the teacher's multi-classroom list
+            try:
+                old_teacher.assigned_classrooms.remove(classroom)
+            except Exception:
+                pass
+
+            # Clear legacy single-class link only if it was pointing to this classroom
+            if old_teacher.assigned_classroom_id == classroom.id:
+                old_teacher.assigned_classroom = None
+
+            # Recalculate is_class_teacher based on remaining classrooms
+            has_other_classes = (
+                old_teacher.assigned_classroom is not None
+                or old_teacher.assigned_classrooms.exists()
+            )
+            old_teacher.is_class_teacher = has_other_classes
+
+            old_teacher.classroom_assigned_by = None if not has_other_classes else old_teacher.classroom_assigned_by
+            if not has_other_classes:
+                old_teacher.classroom_assigned_at = None
+
+            # Skip generic "profile updated" notification; we'll send a specific one
+            setattr(old_teacher, '_skip_profile_notification', True)
             old_teacher.save()
 
             serializer = self.get_serializer(classroom)
+
+            # Send specific unassign notification
+            teacher_user = getattr(old_teacher, 'user', None)
+            if not teacher_user and old_teacher.email:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                teacher_user = User.objects.filter(email__iexact=old_teacher.email).first()
+            if not teacher_user and old_teacher.employee_code:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                teacher_user = User.objects.filter(username=old_teacher.employee_code).first()
+
+            if teacher_user:
+                campus_name = getattr(getattr(classroom, 'campus', None), 'campus_name', '')
+                actor = request.user
+                actor_name = actor.get_full_name() if hasattr(actor, 'get_full_name') else str(actor)
+                grade_name = getattr(getattr(classroom, 'grade', None), 'name', None) or getattr(classroom, 'grade_name', None) or 'Class'
+                section = getattr(classroom, 'section', '') or ''
+                shift = getattr(classroom, 'shift', '') or ''
+                class_label = f"{grade_name} - {section}"
+                if shift:
+                    class_label = f"{class_label} ({shift})"
+
+                verb = "You have been unassigned as class teacher"
+                target_text = (
+                    f"from {class_label} "
+                    f"by {actor_name}"
+                    + (f" at {campus_name}" if campus_name else "")
+                )
+                create_notification(
+                    recipient=teacher_user,
+                    actor=actor,
+                    verb=verb,
+                    target_text=target_text,
+                    data={
+                        "teacher_id": old_teacher.id,
+                        "classroom_id": classroom.id,
+                        "class_label": class_label,
+                        "action": "unassigned_class_teacher",
+                    },
+                )
+
             return Response({'message': 'Teacher unassigned successfully', 'classroom': serializer.data})
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -160,10 +222,25 @@ def unassign_classroom_teacher(request, pk: int):
         classroom.assigned_at = timezone.now()
         classroom.save()
 
-        old_teacher.assigned_classroom = None
-        old_teacher.is_class_teacher = False
-        old_teacher.classroom_assigned_by = None
-        old_teacher.classroom_assigned_at = None
+        # Mirror logic from viewset unassign
+        try:
+            old_teacher.assigned_classrooms.remove(classroom)
+        except Exception:
+            pass
+
+        if old_teacher.assigned_classroom_id == classroom.id:
+            old_teacher.assigned_classroom = None
+
+        has_other_classes = (
+            old_teacher.assigned_classroom is not None
+            or old_teacher.assigned_classrooms.exists()
+        )
+        old_teacher.is_class_teacher = has_other_classes
+        old_teacher.classroom_assigned_by = None if not has_other_classes else old_teacher.classroom_assigned_by
+        if not has_other_classes:
+            old_teacher.classroom_assigned_at = None
+
+        setattr(old_teacher, '_skip_profile_notification', True)
         old_teacher.save()
 
         serializer = ClassRoomSerializer(classroom)
@@ -310,7 +387,17 @@ class ClassRoomViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def available_teachers(self, request):
-        """Get teachers who are not assigned to any classroom"""
+        """
+        Get teachers who are available to be assigned as class teachers.
+
+        Rules:
+        - Filter by campus if provided (or by principal's campus)
+        - Optional shift filter:
+          - Only teachers who work in that shift OR in both shifts
+          - Exclude teachers who are already class teacher for a classroom in that shift
+        - When no shift is provided, return teachers who are not class teacher
+          of any classroom (legacy behaviour for generic lists).
+        """
         from teachers.models import Teacher
         
         # Filter by campus if provided (for principals)
@@ -318,26 +405,24 @@ class ClassRoomViewSet(viewsets.ModelViewSet):
         shift_param = request.query_params.get('shift')
         user = request.user
         
-        # Principal: Only teachers from their campus
-        if hasattr(user, 'role') and user.role == 'principal':
-            if campus_id:
-                teachers = Teacher.objects.filter(
-                    current_campus_id=campus_id,
-                    is_class_teacher=False
-                )
-            else:
-                teachers = Teacher.objects.filter(is_class_teacher=False)
-        elif campus_id:
-            teachers = Teacher.objects.filter(
-                current_campus_id=campus_id,
-                is_class_teacher=False
-            )
-        else:
-            teachers = Teacher.objects.filter(is_class_teacher=False)
-        
+        teachers = Teacher.objects.all()
+
+        # Principal: default to their campus if no explicit campus_id
+        if campus_id:
+            teachers = teachers.filter(current_campus_id=campus_id)
+        elif hasattr(user, 'role') and user.role == 'principal' and getattr(user, 'campus_id', None):
+            teachers = teachers.filter(current_campus_id=user.campus_id)
+
         # Optional shift filter - allow teachers who work this shift or both
         if shift_param in ['morning', 'afternoon']:
             teachers = teachers.filter(Q(shift=shift_param) | Q(shift='both'))
+
+            # Exclude teachers who are already class teacher in this shift
+            # (teacher with shift='both' can take one class per shift)
+            teachers = teachers.exclude(classroom_set__shift=shift_param)
+        else:
+            # Legacy behaviour: only teachers who are not class teacher anywhere
+            teachers = teachers.filter(classroom_set__isnull=True)
 
         return Response(teachers.values('id', 'full_name', 'employee_code', 'shift', 'current_campus__campus_name'))
     
@@ -376,15 +461,43 @@ class ClassRoomViewSet(viewsets.ModelViewSet):
                 )
             
             # Check if teacher is already assigned to another classroom
-            existing_classroom = ClassRoom.objects.filter(
+            existing_classrooms = ClassRoom.objects.filter(
                 class_teacher=teacher
-            ).exclude(pk=classroom.pk).first()
-            
-            if existing_classroom:
-                return Response(
-                    {'error': f'Teacher {teacher.full_name} is already assigned to {existing_classroom.grade.name}-{existing_classroom.section}. Please unassign them first or choose a different teacher.'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            ).exclude(pk=classroom.pk)
+
+            if existing_classrooms.exists():
+                # Teachers who work BOTH shifts can be class teacher in at most
+                # one classroom per shift (one morning + one afternoon).
+                if teacher.shift == 'both':
+                    # If teacher already has a class in this shift, block.
+                    same_shift = existing_classrooms.filter(shift=classroom.shift).first()
+                    if same_shift:
+                        return Response(
+                            {
+                                'error': (
+                                    f'Teacher {teacher.full_name} is already assigned to '
+                                    f'{same_shift.grade.name}-{same_shift.section} in the '
+                                    f'{same_shift.shift} shift. Teachers who work both shifts '
+                                    f'can only be class teacher for one class per shift.'
+                                )
+                            },
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    # Otherwise allow assignment (this will give them a class in the
+                    # other shift as well).
+                else:
+                    # Single-shift teachers can only be class teacher of one classroom.
+                    existing_classroom = existing_classrooms.first()
+                    return Response(
+                        {
+                            'error': (
+                                f'Teacher {teacher.full_name} is already assigned to '
+                                f'{existing_classroom.grade.name}-{existing_classroom.section}. '
+                                f'Please unassign them first or choose a different teacher.'
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
             
             # Store old teacher for cleanup
             old_teacher = classroom.class_teacher
@@ -396,21 +509,83 @@ class ClassRoomViewSet(viewsets.ModelViewSet):
             classroom.save()
             
             # Update new teacher profile
-            teacher.assigned_classroom = classroom
+            teacher.assigned_classroom = classroom  # LEGACY single-class link (keeps last assigned)
             teacher.is_class_teacher = True
             teacher.classroom_assigned_by = request.user
             teacher.classroom_assigned_at = timezone.now()
+            # Skip generic "profile updated" notification; we'll send a specific one
+            setattr(teacher, '_skip_profile_notification', True)
             teacher.save()
+            # Track in ManyToMany for multi-classroom support (idempotent add)
+            try:
+                teacher.assigned_classrooms.add(classroom)
+            except Exception:
+                pass
             
-            # Update old teacher if exists
+            # Update old teacher if exists (and is different from new teacher)
             if old_teacher and old_teacher.id != teacher.id:
                 old_teacher.assigned_classroom = None
-                old_teacher.is_class_teacher = False
-                old_teacher.classroom_assigned_by = None
-                old_teacher.classroom_assigned_at = None
+                # Remove this classroom from their multi-classroom list
+                try:
+                    old_teacher.assigned_classrooms.remove(classroom)
+                except Exception:
+                    pass
+                # Recalculate is_class_teacher based on remaining classrooms
+                has_other_classes = (
+                    old_teacher.assigned_classroom is not None
+                    or old_teacher.assigned_classrooms.exists()
+                )
+                old_teacher.is_class_teacher = has_other_classes
+                old_teacher.classroom_assigned_by = None if not has_other_classes else old_teacher.classroom_assigned_by
+                if not has_other_classes:
+                    old_teacher.classroom_assigned_at = None
+                # Skip generic "profile updated" notification; we'll send a specific one
+                setattr(old_teacher, '_skip_profile_notification', True)
                 old_teacher.save()
             
             serializer = self.get_serializer(classroom)
+
+            # Send specific assign notification to the teacher
+            teacher_user = getattr(teacher, 'user', None)
+            if not teacher_user and teacher.email:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                teacher_user = User.objects.filter(email__iexact=teacher.email).first()
+            if not teacher_user and teacher.employee_code:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                teacher_user = User.objects.filter(username=teacher.employee_code).first()
+
+            if teacher_user:
+                campus_name = getattr(getattr(classroom, 'campus', None), 'campus_name', '')
+                actor = request.user
+                actor_name = actor.get_full_name() if hasattr(actor, 'get_full_name') else str(actor)
+                grade_name = getattr(getattr(classroom, 'grade', None), 'name', None) or getattr(classroom, 'grade_name', None) or 'Class'
+                section = getattr(classroom, 'section', '') or ''
+                shift = getattr(classroom, 'shift', '') or ''
+                class_label = f"{grade_name} - {section}"
+                if shift:
+                    class_label = f"{class_label} ({shift})"
+
+                verb = "You have been assigned as class teacher"
+                target_text = (
+                    f"for {class_label} "
+                    f"by {actor_name}"
+                    + (f" at {campus_name}" if campus_name else "")
+                )
+                create_notification(
+                    recipient=teacher_user,
+                    actor=actor,
+                    verb=verb,
+                    target_text=target_text,
+                    data={
+                        "teacher_id": teacher.id,
+                        "classroom_id": classroom.id,
+                        "class_label": class_label,
+                        "action": "assigned_class_teacher",
+                    },
+                )
+
             return Response({
                 'message': 'Teacher assigned successfully',
                 'classroom': serializer.data

@@ -12,17 +12,25 @@ class TeacherSerializer(serializers.ModelSerializer):
     coordinators_data = CoordinatorSerializer(source='assigned_coordinators', many=True, read_only=True)
     classroom_data = ClassRoomSerializer(source='assigned_classroom', read_only=True)
     
-    # Computed fields
     campus_name = serializers.SerializerMethodField()
     coordinator_names = serializers.SerializerMethodField()
     classroom_name = serializers.SerializerMethodField()
     experience_display = serializers.SerializerMethodField()
+    assigned_classrooms_display = serializers.SerializerMethodField()
     
     class Meta:
         model = Teacher
         fields = "__all__"
-        extra_fields = ['campus_data', 'coordinators_data', 'classroom_data', 
-                       'campus_name', 'coordinator_names', 'classroom_name', 'experience_display']
+        extra_fields = [
+            'campus_data',
+            'coordinators_data',
+            'classroom_data',
+            'campus_name',
+            'coordinator_names',
+            'classroom_name',
+            'experience_display',
+            'assigned_classrooms_display',
+        ]
     
     def _sync_classroom_assignments(self, teacher: Teacher, classroom_ids: list[int]):
         """Ensure ClassRoom.class_teacher matches provided assigned_classrooms."""
@@ -83,6 +91,48 @@ class TeacherSerializer(serializers.ModelSerializer):
         if obj.assigned_classroom:
             return f"{obj.assigned_classroom.grade.name} - {obj.assigned_classroom.section}"
         return None
+
+    def get_assigned_classrooms_display(self, obj):
+        """
+        Unified display of all assigned classrooms:
+        - Prefer the ManyToMany `assigned_classrooms` (for both shifts)
+        - Fallback to legacy `assigned_classroom`
+        """
+        try:
+            # Prefer M2M list
+            m2m_qs = getattr(obj, 'assigned_classrooms', None)
+            if m2m_qs is not None and m2m_qs.exists():
+                labels = []
+                for c in m2m_qs.all():
+                    try:
+                        grade_name = getattr(getattr(c, 'grade', None), 'name', None) or getattr(c, 'grade_name', None) or 'Grade'
+                        section = getattr(c, 'section', '') or ''
+                        shift = getattr(c, 'shift', '') or ''
+                        label = f"{grade_name} - {section}"
+                        if shift:
+                            label = f"{label} ({shift})"
+                        labels.append(label)
+                    except Exception:
+                        labels.append(str(c))
+                return ", ".join(labels) if labels else "-"
+
+            # Fallback: single legacy assignment
+            c = getattr(obj, 'assigned_classroom', None)
+            if c:
+                try:
+                    grade_name = getattr(getattr(c, 'grade', None), 'name', None) or getattr(c, 'grade_name', None) or 'Grade'
+                    section = getattr(c, 'section', '') or ''
+                    shift = getattr(c, 'shift', '') or ''
+                    label = f"{grade_name} - {section}"
+                    if shift:
+                        label = f"{label} ({shift})"
+                    return label
+                except Exception:
+                    return str(c)
+
+            return "-"
+        except Exception:
+            return "-"
     
     def get_experience_display(self, obj):
         """Get formatted experience display"""

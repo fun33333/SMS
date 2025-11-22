@@ -85,6 +85,16 @@ class TransferRequestCreateSerializer(serializers.ModelSerializer):
         # Add transfer_type as a non-model field for validation (campus vs shift)
         self.fields['transfer_type'] = serializers.CharField(required=False, write_only=True)
 
+    def validate_reason(self, value):
+        """Validate reason field: minimum 20, maximum 500 characters."""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Reason for transfer is required.")
+        if len(value.strip()) < 20:
+            raise serializers.ValidationError("Reason for transfer must be at least 20 characters long.")
+        if len(value) > 500:
+            raise serializers.ValidationError("Reason for transfer cannot exceed 500 characters.")
+        return value.strip()
+
     def validate(self, data):
         """Validate transfer request data."""
         request_type = data.get('request_type')
@@ -254,6 +264,16 @@ class ClassTransferCreateSerializer(serializers.ModelSerializer):
         model = ClassTransfer
         fields = ['student', 'to_classroom', 'reason', 'requested_date']
 
+    def validate_reason(self, value):
+        """Validate reason field: minimum 20, maximum 500 characters."""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Reason for transfer is required.")
+        if len(value.strip()) < 20:
+            raise serializers.ValidationError("Reason for transfer must be at least 20 characters long.")
+        if len(value) > 500:
+            raise serializers.ValidationError("Reason for transfer cannot exceed 500 characters.")
+        return value.strip()
+
     def validate(self, data):
         student = data.get('student')
         to_classroom = data.get('to_classroom')
@@ -354,6 +374,16 @@ class ShiftTransferCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShiftTransfer
         fields = ['student', 'to_shift', 'to_classroom', 'reason', 'requested_date']
+
+    def validate_reason(self, value):
+        """Validate reason field: minimum 20, maximum 500 characters."""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Reason for transfer is required.")
+        if len(value.strip()) < 20:
+            raise serializers.ValidationError("Reason for transfer must be at least 20 characters long.")
+        if len(value) > 500:
+            raise serializers.ValidationError("Reason for transfer cannot exceed 500 characters.")
+        return value.strip()
 
     def validate(self, data):
         student = data.get('student')

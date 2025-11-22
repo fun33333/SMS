@@ -4,6 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
+from django.db import transaction
 from django.utils import timezone
 from django.contrib.auth.models import User
 
@@ -391,9 +392,30 @@ def preview_id_change(request):
 
 
 def _get_teacher_for_user(user):
-    """Return Teacher instance for given auth user, or None."""
+    """Return Teacher instance for given auth user, or None (with robust lookup)."""
     try:
-        return getattr(user, 'teacher_profile', None)
+        # Fast path: direct reverse relation
+        teacher = getattr(user, 'teacher_profile', None)
+        if teacher:
+            return teacher
+
+        # Fallbacks: resolve by email or employee_code-style username
+        from teachers.models import Teacher
+        from django.db.models import Q
+
+        qs = Teacher.objects.all()
+        email = getattr(user, 'email', None)
+        username = getattr(user, 'username', None)
+
+        q = Q()
+        if email:
+            q |= Q(email__iexact=email)
+        if username:
+            q |= Q(employee_code__iexact=username)
+
+        if q:
+            return qs.filter(q).first()
+        return None
     except Exception:
         return None
 
@@ -944,21 +966,53 @@ def create_shift_transfer(request):
 
         # Determine coordinators for from/to shifts in this campus
         from_shift = student.shift or from_classroom.shift
-        from_shift_coord = Coordinator.objects.filter(
-            campus=campus,
-            is_currently_active=True,
-        )
+        # Normalize shift value for comparison
+        from_shift_normalized = from_shift.lower() if from_shift else None
+        
+        # Find from-shift coordinator
+        from_shift_coord = None
         if from_classroom.grade and from_classroom.grade.level:
-            from_shift_coord = from_shift_coord.filter(level=from_classroom.grade.level)
-        from_shift_coord = from_shift_coord.first()
+            level = from_classroom.grade.level
+            # Filter by campus, level, and shift
+            coord_qs = Coordinator.objects.filter(
+                campus=campus,
+                is_currently_active=True,
+            ).filter(
+                Q(level=level) | Q(assigned_levels=level)
+            ).distinct()
+            
+            # Filter by shift: include coordinators with matching shift or 'both'/'all'
+            if from_shift_normalized:
+                coord_qs = coord_qs.filter(
+                    Q(shift=from_shift_normalized) |
+                    Q(shift='both') |
+                    Q(shift='all')
+                )
+            
+            from_shift_coord = coord_qs.first()
 
-        to_shift_coord = Coordinator.objects.filter(
-            campus=campus,
-            is_currently_active=True,
-        )
+        # Find to-shift coordinator
+        to_shift_coord = None
+        to_shift_normalized = to_shift.lower() if to_shift else None
         if to_classroom and to_classroom.grade and to_classroom.grade.level:
-            to_shift_coord = to_shift_coord.filter(level=to_classroom.grade.level)
-        to_shift_coord = to_shift_coord.first()
+            level = to_classroom.grade.level
+            # Filter by campus, level, and shift
+            coord_qs = Coordinator.objects.filter(
+                campus=campus,
+                is_currently_active=True,
+            ).filter(
+                Q(level=level) | Q(assigned_levels=level)
+            ).distinct()
+            
+            # Filter by shift: include coordinators with matching shift or 'both'/'all'
+            if to_shift_normalized:
+                coord_qs = coord_qs.filter(
+                    Q(shift=to_shift_normalized) |
+                    Q(shift='both') |
+                    Q(shift='all')
+                )
+            
+            to_shift_coord = coord_qs.first()
 
         shift_transfer = ShiftTransfer.objects.create(
             student=student,
@@ -997,6 +1051,44 @@ def create_shift_transfer(request):
                 'to_coord_id': to_shift_coord.id if to_shift_coord else None,
             },
         )
+
+        # Notify from-shift coordinator about the new shift transfer request
+        try:
+            from django.contrib.auth import get_user_model
+            UserModel = get_user_model()
+
+            if from_shift_coord:
+                coordinator_user = getattr(from_shift_coord, 'user', None)
+                if not coordinator_user and from_shift_coord.employee_code:
+                    coordinator_user = UserModel.objects.filter(
+                        username=from_shift_coord.employee_code
+                    ).first()
+                if not coordinator_user and getattr(from_shift_coord, 'email', None):
+                    coordinator_user = UserModel.objects.filter(
+                        email__iexact=from_shift_coord.email
+                    ).first()
+
+                if coordinator_user:
+                    student_name = student.name
+                    from_shift_display = from_shift.title() if from_shift else 'current shift'
+                    to_shift_display = to_shift.title() if to_shift else 'destination shift'
+                    verb = "New shift transfer request"
+                    target_text = (
+                        f"{student_name}: {from_shift_display} → {to_shift_display}"
+                    )
+                    create_notification(
+                        recipient=coordinator_user,
+                        actor=request.user,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            "type": "shift_transfer.requested",
+                            "shift_transfer_id": shift_transfer.id,
+                            "student_id": student.id,
+                        },
+                    )
+        except Exception as notify_err:
+            pass  # Don't fail transfer creation if notification fails
 
         return Response(ShiftTransferSerializer(shift_transfer).data, status=status.HTTP_201_CREATED)
     except Exception as e:
@@ -1106,17 +1198,126 @@ def approve_shift_transfer_own_coord(request, transfer_id):
             },
         )
 
+        # Notify requesting teacher and to-shift coordinator (if exists)
+        try:
+            from django.contrib.auth import get_user_model
+            UserModel = get_user_model()
+
+            student = shift_transfer.student
+            student_name = student.name
+            from_shift_display = shift_transfer.from_shift.title() if shift_transfer.from_shift else 'current shift'
+            to_shift_display = shift_transfer.to_shift.title() if shift_transfer.to_shift else 'destination shift'
+
+            # Notify requesting teacher
+            teacher = shift_transfer.requesting_teacher
+            if teacher:
+                teacher_user = getattr(teacher, 'user', None)
+                if not teacher_user and teacher.employee_code:
+                    teacher_user = UserModel.objects.filter(
+                        username=teacher.employee_code
+                    ).first()
+                if not teacher_user and teacher.email:
+                    teacher_user = UserModel.objects.filter(
+                        email__iexact=teacher.email
+                    ).first()
+
+                if teacher_user:
+                    verb = "Your shift transfer request has been approved by your coordinator"
+                    target_text = (
+                        f"{student_name}: {from_shift_display} → {to_shift_display}"
+                    )
+                    create_notification(
+                        recipient=teacher_user,
+                        actor=user,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            "type": "shift_transfer.own_coord_approved",
+                            "shift_transfer_id": shift_transfer.id,
+                            "student_id": student.id,
+                        },
+                    )
+
+            # Notify to-shift coordinator if exists and status is pending_other_coord
+            if shift_transfer.status == 'pending_other_coord' and shift_transfer.to_shift_coordinator:
+                to_coord = shift_transfer.to_shift_coordinator
+                to_coord_user = getattr(to_coord, 'user', None)
+                if not to_coord_user and to_coord.employee_code:
+                    to_coord_user = UserModel.objects.filter(
+                        username=to_coord.employee_code
+                    ).first()
+                if not to_coord_user and getattr(to_coord, 'email', None):
+                    to_coord_user = UserModel.objects.filter(
+                        email__iexact=to_coord.email
+                    ).first()
+
+                if to_coord_user:
+                    verb = "New shift transfer request requires your approval"
+                    target_text = (
+                        f"{student_name}: {from_shift_display} → {to_shift_display}"
+                    )
+                    create_notification(
+                        recipient=to_coord_user,
+                        actor=user,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            "type": "shift_transfer.pending_other_coord",
+                            "shift_transfer_id": shift_transfer.id,
+                            "student_id": student.id,
+                        },
+                    )
+        except Exception as notify_err:
+            pass  # Don't fail approval if notification fails
+
         # If there is no other coordinator, apply immediately by creating a TransferRequest
         if shift_transfer.status == 'approved':
+            # Find appropriate principal for the transfer
+            from principals.models import Principal
+            
+            principal_obj = Principal.objects.filter(campus=shift_transfer.campus).first()
+            
+            # Determine requesting and receiving principal
+            principal_user = None
+            
+            if principal_obj and principal_obj.user:
+                principal_user = principal_obj.user
+            else:
+                # Fallback: find any principal
+                any_principal = Principal.objects.filter(user__isnull=False).first()
+                if any_principal and any_principal.user:
+                    principal_user = any_principal.user
+                else:
+                    # Last resort: check if current user is a principal
+                    if _is_principal(user):
+                        principal_user = user
+                    else:
+                        # Final fallback: use superuser or first active user with principal role
+                        from django.contrib.auth import get_user_model
+                        UserModel = get_user_model()
+                        superuser = UserModel.objects.filter(is_superuser=True, is_active=True).first()
+                        if superuser:
+                            principal_user = superuser
+                        else:
+                            # Last option: use any active user (for system-generated transfers)
+                            principal_user = UserModel.objects.filter(is_active=True).first()
+                            
+            if not principal_user:
+                # This should never happen, but if it does, we can't proceed
+                return Response(
+                    {'error': 'Unable to find a principal for this transfer. Please contact administrator.'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
             transfer_request = TransferRequest.objects.create(
                 request_type='student',
                 status='pending',
                 from_campus=shift_transfer.campus,
                 from_shift='M' if shift_transfer.from_shift == 'morning' else 'A',
-                requesting_principal=user,
+                requesting_principal=principal_user,
                 to_campus=shift_transfer.campus,
                 to_shift='M' if shift_transfer.to_shift == 'morning' else 'A',
-                receiving_principal=user,
+                receiving_principal=principal_user,  # Same campus, same principal
                 student=shift_transfer.student,
                 reason=shift_transfer.reason,
                 requested_date=shift_transfer.requested_date,
@@ -1131,6 +1332,47 @@ def approve_shift_transfer_own_coord(request, transfer_id):
                 reason=f"Shift transfer approved: {shift_transfer.reason}",
             )
 
+            # Notify destination class teacher if transfer was applied immediately
+            try:
+                from django.contrib.auth import get_user_model
+                UserModel = get_user_model()
+
+                student = shift_transfer.student
+                student_name = student.name
+                dest_class = shift_transfer.to_classroom
+                if dest_class and dest_class.class_teacher:
+                    dest_teacher = dest_class.class_teacher
+                    dest_teacher_user = getattr(dest_teacher, 'user', None)
+                    if not dest_teacher_user and dest_teacher.employee_code:
+                        dest_teacher_user = UserModel.objects.filter(
+                            username=dest_teacher.employee_code
+                        ).first()
+                    if not dest_teacher_user and dest_teacher.email:
+                        dest_teacher_user = UserModel.objects.filter(
+                            email__iexact=dest_teacher.email
+                        ).first()
+
+                    if dest_teacher_user:
+                        to_class_text = f"{dest_class.grade.name if dest_class.grade else ''} - {dest_class.section}"
+                        to_shift_display = shift_transfer.to_shift.title() if shift_transfer.to_shift else 'destination shift'
+                        verb = "A new student has been transferred into your class"
+                        target_text = (
+                            f"{student_name} has been moved to {to_class_text} ({to_shift_display})"
+                        )
+                        create_notification(
+                            recipient=dest_teacher_user,
+                            actor=user,
+                            verb=verb,
+                            target_text=target_text,
+                            data={
+                                "type": "shift_transfer.applied",
+                                "shift_transfer_id": shift_transfer.id,
+                                "student_id": student.id,
+                            },
+                        )
+            except Exception as notify_err:
+                pass  # Don't fail if notification fails
+
         return Response(
             {
                 'message': 'Shift transfer updated after own coordinator approval',
@@ -1143,6 +1385,7 @@ def approve_shift_transfer_own_coord(request, transfer_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@transaction.atomic
 def approve_shift_transfer_other_coord(request, transfer_id):
     """
     Target-shift coordinator approval step for a shift transfer.
@@ -1171,7 +1414,71 @@ def approve_shift_transfer_other_coord(request, transfer_id):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Mark approval
+        # Find principal BEFORE making any changes (so we can fail early if needed)
+        from principals.models import Principal
+        from django.contrib.auth import get_user_model
+        UserModel = get_user_model()
+
+        # Find principal for the campus
+        principal_obj = Principal.objects.filter(campus=shift_transfer.campus).first()
+        
+        # Determine requesting and receiving principal
+        # For shift transfers within same campus, both can be the same principal
+        principal_user = None
+        
+        if principal_obj and principal_obj.user:
+            principal_user = principal_obj.user
+        else:
+            # Fallback: find any principal
+            any_principal = Principal.objects.filter(user__isnull=False).first()
+            if any_principal and any_principal.user:
+                principal_user = any_principal.user
+            else:
+                # Last resort: check if current user is a principal
+                if _is_principal(user):
+                    principal_user = user
+                else:
+                    # Final fallback: use superuser or first active user with principal role
+                    superuser = UserModel.objects.filter(is_superuser=True, is_active=True).first()
+                    if superuser:
+                        principal_user = superuser
+                    else:
+                        # Last option: use any active user (for system-generated transfers)
+                        principal_user = UserModel.objects.filter(is_active=True).first()
+                        
+        if not principal_user:
+            # This should never happen, but if it does, we can't proceed
+            return Response(
+                {'error': 'Unable to find a principal for this transfer. Please contact administrator.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Create TransferRequest BEFORE applying transfer
+        transfer_request = TransferRequest.objects.create(
+            request_type='student',
+            status='pending',
+            from_campus=shift_transfer.campus,
+            from_shift='M' if shift_transfer.from_shift == 'morning' else 'A',
+            requesting_principal=principal_user,
+            to_campus=shift_transfer.campus,
+            to_shift='M' if shift_transfer.to_shift == 'morning' else 'A',
+            receiving_principal=principal_user,  # Same campus, same principal
+            student=shift_transfer.student,
+            reason=shift_transfer.reason,
+            requested_date=shift_transfer.requested_date,
+            notes='Auto-generated from shift transfer approvals',
+            transfer_category='shift',
+        )
+
+        # Apply the transfer (this moves the student and updates ID)
+        link_and_apply_shift_transfer(
+            shift_transfer=shift_transfer,
+            transfer_request=transfer_request,
+            changed_by=user,
+            reason=f"Shift transfer approved: {shift_transfer.reason}",
+        )
+
+        # Mark approval AFTER successful transfer
         shift_transfer.status = 'approved'
         shift_transfer.to_shift_coordinator = coordinator
         shift_transfer.save()
@@ -1195,35 +1502,129 @@ def approve_shift_transfer_other_coord(request, transfer_id):
             },
         )
 
-        # Create a TransferRequest representing the actual ID change
-        # For now, we set both requesting and receiving principal as the same user (or use campus principal if configured)
-        from principals.models import Principal
+        # Notify coordinator and destination class teacher
+        try:
+            from django.contrib.auth import get_user_model
+            UserModel = get_user_model()
 
-        principal_obj = Principal.objects.filter(campus=shift_transfer.campus).first()
-        principal_user = principal_obj.user if principal_obj else user
+            student = shift_transfer.student
+            student_name = student.name
+            coordinator_name = coordinator.full_name if hasattr(coordinator, 'full_name') else (coordinator.name if hasattr(coordinator, 'name') else 'Coordinator')
 
-        transfer_request = TransferRequest.objects.create(
-            request_type='student',
-            status='pending',
-            from_campus=shift_transfer.campus,
-            from_shift='M' if shift_transfer.from_shift == 'morning' else 'A',
-            requesting_principal=principal_user,
-            to_campus=shift_transfer.campus,
-            to_shift='M' if shift_transfer.to_shift == 'morning' else 'A',
-            receiving_principal=principal_user,
-            student=shift_transfer.student,
-            reason=shift_transfer.reason,
-            requested_date=shift_transfer.requested_date,
-            notes='Auto-generated from shift transfer approvals',
-            transfer_category='shift',
-        )
+            # Notify coordinator (who approved the transfer)
+            coordinator_user = getattr(coordinator, 'user', None)
+            if not coordinator_user and hasattr(coordinator, 'employee_code') and coordinator.employee_code:
+                coordinator_user = UserModel.objects.filter(
+                    username=coordinator.employee_code
+                ).first()
+            if not coordinator_user and hasattr(coordinator, 'email') and coordinator.email:
+                coordinator_user = UserModel.objects.filter(
+                    email__iexact=coordinator.email
+                ).first()
 
-        link_and_apply_shift_transfer(
-            shift_transfer=shift_transfer,
-            transfer_request=transfer_request,
-            changed_by=user,
-            reason=f"Shift transfer approved: {shift_transfer.reason}",
-        )
+            if coordinator_user:
+                # Get classroom information
+                from_class = shift_transfer.from_classroom
+                to_class = shift_transfer.to_classroom
+                
+                if to_class:
+                    to_classroom_name = f"{to_class.grade.name if to_class.grade else ''} - {to_class.section}"
+                    from_class_text = ""
+                    if from_class:
+                        from_class_text = f"{from_class.grade.name if from_class.grade else ''} - {from_class.section}"
+                    else:
+                        # Fallback to student's previous classroom info
+                        # Note: student.classroom is already updated, so we use shift_transfer data
+                        if hasattr(shift_transfer, 'from_classroom') and shift_transfer.from_classroom:
+                            from_class_text = f"{shift_transfer.from_classroom.grade.name if shift_transfer.from_classroom.grade else ''} - {shift_transfer.from_classroom.section}"
+                        else:
+                            from_class_text = "Previous class"
+                    
+                    verb = f"{student_name} has been transferred in your assigned {to_classroom_name}"
+                    target_text = f"From {from_class_text} to {to_classroom_name}"
+                    
+                    create_notification(
+                        recipient=coordinator_user,
+                        actor=user,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            "type": "shift_transfer.coordinator_notified",
+                            "shift_transfer_id": shift_transfer.id,
+                            "student_id": student.id,
+                        },
+                    )
+
+            # Notify destination class teacher if exists
+            dest_class = shift_transfer.to_classroom
+            if dest_class:
+                # Check for class teacher (both FK and M2M)
+                dest_teacher = None
+                if dest_class.class_teacher:
+                    dest_teacher = dest_class.class_teacher
+                elif hasattr(dest_class, 'class_teachers') and dest_class.class_teachers.exists():
+                    dest_teacher = dest_class.class_teachers.first()
+                
+                if dest_teacher:
+                    dest_teacher_user = getattr(dest_teacher, 'user', None)
+                    if not dest_teacher_user and dest_teacher.employee_code:
+                        dest_teacher_user = UserModel.objects.filter(
+                            username=dest_teacher.employee_code
+                        ).first()
+                    if not dest_teacher_user and dest_teacher.email:
+                        dest_teacher_user = UserModel.objects.filter(
+                            email__iexact=dest_teacher.email
+                        ).first()
+
+                    if dest_teacher_user:
+                        verb = f"{coordinator_name} has made a transfer of {student_name} in your class"
+                        target_text = f"Student transferred to your class"
+                        
+                        create_notification(
+                            recipient=dest_teacher_user,
+                            actor=user,
+                            verb=verb,
+                            target_text=target_text,
+                            data={
+                                "type": "shift_transfer.teacher_notified",
+                                "shift_transfer_id": shift_transfer.id,
+                                "student_id": student.id,
+                            },
+                        )
+
+            # Notify requesting teacher (optional - if they want to know)
+            teacher = shift_transfer.requesting_teacher
+            if teacher:
+                teacher_user = getattr(teacher, 'user', None)
+                if not teacher_user and teacher.employee_code:
+                    teacher_user = UserModel.objects.filter(
+                        username=teacher.employee_code
+                    ).first()
+                if not teacher_user and teacher.email:
+                    teacher_user = UserModel.objects.filter(
+                        email__iexact=teacher.email
+                    ).first()
+
+                if teacher_user:
+                    from_shift_display = shift_transfer.from_shift.title() if shift_transfer.from_shift else 'current shift'
+                    to_shift_display = shift_transfer.to_shift.title() if shift_transfer.to_shift else 'destination shift'
+                    verb = "Your shift transfer request has been fully approved and applied"
+                    target_text = (
+                        f"{student_name}: {from_shift_display} → {to_shift_display}"
+                    )
+                    create_notification(
+                        recipient=teacher_user,
+                        actor=user,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            "type": "shift_transfer.approved",
+                            "shift_transfer_id": shift_transfer.id,
+                            "student_id": student.id,
+                        },
+                    )
+        except Exception as notify_err:
+            pass  # Don't fail approval if notification fails
 
         return Response(
             {
@@ -1288,6 +1689,50 @@ def decline_shift_transfer(request, transfer_id):
             },
         )
 
+        # Notify requesting teacher about the decline
+        try:
+            from django.contrib.auth import get_user_model
+            UserModel = get_user_model()
+
+            student = shift_transfer.student
+            student_name = student.name
+            from_shift_display = shift_transfer.from_shift.title() if shift_transfer.from_shift else 'current shift'
+            to_shift_display = shift_transfer.to_shift.title() if shift_transfer.to_shift else 'destination shift'
+
+            teacher = shift_transfer.requesting_teacher
+            if teacher:
+                teacher_user = getattr(teacher, 'user', None)
+                if not teacher_user and teacher.employee_code:
+                    teacher_user = UserModel.objects.filter(
+                        username=teacher.employee_code
+                    ).first()
+                if not teacher_user and teacher.email:
+                    teacher_user = UserModel.objects.filter(
+                        email__iexact=teacher.email
+                    ).first()
+
+                if teacher_user:
+                    verb = "Your shift transfer request has been declined"
+                    target_text = (
+                        f"{student_name}: {from_shift_display} → {to_shift_display}"
+                    )
+                    if reason:
+                        target_text += f" - {reason}"
+                    create_notification(
+                        recipient=teacher_user,
+                        actor=user,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            "type": "shift_transfer.declined",
+                            "shift_transfer_id": shift_transfer.id,
+                            "student_id": student.id,
+                            "reason": reason,
+                        },
+                    )
+        except Exception as notify_err:
+            pass  # Don't fail decline if notification fails
+
         return Response(
             {
                 'message': 'Shift transfer declined',
@@ -1321,21 +1766,67 @@ def available_shift_sections(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        campus = current_classroom.campus or student.campus
-        classrooms = ClassRoom.objects.filter(
-            grade=current_classroom.grade,
-            grade__level__campus=campus,
-            shift=to_shift,
-        ).order_by('grade__name', 'section')
+        if not current_classroom.grade:
+            return Response(
+                {'error': 'Student\'s current classroom does not have a grade assigned'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         from django.db.models import Q
         from coordinator.models import Coordinator
+        
+        # Normalize shift value to match ClassRoom model format
+        # ClassRoom shift values are: 'morning', 'afternoon', 'both'
+        to_shift_normalized = to_shift.lower().strip()
+        
+        # Map frontend values to database values
+        if to_shift_normalized in ['morning', 'm']:
+            shift_value = 'morning'
+        elif to_shift_normalized in ['afternoon', 'a']:
+            shift_value = 'afternoon'
+        else:
+            # Fallback to exact match (case-insensitive)
+            shift_value = to_shift_normalized
+        
+        # Filter by grade_name (not grade_id) because same grade can have different grade_ids for different shifts
+        # Include both the specific shift AND 'both' shift (since 'both' sections are available for either shift)
+        if shift_value in ['morning', 'afternoon']:
+            shift_filter = Q(shift=shift_value) | Q(shift='both')
+        else:
+            shift_filter = Q(shift=shift_value)
+        
+        # Use grade name instead of grade_id to find all sections of the same grade across different shifts
+        grade_name = current_classroom.grade.name if current_classroom.grade else None
+        if grade_name:
+            classrooms = ClassRoom.objects.filter(
+                grade__name=grade_name,
+            ).filter(shift_filter).order_by('grade__name', 'section')
+        else:
+            # Fallback to grade_id if grade name is not available
+            classrooms = ClassRoom.objects.filter(
+                grade_id=current_classroom.grade_id,
+            ).filter(shift_filter).order_by('grade__name', 'section')
+        
+        # Get campus for coordinator lookup (but don't filter by it for shift transfers)
+        # For shift transfers, grade_id filter is sufficient - we want all sections of same grade in opposite shift
+        campus = None
+        if current_classroom.grade and current_classroom.grade.level:
+            campus = current_classroom.grade.level.campus
+        
+        # Note: We're NOT filtering by campus for shift transfers to ensure we get all available sections
+        # The grade_id filter ensures we only get sections from the same grade
 
         available_data = []
         for cr in classrooms:
+            # Double-check shift filter: only include if shift matches or is 'both'
+            if shift_value in ['morning', 'afternoon']:
+                if cr.shift not in [shift_value, 'both']:
+                    continue
+            
             student_count = cr.students.count()
-            if student_count >= cr.capacity:
-                continue
+            # Include all sections, even if at capacity (let user see all options)
+            # Frontend can show capacity status if needed
+            
             # Destination class teacher & coordinator (if available)
             class_teacher_name = getattr(cr.class_teacher, 'full_name', None)
             coordinator_name = None
@@ -1362,9 +1853,12 @@ def available_shift_sections(request):
                     'shift': cr.shift,
                     'class_teacher_name': class_teacher_name,
                     'coordinator_name': coordinator_name,
+                    'student_count': student_count,
+                    'capacity': cr.capacity,
+                    'is_full': student_count >= cr.capacity,
                 }
             )
-
+        
         return Response(available_data)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)

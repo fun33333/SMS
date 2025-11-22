@@ -51,15 +51,37 @@ class StudentSerializer(serializers.ModelSerializer):
         return None
     
     def get_class_teacher_name(self, obj):
-        """Get class teacher name"""
-        if obj.classroom and obj.classroom.class_teacher:
+        """Get class teacher name - checks both direct FK and M2M relationship"""
+        if not obj.classroom:
+            return None
+        
+        # First check direct FK relationship
+        if obj.classroom.class_teacher:
             return obj.classroom.class_teacher.full_name
+        
+        # Fallback: Check M2M relationship (for both shift teachers)
+        # class_teachers is the reverse relation from Teacher.assigned_classrooms
+        m2m_teachers = obj.classroom.class_teachers.all()
+        if m2m_teachers.exists():
+            # Return the first teacher found (should typically be one)
+            return m2m_teachers.first().full_name
+        
         return None
     
     def get_class_teacher_code(self, obj):
-        """Get class teacher employee code"""
-        if obj.classroom and obj.classroom.class_teacher:
+        """Get class teacher employee code - checks both direct FK and M2M relationship"""
+        if not obj.classroom:
+            return None
+        
+        # First check direct FK relationship
+        if obj.classroom.class_teacher:
             return obj.classroom.class_teacher.employee_code
+        
+        # Fallback: Check M2M relationship (for both shift teachers)
+        m2m_teachers = obj.classroom.class_teachers.all()
+        if m2m_teachers.exists():
+            return m2m_teachers.first().employee_code
+        
         return None
 
     def get_coordinator_name(self, obj):
