@@ -25,7 +25,6 @@ import {
   FileText,
   ArrowRightLeft,
   ChevronDown,
-  Download,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -36,17 +35,21 @@ import {
   TransferRequest,
   ClassTransfer,
   ShiftTransfer,
+  GradeSkipTransfer,
   getClassTransfers,
   getShiftTransfers,
+  getGradeSkipTransfers,
   approveClassTransfer,
   declineClassTransfer,
   approveShiftTransferOwn,
   approveShiftTransferOther,
   declineShiftTransfer,
+  approveGradeSkipOwnCoord,
+  approveGradeSkipOtherCoord,
+  declineGradeSkip,
 } from '@/lib/api';
 import { getCurrentUserRole } from '@/lib/permissions';
 import { getCurrentUserProfile } from '@/lib/api';
-import { TransferRequestLetter } from '@/components/admin/transfer-request-letter';
 
 export default function TransferManagementPage() {
   const router = useRouter();
@@ -63,12 +66,16 @@ export default function TransferManagementPage() {
 
   const [classTransfers, setClassTransfers] = useState<ClassTransfer[]>([]);
   const [shiftTransfers, setShiftTransfers] = useState<ShiftTransfer[]>([]);
+  const [gradeSkipTransfers, setGradeSkipTransfers] = useState<GradeSkipTransfer[]>([]);
   const [classStatusFilter, setClassStatusFilter] = useState<'pending' | 'history'>('pending');
   const [shiftStatusFilter, setShiftStatusFilter] = useState<'pending' | 'history'>('pending');
+  const [gradeSkipStatusFilter, setGradeSkipStatusFilter] = useState<'pending' | 'history'>('pending');
   const [classDirectionFilter, setClassDirectionFilter] = useState<'incoming' | 'outgoing'>('incoming');
   const [shiftDirectionFilter, setShiftDirectionFilter] = useState<'incoming' | 'outgoing'>('incoming');
+  const [gradeSkipDirectionFilter, setGradeSkipDirectionFilter] = useState<'incoming' | 'outgoing'>('incoming');
   const [expandedClassId, setExpandedClassId] = useState<number | null>(null);
   const [expandedShiftId, setExpandedShiftId] = useState<number | null>(null);
+  const [expandedGradeSkipId, setExpandedGradeSkipId] = useState<number | null>(null);
   
   // Current user IDs for filtering
   const [currentTeacherId, setCurrentTeacherId] = useState<number | null>(null);
@@ -82,259 +89,7 @@ export default function TransferManagementPage() {
 
   const [selectedClassTransfer, setSelectedClassTransfer] = useState<ClassTransfer | null>(null);
   const [selectedShiftTransfer, setSelectedShiftTransfer] = useState<ShiftTransfer | null>(null);
-
-  // Transfer letter state – kept for future UI use if needed
-  const [showLetter, setShowLetter] = useState(false);
-  const [letterData, setLetterData] = useState<{
-    entityName: string;
-    entityId: string;
-    entityType: 'student' | 'teacher';
-    fromCampus: string;
-    fromShift?: string;
-    fromClass?: string;
-    toCampus: string;
-    toShift?: string;
-    toClass?: string;
-    reason: string;
-    requestedDate: string;
-    transferType: 'campus' | 'shift' | 'class';
-  } | null>(null);
-
-  // Helper: open transfer letter in a new window and trigger print/download
-  const openTransferLetterWindow = (data: {
-    entityName: string;
-    entityId: string;
-    entityType: 'student' | 'teacher';
-    fromCampus: string;
-    fromClass?: string;
-    toCampus: string;
-    toClass?: string;
-    reason: string;
-    requestedDate: string;
-    transferType: 'campus' | 'shift' | 'class';
-  }) => {
-    if (typeof window === 'undefined') return;
-
-    const requestedDate = new Date(data.requestedDate).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-
-    const today = new Date().toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-
-    const win = window.open('', '_blank');
-    if (!win) return;
-
-    win.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Transfer Request Letter</title>
-          <style>
-            body {
-              font-family: 'Times New Roman', serif;
-              line-height: 1.6;
-              color: #1a1a1a;
-              margin: 40px;
-            }
-            .letterhead {
-              border-bottom: 3px solid #1e40af;
-              padding-bottom: 1rem;
-              margin-bottom: 2rem;
-              text-align: center;
-            }
-            .letterhead-title {
-              font-size: 24px;
-              font-weight: bold;
-              color: #1e40af;
-            }
-            .letterhead-subtitle {
-              font-size: 12px;
-              color: #64748b;
-              margin-top: 0.5rem;
-            }
-            .letter-date {
-              text-align: right;
-              margin-bottom: 2rem;
-              font-size: 14px;
-            }
-            .recipient-block {
-              margin-bottom: 1.5rem;
-            }
-            .salutation {
-              margin-bottom: 1rem;
-            }
-            .letter-body {
-              text-align: justify;
-              margin-bottom: 1.5rem;
-              font-size: 14px;
-            }
-            .details-section {
-              background: #f8fafc;
-              border-left: 4px solid #1e40af;
-              padding: 1.5rem;
-              margin: 1.5rem 0;
-              border-radius: 4px;
-            }
-            .detail-row {
-              margin-bottom: 0.75rem;
-              display: flex;
-            }
-            .detail-label {
-              font-weight: bold;
-              min-width: 160px;
-              color: #1e40af;
-            }
-            .detail-value {
-              flex: 1;
-              color: #334155;
-            }
-            .signature-block {
-              margin-top: 3rem;
-              text-align: right;
-            }
-            .signature-line {
-              border-top: 2px solid #1e40af;
-              width: 280px;
-              margin: 3rem 0 0.5rem auto;
-            }
-            .signature-label {
-              font-size: 12px;
-              color: #64748b;
-            }
-            .footer {
-              margin-top: 2rem;
-              border-top: 1px solid #e5e7eb;
-              padding-top: 0.5rem;
-              font-size: 11px;
-              text-align: center;
-              color: #6b7280;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="letterhead">
-            <div class="letterhead-title">Al Khair Secondary School</div>
-            <div class="letterhead-subtitle">Official Transfer Request Document</div>
-          </div>
-
-          <div class="letter-date">
-            <strong>Date:</strong> ${today}
-          </div>
-
-          <div class="recipient-block">
-            <div class="font-semibold">Principal</div>
-            <div>${data.toCampus}</div>
-          </div>
-
-          <div class="salutation">
-            <strong>Subject: Request for Transfer of ${
-              data.entityType === 'student' ? 'Student' : 'Teacher'
-            }</strong>
-          </div>
-
-          <div class="letter-body">
-            <p><strong>Respected Sir/Madam,</strong></p>
-            <p>
-              I am writing to formally request your approval for the transfer of the following ${
-                data.entityType === 'student' ? 'student' : 'teacher'
-              } from <strong>${data.fromCampus}</strong> to
-              <strong>${data.toCampus}</strong>.
-            </p>
-
-            <div class="details-section">
-              <div class="detail-row">
-                <span class="detail-label">${
-                  data.entityType === 'student' ? 'Student Name:' : 'Teacher Name:'
-                }</span>
-                <span class="detail-value">${data.entityName}</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-label">${
-                  data.entityType === 'student' ? 'Student ID:' : 'Employee Code:'
-                }</span>
-                <span class="detail-value">${data.entityId}</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-label">Transfer Type:</span>
-                <span class="detail-value">${
-                  data.transferType === 'campus'
-                    ? 'Campus Transfer'
-                    : data.transferType === 'shift'
-                    ? 'Shift Transfer'
-                    : 'Class Transfer'
-                }</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-label">From Campus:</span>
-                <span class="detail-value">${data.fromCampus}</span>
-              </div>
-              ${
-                data.fromClass
-                  ? `<div class="detail-row">
-                       <span class="detail-label">From Class:</span>
-                       <span class="detail-value">${data.fromClass}</span>
-                     </div>`
-                  : ''
-              }
-              <div class="detail-row">
-                <span class="detail-label">To Campus:</span>
-                <span class="detail-value">${data.toCampus}</span>
-              </div>
-              ${
-                data.toClass
-                  ? `<div class="detail-row">
-                       <span class="detail-label">To Class:</span>
-                       <span class="detail-value">${data.toClass}</span>
-                     </div>`
-                  : ''
-              }
-              <div class="detail-row">
-                <span class="detail-label">Requested Date:</span>
-                <span class="detail-value">${requestedDate}</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-label">Reason for Transfer:</span>
-                <span class="detail-value">${data.reason}</span>
-              </div>
-            </div>
-
-            <p>
-              This transfer is being requested due to the following reason:
-              <em>"${data.reason}"</em>.
-            </p>
-            <p>
-              I kindly request your approval for this transfer and assure you that all necessary
-              documentation and administrative procedures will be completed in accordance with
-              institutional policies.
-            </p>
-            <p>
-              Thank you for your time and consideration. I look forward to your positive response.
-            </p>
-          </div>
-
-          <div class="signature-block">
-            <div class="signature-line"></div>
-            <div class="signature-label">Requesting Principal</div>
-            <div class="signature-label">${data.fromCampus}</div>
-          </div>
-
-          <div class="footer">
-            This is an official document generated by IAK SMS System
-          </div>
-          <script>
-            window.onload = function() { window.print(); };
-          </script>
-        </body>
-      </html>
-    `);
-    win.document.close();
-  };
+  const [selectedGradeSkipTransfer, setSelectedGradeSkipTransfer] = useState<GradeSkipTransfer | null>(null);
 
 
   // Load current user profile to get IDs
@@ -387,12 +142,14 @@ export default function TransferManagementPage() {
   const loadTeacherCoordinatorTransfers = async () => {
     try {
       setLoading(true);
-      const [classes, shifts] = await Promise.all([
+      const [classes, shifts, gradeSkips] = await Promise.all([
         getClassTransfers(),
         getShiftTransfers(),
+        getGradeSkipTransfers(),
       ]);
       setClassTransfers(classes as ClassTransfer[]);
       setShiftTransfers(shifts as ShiftTransfer[]);
+      setGradeSkipTransfers(gradeSkips as GradeSkipTransfer[]);
     } catch (error) {
       console.error('Error loading transfers:', error);
       toast.error('Failed to load transfer data');
@@ -625,7 +382,7 @@ export default function TransferManagementPage() {
         className="hover:shadow-md transition-shadow border border-gray-100 rounded-2xl bg-white/80"
       >
         <CardContent className="p-3 md:p-4">
-          {/* Header row with download button */}
+          {/* Header row */}
           <div className="flex items-center gap-2 mb-2">
             <button
               type="button"
@@ -670,33 +427,6 @@ export default function TransferManagementPage() {
                 />
               </div>
             </button>
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const anyTransfer = transfer as any;
-                openTransferLetterWindow({
-                  entityName: transfer.student_name,
-                  entityId: transfer.student_id,
-                  entityType: 'student',
-                  fromCampus: anyTransfer.campus_name || 'Current Campus',
-                  fromClass: fromText,
-                  toCampus: anyTransfer.campus_name || 'Current Campus',
-                  toClass: toText,
-                  reason: transfer.reason,
-                  requestedDate: transfer.requested_date,
-                  transferType: 'class',
-                });
-              }}
-              className="gap-1 h-7 px-2 text-xs hover:bg-blue-50 shrink-0"
-              title="Download Letter"
-              data-testid={`download-letter-top-${transfer.id}`}
-            >
-              <Download className="h-3.5 w-3.5" />
-            </Button>
           </div>
 
           {/* Expanded details */}
@@ -752,34 +482,6 @@ export default function TransferManagementPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      const anyTransfer = transfer as any;
-                      openTransferLetterWindow({
-                        entityName: transfer.student_name,
-                        entityId: transfer.student_id,
-                        entityType: 'student',
-                        fromCampus: anyTransfer.campus_name || 'Current Campus',
-                        fromClass: fromText,
-                        toCampus: anyTransfer.campus_name || 'Current Campus',
-                        toClass: toText,
-                        reason: transfer.reason,
-                        requestedDate: transfer.requested_date,
-                        transferType: 'class',
-                      });
-                    }}
-                    className="gap-1.5 text-xs"
-                    data-testid={`download-letter-expanded-${transfer.id}`}
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Letter
-                  </Button>
-
                   {isCoordinator && transfer.status === 'pending' && (
                     <>
                       <Button
@@ -846,7 +548,7 @@ export default function TransferManagementPage() {
         className="hover:shadow-md transition-shadow border border-gray-100 rounded-2xl bg-white/80"
       >
         <CardContent className="p-4 md:p-5">
-          {/* Header row with download button */}
+          {/* Header row */}
           <div className="flex items-center gap-2 mb-2">
             <button
               onClick={() =>
@@ -878,32 +580,6 @@ export default function TransferManagementPage() {
                 />
               </div>
             </button>
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                openTransferLetterWindow({
-                  entityName: transfer.student_name,
-                  entityId: transfer.student_id,
-                  entityType: 'student',
-                  fromCampus: transfer.campus_name || 'Current Campus',
-                  fromClass: transfer.from_classroom_display || undefined,
-                  toCampus: transfer.campus_name || 'Current Campus',
-                  toClass: transfer.to_classroom_display || undefined,
-                  reason: transfer.reason,
-                  requestedDate: transfer.requested_date,
-                  transferType: 'shift',
-                });
-              }}
-                className="gap-1 h-7 px-2 text-xs hover:bg-indigo-50 shrink-0"
-                data-testid={`download-letter-top-shift-${transfer.id}`}
-              title="Download Letter"
-            >
-              <Download className="h-3.5 w-3.5" />
-            </Button>
           </div>
 
           {/* Expanded details */}
@@ -980,32 +656,6 @@ export default function TransferManagementPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      openTransferLetterWindow({
-                        entityName: transfer.student_name,
-                        entityId: transfer.student_id,
-                        entityType: 'student',
-                        fromCampus: transfer.campus_name || 'Current Campus',
-                        fromClass: transfer.from_classroom_display || undefined,
-                        toCampus: transfer.campus_name || 'Current Campus',
-                        toClass: transfer.to_classroom_display || undefined,
-                        reason: transfer.reason,
-                        requestedDate: transfer.requested_date,
-                        transferType: 'shift',
-                      });
-                    }}
-                    className="gap-1.5 text-xs"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Letter
-                  </Button>
-
                   {isCoordinator &&
                     (transfer.status === 'pending_own_coord' ||
                       transfer.status === 'pending_other_coord') && (
@@ -1045,6 +695,188 @@ export default function TransferManagementPage() {
                           size="sm"
                           onClick={() => {
                             setSelectedShiftTransfer(transfer);
+                            setDeclineReason('');
+                            setShowDeclineDialog(true);
+                          }}
+                          disabled={actionLoading === transfer.id}
+                        >
+                          Decline
+                        </Button>
+                      </>
+                    )}
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderGradeSkipTransferCard = (transfer: GradeSkipTransfer) => {
+    const isExpanded = expandedGradeSkipId === transfer.id;
+
+    const fromText = `${transfer.from_grade_name || 'Current grade'}${transfer.from_section ? ` (${transfer.from_section})` : ''}`;
+    const toText = `${transfer.to_grade_name || 'Target grade'}${transfer.to_section ? ` (${transfer.to_section})` : ''}`;
+
+    return (
+      <Card
+        key={transfer.id}
+        className="hover:shadow-md transition-shadow border border-gray-100 rounded-2xl bg-white/80"
+      >
+        <CardContent className="p-4 md:p-5">
+          {/* Header row */}
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              onClick={() =>
+                setExpandedGradeSkipId(prev => (prev === transfer.id ? null : transfer.id))
+              }
+              className="flex-1 flex items-center justify-between gap-3 text-left"
+            >
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <GraduationCap className="h-4 w-4 md:h-5 md:w-5 text-purple-600 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-semibold text-sm md:text-base text-gray-900 truncate">
+                    {transfer.student_name}
+                  </h3>
+                  <p className="text-xs text-gray-500 truncate">
+                    {transfer.student_id}
+                    {transfer.initiated_by_teacher_name
+                      ? ` · ${transfer.initiated_by_teacher_name}`
+                      : ''}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="hidden sm:block">{getStatusBadge(transfer.status)}</div>
+                <ChevronDown
+                  className={`h-4 w-4 text-gray-400 transition-transform ${
+                    isExpanded ? 'rotate-180' : ''
+                  }`}
+                />
+              </div>
+            </button>
+          </div>
+
+          {/* Expanded details */}
+          {isExpanded && (
+            <div className="mt-3 border-t border-purple-100 pt-3 space-y-3 text-xs md:text-sm">
+              {/* From / To summary */}
+              <div className="rounded-xl border border-purple-100 bg-purple-50/70 px-3 py-2 text-purple-900">
+                <div className="flex items-center gap-2 mb-2">
+                  <GraduationCap className="h-3 w-3 md:h-4 md:w-4" />
+                  <span className="font-semibold text-xs">Grade Skip</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] uppercase tracking-wide text-purple-700 font-semibold">
+                      From
+                    </p>
+                    <p className="font-semibold">{fromText}</p>
+                    {transfer.from_shift && (
+                      <p className="text-[11px] text-purple-800">
+                        Shift: {transfer.from_shift}
+                      </p>
+                    )}
+                    {transfer.from_grade_coordinator_name && (
+                      <p className="text-[11px] text-purple-800">
+                        Coordinator: {transfer.from_grade_coordinator_name}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] uppercase tracking-wide text-purple-700 font-semibold">
+                      To
+                    </p>
+                    <p className="font-semibold">{toText}</p>
+                    {transfer.to_shift && (
+                      <p className="text-[11px] text-purple-800">
+                        Shift: {transfer.to_shift}
+                      </p>
+                    )}
+                    {transfer.to_grade_coordinator_name && (
+                      <p className="text-[11px] text-purple-800">
+                        Coordinator: {transfer.to_grade_coordinator_name}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Reason */}
+              <div className="text-sm text-gray-700">
+                <span className="font-medium">Reason:</span>{' '}
+                <span>{transfer.reason}</span>
+              </div>
+
+              {/* Request details */}
+              <div className="text-xs text-gray-500 space-y-1">
+                <div>
+                  <span className="font-medium text-gray-600">Requested:</span>{' '}
+                  <span>
+                    {new Date(transfer.requested_date).toLocaleDateString()}
+                  </span>
+                </div>
+                {transfer.initiated_by_teacher_name && (
+                  <div>
+                    <span className="font-medium text-gray-600">By:</span>{' '}
+                    <span>{transfer.initiated_by_teacher_name}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer: status + actions */}
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {getStatusBadge(transfer.status)}
+                  {transfer.decline_reason && (
+                    <Badge variant="outline" className="text-red-600">
+                      {transfer.decline_reason}
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {isCoordinator &&
+                    (transfer.status === 'pending_own_coord' ||
+                      transfer.status === 'pending_other_coord') && (
+                      <>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              setActionLoading(transfer.id);
+                              if (transfer.status === 'pending_own_coord') {
+                                await approveGradeSkipOwnCoord(transfer.id);
+                              } else {
+                                await approveGradeSkipOtherCoord(transfer.id);
+                              }
+                              toast.success('Grade skip transfer approved');
+                              await loadTeacherCoordinatorTransfers();
+                            } catch (error: any) {
+                              console.error(
+                                'Error approving grade skip transfer:',
+                                error,
+                              );
+                              toast.error(
+                                error.message || 'Failed to approve grade skip transfer',
+                              );
+                            } finally {
+                              setActionLoading(null);
+                            }
+                          }}
+                          disabled={actionLoading === transfer.id}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          {actionLoading === transfer.id ? 'Approving...' : 'Approve'}
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedGradeSkipTransfer(transfer);
                             setDeclineReason('');
                             setShowDeclineDialog(true);
                           }}
@@ -1151,6 +983,31 @@ export default function TransferManagementPage() {
         : (t.status !== 'pending_own_coord' && t.status !== 'pending_other_coord')
     );
 
+    // Separate grade skip transfers into incoming and outgoing
+    const gradeSkipIncoming = gradeSkipTransfers.filter(t => {
+      // Incoming: coordinator needs to approve (not created by current teacher)
+      const isOutgoing = currentTeacherId && t.initiated_by_teacher === currentTeacherId;
+      if (isOutgoing) return false;
+      // Check if current coordinator is from_grade_coordinator or to_grade_coordinator
+      if (currentCoordinatorId) {
+        return t.from_grade_coordinator === currentCoordinatorId || t.to_grade_coordinator === currentCoordinatorId;
+      }
+      // If no coordinator ID, show pending ones
+      return t.status === 'pending_own_coord' || t.status === 'pending_other_coord';
+    });
+    
+    const gradeSkipOutgoing = gradeSkipTransfers.filter(t => {
+      // Outgoing: created by current teacher
+      return currentTeacherId && t.initiated_by_teacher === currentTeacherId;
+    });
+
+    // Filter by status and direction
+    const filteredGradeSkipTransfers = (gradeSkipDirectionFilter === 'incoming' ? gradeSkipIncoming : gradeSkipOutgoing).filter(
+      t => gradeSkipStatusFilter === 'pending' 
+        ? (t.status === 'pending_own_coord' || t.status === 'pending_other_coord')
+        : (t.status !== 'pending_own_coord' && t.status !== 'pending_other_coord')
+    );
+
     // Calculate counts for current direction
     const pendingClassCount = (classDirectionFilter === 'incoming' ? classIncoming : classOutgoing).filter(
       t => t.status === 'pending'
@@ -1198,12 +1055,15 @@ export default function TransferManagementPage() {
           </div>
 
           <Tabs defaultValue="class" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="class">
                 Class Transfers
               </TabsTrigger>
               <TabsTrigger value="shift">
                 Shift Transfers
+              </TabsTrigger>
+              <TabsTrigger value="grade-skip">
+                Grade Skip Transfers
               </TabsTrigger>
             </TabsList>
 
@@ -1376,9 +1236,94 @@ export default function TransferManagementPage() {
                 </div>
               )}
             </TabsContent>
+
+            <TabsContent value="grade-skip" className="space-y-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-gray-700">Grade Skip Transfers</h2>
+                <div className="flex items-center gap-3">
+                  {/* Incoming/Outgoing Tabs */}
+                  <div className="inline-flex rounded-full bg-gray-100 p-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setGradeSkipDirectionFilter('incoming')}
+                      className={`px-3 py-1 rounded-full transition ${
+                        gradeSkipDirectionFilter === 'incoming'
+                          ? 'bg-purple-600 text-white font-semibold'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Incoming
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGradeSkipDirectionFilter('outgoing')}
+                      className={`px-3 py-1 rounded-full transition ${
+                        gradeSkipDirectionFilter === 'outgoing'
+                          ? 'bg-purple-600 text-white font-semibold'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Outgoing
+                    </button>
+                  </div>
+                  {/* Pending/History Tabs */}
+                  <div className="inline-flex rounded-full bg-gray-100 p-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setGradeSkipStatusFilter('pending')}
+                      className={`px-3 py-1 rounded-full transition ${
+                        gradeSkipStatusFilter === 'pending'
+                          ? 'bg-purple-600 text-white font-semibold'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Pending
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGradeSkipStatusFilter('history')}
+                      className={`px-3 py-1 rounded-full transition ${
+                        gradeSkipStatusFilter === 'history'
+                          ? 'bg-purple-600 text-white font-semibold'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      History
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {filteredGradeSkipTransfers.length === 0 ? (
+                <Card className="border-dashed border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
+                  <CardContent className="py-10 px-6 text-center flex flex-col items-center justify-center gap-3">
+                    <div className="h-12 w-12 rounded-full bg-purple-50 flex items-center justify-center mb-1">
+                      <GraduationCap className="h-6 w-6 text-purple-500" />
+                    </div>
+                    <p className="text-base font-semibold text-gray-800">
+                      {gradeSkipStatusFilter === 'pending'
+                        ? `No pending ${gradeSkipDirectionFilter} grade skip transfers`
+                        : `No ${gradeSkipDirectionFilter} grade skip transfer history yet`}
+                    </p>
+                    <p className="text-xs text-gray-500 max-w-md">
+                      {gradeSkipStatusFilter === 'pending'
+                        ? gradeSkipDirectionFilter === 'incoming'
+                          ? 'There are currently no grade skip transfer requests waiting for your approval.'
+                          : 'You have not created any pending grade skip transfer requests.'
+                        : gradeSkipDirectionFilter === 'incoming'
+                          ? 'Approved or declined grade skip transfers will be listed here for your records.'
+                          : 'Your approved or declined grade skip transfer requests will appear here.'}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid gap-3">
+                  {filteredGradeSkipTransfers.map(transfer => renderGradeSkipTransferCard(transfer))}
+                </div>
+              )}
+            </TabsContent>
           </Tabs>
 
-          {/* Shared Decline Dialog for class/shift transfers (coordinator) */}
+          {/* Shared Decline Dialog for class/shift/grade skip transfers (coordinator) */}
           <Dialog open={showDeclineDialog} onOpenChange={setShowDeclineDialog}>
             <DialogContent>
               <DialogHeader>
@@ -1432,15 +1377,20 @@ export default function TransferManagementPage() {
                           setActionLoading(selectedClassTransfer.id);
                           await declineClassTransfer(selectedClassTransfer.id, declineReason);
                           toast.success('Class transfer declined');
+                          setSelectedClassTransfer(null);
                         } else if (selectedShiftTransfer) {
                           setActionLoading(selectedShiftTransfer.id);
                           await declineShiftTransfer(selectedShiftTransfer.id, declineReason);
                           toast.success('Shift transfer declined');
+                          setSelectedShiftTransfer(null);
+                        } else if (selectedGradeSkipTransfer) {
+                          setActionLoading(selectedGradeSkipTransfer.id);
+                          await declineGradeSkip(selectedGradeSkipTransfer.id, declineReason);
+                          toast.success('Grade skip transfer declined');
+                          setSelectedGradeSkipTransfer(null);
                         }
                         setShowDeclineDialog(false);
                         setDeclineReason('');
-                        setSelectedClassTransfer(null);
-                        setSelectedShiftTransfer(null);
                         await loadTeacherCoordinatorTransfers();
                       } catch (error: any) {
                         console.error('Error declining transfer:', error);
@@ -1503,160 +1453,6 @@ export default function TransferManagementPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
-      {/* Simple letter overlay inline (no extra component, no portals) */}
-      {showLetter && letterData && (
-        <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center px-4 py-8"
-          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-        >
-          <div className="relative max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl md:p-8">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-900">Transfer Request Letter</h2>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => window.print()}
-                  className="gap-2"
-                >
-                  <Printer className="h-4 w-4" />
-                  Print
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setShowLetter(false);
-                    setTimeout(() => setLetterData(null), 300);
-                  }}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-
-            <div className="letter-container bg-white p-4 md:p-6 text-sm leading-relaxed">
-              <div className="border-b-2 border-blue-700 pb-4 mb-6 text-center">
-                <div className="text-2xl font-bold text-blue-800">
-                  Al Khair Secondary School
-                </div>
-                <div className="text-xs text-slate-500 mt-1">
-                  Official Transfer Request Document
-                </div>
-              </div>
-
-              <div className="text-right mb-6">
-                <strong>Date:</strong>{' '}
-                {new Date().toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              </div>
-
-              <div className="mb-4">
-                <div className="font-semibold mb-1">
-                  {letterData.receivingPrincipal || 'Principal'}
-                </div>
-                <div className="text-gray-700">{letterData.toCampus}</div>
-              </div>
-
-              <p className="mb-4">
-                <strong>Subject:</strong> Request for Transfer of{' '}
-                {letterData.entityType === 'student' ? 'Student' : 'Teacher'}
-              </p>
-
-              <p className="mb-4">
-                <strong>Respected Sir/Madam,</strong>
-              </p>
-
-              <p className="mb-4">
-                I am writing to formally request your approval for the transfer of the following{' '}
-                {letterData.entityType === 'student' ? 'student' : 'teacher'} from{' '}
-                <strong>{letterData.fromCampus}</strong> to{' '}
-                <strong>{letterData.toCampus}</strong>.
-              </p>
-
-              <div className="bg-slate-50 border-l-4 border-blue-700 p-4 my-4 rounded">
-                <div className="font-bold text-blue-900 mb-3">Transfer Details</div>
-                <div className="space-y-1 text-sm">
-                  <div>
-                    <span className="font-semibold">Name: </span>
-                    {letterData.entityName}
-                  </div>
-                  <div>
-                    <span className="font-semibold">
-                      {letterData.entityType === 'student' ? 'Student ID: ' : 'Employee Code: '}
-                    </span>
-                    {letterData.entityId}
-                  </div>
-                  <div>
-                    <span className="font-semibold">From Campus: </span>
-                    {letterData.fromCampus}
-                  </div>
-                  {letterData.fromClass && (
-                    <div>
-                      <span className="font-semibold">From Class: </span>
-                      {letterData.fromClass}
-                    </div>
-                  )}
-                  <div>
-                    <span className="font-semibold">To Campus: </span>
-                    {letterData.toCampus}
-                  </div>
-                  {letterData.toClass && (
-                    <div>
-                      <span className="font-semibold">To Class: </span>
-                      {letterData.toClass}
-                    </div>
-                  )}
-                  <div>
-                    <span className="font-semibold">Requested Date: </span>
-                    {new Date(letterData.requestedDate).toLocaleDateString('en-US')}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Reason: </span>
-                    {letterData.reason}
-                  </div>
-                </div>
-              </div>
-
-              <p className="mb-4">
-                This transfer is being requested due to the following reason:{' '}
-                <em>"{letterData.reason}"</em>.
-              </p>
-
-              <p className="mb-4">
-                I kindly request your approval for this transfer and assure you that all necessary
-                documentation and administrative procedures will be completed in accordance with
-                institutional policies.
-              </p>
-
-              <p className="mb-8">
-                Thank you for your time and consideration. I look forward to your positive response.
-              </p>
-
-              <div className="text-right mt-8">
-                <p className="mb-2">
-                  <strong>Respectfully,</strong>
-                </p>
-                <div className="mt-12 inline-block text-left">
-                  <div className="border-t-2 border-blue-700 w-64 mb-1" />
-                  <div className="text-xs text-slate-600">
-                    {letterData.requestingPrincipal || 'Requesting Principal'}
-                  </div>
-                  <div className="text-xs text-slate-500">{letterData.fromCampus}</div>
-                </div>
-              </div>
-
-              <div className="mt-8 pt-4 border-t border-gray-200 text-xs text-center text-gray-500">
-                <p>This is an official document generated by IAK SMS System</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -1862,18 +1658,6 @@ export default function TransferManagementPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Transfer Request Letter Modal */}
-        {letterData && (
-          <TransferRequestLetter
-            key={`letter-${letterData.entityId}`}
-            isOpen={showLetter}
-            onClose={() => {
-              setShowLetter(false);
-              setTimeout(() => setLetterData(null), 300);
-            }}
-            transferData={letterData}
-          />
-        )}
       </div>
     </div>
   );

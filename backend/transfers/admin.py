@@ -6,6 +6,7 @@ from .models import (
     ClassTransfer,
     ShiftTransfer,
     TransferApproval,
+    GradeSkipTransfer,
 )
 
 
@@ -101,3 +102,36 @@ class TransferApprovalAdmin(admin.ModelAdmin):
     )
     list_filter = ("transfer_type", "role", "status")
     search_fields = ("transfer_id", "approved_by__username", "approved_by__email")
+
+
+@admin.register(GradeSkipTransfer)
+class GradeSkipTransferAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "student",
+        "from_grade_name",
+        "to_grade_name",
+        "from_section",
+        "to_section",
+        "from_shift",
+        "to_shift",
+        "status",
+        "requested_date",
+        "initiated_by_teacher",
+        "from_grade_coordinator",
+        "to_grade_coordinator",
+    )
+    list_filter = ("status", "from_shift", "to_shift", "campus", "requested_date")
+    search_fields = ("student__name", "student__student_id", "from_grade_name", "to_grade_name")
+    autocomplete_fields = (
+        "student",
+        "campus",
+        "from_grade",
+        "to_grade",
+        "from_classroom",
+        "to_classroom",
+        "initiated_by_teacher",
+        "from_grade_coordinator",
+        "to_grade_coordinator",
+        "principal",
+    )

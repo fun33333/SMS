@@ -436,3 +436,155 @@ class TransferApproval(models.Model):
 
     def __str__(self):
         return f"{self.transfer_type}#{self.transfer_id} - {self.role} ({self.status})"
+
+
+class GradeSkipTransfer(models.Model):
+    """
+    Grade skipping transfer - allows students to skip exactly 1 grade (e.g., Grade 1 → Grade 3).
+    Shift and section changes are optional.
+    Supports two approval workflows: same-coordinator (single approval) and 
+    different-coordinator (two-step approval with automatic transfer).
+    """
+
+    STATUS_CHOICES = [
+        ('pending_own_coord', 'Pending Own Coordinator'),
+        ('pending_other_coord', 'Pending Other Coordinator'),
+        ('approved', 'Approved'),
+        ('declined', 'Declined'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    SHIFT_CHOICES = [
+        ('morning', 'Morning'),
+        ('afternoon', 'Afternoon'),
+    ]
+
+    student = models.ForeignKey(
+        'students.Student',
+        on_delete=models.CASCADE,
+        related_name='grade_skip_transfers',
+    )
+    campus = models.ForeignKey(
+        'campus.Campus',
+        on_delete=models.CASCADE,
+        related_name='grade_skip_transfers',
+    )
+
+    # Grade information
+    from_grade = models.ForeignKey(
+        'classes.Grade',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='grade_skip_transfers_from',
+        help_text="Original grade for this student.",
+    )
+    to_grade = models.ForeignKey(
+        'classes.Grade',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='grade_skip_transfers_to',
+        help_text="Destination grade after skip (must be exactly 1 grade ahead, e.g., Grade 1 → Grade 3).",
+    )
+
+    # Cached grade names for audit (even if grades are later deleted)
+    from_grade_name = models.CharField(max_length=50, null=True, blank=True)
+    to_grade_name = models.CharField(max_length=50, null=True, blank=True)
+
+    # Classroom information
+    from_classroom = models.ForeignKey(
+        'classes.ClassRoom',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='grade_skip_transfers_from',
+        help_text="Original classroom for this student.",
+    )
+    to_classroom = models.ForeignKey(
+        'classes.ClassRoom',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='grade_skip_transfers_to',
+        help_text="Destination classroom after grade skip.",
+    )
+
+    # Cached section labels for audit
+    from_section = models.CharField(max_length=10, null=True, blank=True)
+    to_section = models.CharField(max_length=10, null=True, blank=True)
+
+    # Shift information (optional - can change shift during grade skip)
+    from_shift = models.CharField(max_length=20, choices=SHIFT_CHOICES)
+    to_shift = models.CharField(
+        max_length=20,
+        choices=SHIFT_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Optional: destination shift (if different from current shift).",
+    )
+
+    # Teacher and coordinator references
+    initiated_by_teacher = models.ForeignKey(
+        'teachers.Teacher',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='grade_skip_transfers_initiated',
+    )
+    from_grade_coordinator = models.ForeignKey(
+        'coordinator.Coordinator',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='grade_skip_transfers_from_grade',
+        help_text="Coordinator for the student's current grade/level.",
+    )
+    to_grade_coordinator = models.ForeignKey(
+        'coordinator.Coordinator',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='grade_skip_transfers_to_grade',
+        help_text="Coordinator for the target grade/level.",
+    )
+    principal = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='grade_skip_transfers_approved',
+        help_text="Optional final approver for grade skip.",
+    )
+
+    # Optional link to TransferRequest if ID change is needed
+    transfer_request = models.OneToOneField(
+        TransferRequest,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='grade_skip_transfer',
+        help_text="Link to TransferRequest if student ID needs to be updated (e.g., shift/campus change).",
+    )
+
+    status = models.CharField(max_length=40, choices=STATUS_CHOICES, default='pending_own_coord')
+    reason = models.TextField()
+    requested_date = models.DateField(help_text="Effective date requested for this grade skip.")
+    decline_reason = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['student']),
+            models.Index(fields=['campus']),
+            models.Index(fields=['from_grade', 'to_grade']),
+        ]
+
+    def __str__(self):
+        from_grade_display = self.from_grade_name or (self.from_grade.name if self.from_grade else 'Unknown')
+        to_grade_display = self.to_grade_name or (self.to_grade.name if self.to_grade else 'Unknown')
+        return f"Grade skip for {self.student.name} ({from_grade_display} → {to_grade_display})"

@@ -2,7 +2,7 @@ from datetime import datetime
 from django.db import transaction
 from django.contrib.auth.models import User
 
-from .models import IDHistory, TransferRequest, ClassTransfer, ShiftTransfer, TransferApproval
+from .models import IDHistory, TransferRequest, ClassTransfer, ShiftTransfer, TransferApproval, GradeSkipTransfer
 
 
 def emit_transfer_event(event_type: str, payload: dict) -> None:
@@ -210,7 +210,8 @@ def apply_class_transfer(class_transfer: ClassTransfer, changed_by: User):
     # Move student
     student.classroom = to_classroom
     # Keep campus/grade/section fields aligned where possible
-    student.campus = to_classroom.campus
+    if to_classroom.grade and to_classroom.grade.level and to_classroom.grade.level.campus:
+        student.campus = to_classroom.grade.level.campus
     student.current_grade = to_classroom.grade.name
     student.section = to_classroom.section
     # Mark actor and skip generic student profile notifications
@@ -219,6 +220,48 @@ def apply_class_transfer(class_transfer: ClassTransfer, changed_by: User):
     student.save()
 
     class_transfer.save()
+
+    # Send notification to destination class teacher
+    try:
+        from notifications.services import create_notification
+        from django.contrib.auth import get_user_model
+        UserModel = get_user_model()
+        
+        # Get coordinator name (from changed_by or class_transfer coordinator)
+        coordinator_name = "Coordinator"
+        if hasattr(changed_by, 'coordinator'):
+            coordinator_name = changed_by.coordinator.full_name if changed_by.coordinator else "Coordinator"
+        elif class_transfer.coordinator:
+            coordinator_name = class_transfer.coordinator.full_name
+        
+        # Get class teacher user
+        if to_classroom.class_teacher:
+            class_teacher = to_classroom.class_teacher
+            teacher_user = getattr(class_teacher, 'user', None)
+            if not teacher_user and class_teacher.employee_code:
+                teacher_user = UserModel.objects.filter(username=class_teacher.employee_code).first()
+            if not teacher_user and class_teacher.email:
+                teacher_user = UserModel.objects.filter(email__iexact=class_teacher.email).first()
+            
+            if teacher_user:
+                verb = f"{coordinator_name} has assigned new student {student.name} in your class by transfer request"
+                target_text = f"{to_classroom.grade.name} - {to_classroom.section} ({to_classroom.shift})"
+                create_notification(
+                    recipient=teacher_user,
+                    actor=changed_by,
+                    verb=verb,
+                    target_text=target_text,
+                    data={
+                        "type": "class_transfer.student_assigned",
+                        "class_transfer_id": class_transfer.id,
+                        "student_id": student.id,
+                        "classroom_id": to_classroom.id,
+                    },
+                )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to send notification to class teacher for class transfer {class_transfer.id}: {str(e)}")
 
     emit_transfer_event(
         'class_transfer.applied',
@@ -297,4 +340,268 @@ def link_and_apply_shift_transfer(
             'changed_by_id': changed_by.id if changed_by else None,
         },
     )
+
+
+def detect_grade_skip_coordinators(student, to_grade, to_shift=None):
+    """
+    Detect coordinators for grade skip transfer.
+    Returns tuple: (from_coordinator, to_coordinator, is_same_coordinator)
+    
+    Logic:
+    - Get student's current grade level and shift
+    - Get target grade level and shift
+    - Find coordinators for both levels/shifts
+    - Compare: if same coordinator → single approval, if different → two-step approval
+    """
+    from coordinator.models import Coordinator
+    
+    # Get student's current classroom and grade
+    from_classroom = student.classroom
+    if not from_classroom or not from_classroom.grade:
+        raise ValueError("Student is not assigned to a classroom with a grade.")
+    
+    from_grade = from_classroom.grade
+    from_level = from_grade.level
+    from_shift_actual = student.shift  # 'morning' or 'afternoon'
+    
+    # Get target grade level
+    to_level = to_grade.level
+    
+    # Use provided to_shift or default to current shift
+    if not to_shift:
+        to_shift = from_shift_actual
+    
+    # Find coordinator for from_grade (current grade)
+    from_coordinator = None
+    coordinators_from = Coordinator.objects.filter(
+        is_currently_active=True,
+        campus=student.campus
+    )
+    
+    for coord in coordinators_from:
+        # Check if coordinator manages from_level
+        if coord.shift == 'both' and coord.assigned_levels.exists():
+            if from_level in coord.assigned_levels.all():
+                from_coordinator = coord
+                break
+        elif coord.shift == 'both' and coord.level == from_level:
+            from_coordinator = coord
+            break
+        elif coord.shift == from_shift_actual and coord.level == from_level:
+            from_coordinator = coord
+            break
+        elif coord.shift == 'both' and coord.level == from_level:
+            from_coordinator = coord
+            break
+    
+    # Find coordinator for to_grade (target grade)
+    to_coordinator = None
+    coordinators_to = Coordinator.objects.filter(
+        is_currently_active=True,
+        campus=student.campus
+    )
+    
+    for coord in coordinators_to:
+        # Check if coordinator manages to_level
+        if coord.shift == 'both' and coord.assigned_levels.exists():
+            if to_level in coord.assigned_levels.all():
+                to_coordinator = coord
+                break
+        elif coord.shift == 'both' and coord.level == to_level:
+            to_coordinator = coord
+            break
+        elif coord.shift == to_shift and coord.level == to_level:
+            to_coordinator = coord
+            break
+        elif coord.shift == 'both' and coord.level == to_level:
+            to_coordinator = coord
+            break
+    
+    # Determine if same coordinator
+    is_same_coordinator = (
+        from_coordinator is not None and
+        to_coordinator is not None and
+        from_coordinator.id == to_coordinator.id
+    )
+    
+    return from_coordinator, to_coordinator, is_same_coordinator
+
+
+@transaction.atomic
+def apply_grade_skip_transfer(grade_skip_transfer, changed_by):
+    """
+    Apply grade skip transfer: update student grade, classroom, shift (if changed), and ID if needed.
+    """
+    student = grade_skip_transfer.student
+    to_classroom = grade_skip_transfer.to_classroom
+    to_shift = grade_skip_transfer.to_shift
+    to_grade = grade_skip_transfer.to_grade
+    
+    # Update student's grade
+    if to_grade:
+        student.current_grade = to_grade.name
+    
+    # Update student's classroom
+    final_classroom = to_classroom  # Will be updated if auto-assigned
+    if to_classroom:
+        # Use provided classroom
+        student.classroom = to_classroom
+        student.section = to_classroom.section
+        # Update campus from classroom's grade level if different
+        if to_classroom.grade and to_classroom.grade.level and to_classroom.grade.level.campus:
+            student.campus = to_classroom.grade.level.campus
+    else:
+        # If no classroom specified, find an available classroom in target grade
+        from classes.models import ClassRoom
+        
+        # Determine target shift - use provided shift or keep current
+        target_shift = to_shift if to_shift else student.shift
+        
+        # Find available classroom in target grade with matching shift
+        available_classrooms = ClassRoom.objects.filter(
+            grade=to_grade,
+            shift=target_shift,
+            grade__level__campus=student.campus,
+        ).exclude(
+            students__id=student.id  # Exclude if student already in this classroom
+        ).order_by('section')
+        
+        # Find first classroom with available capacity
+        target_classroom = None
+        for classroom in available_classrooms:
+            if classroom.students.count() < classroom.capacity:
+                target_classroom = classroom
+                break
+        
+        # If no classroom with capacity found, use first available
+        if not target_classroom and available_classrooms.exists():
+            target_classroom = available_classrooms.first()
+        
+        if target_classroom:
+            student.classroom = target_classroom
+            student.section = target_classroom.section
+            if target_classroom.grade.level and target_classroom.grade.level.campus:
+                student.campus = target_classroom.grade.level.campus
+            # Update final_classroom reference for notification
+            final_classroom = target_classroom
+        else:
+            # If no classroom found, still update grade but log warning
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"No available classroom found for grade skip transfer {grade_skip_transfer.id}. "
+                f"Student {student.id} grade updated to {to_grade.name} but classroom not assigned."
+            )
+    
+    # Update shift if changed
+    if to_shift and to_shift != student.shift:
+        student.shift = to_shift
+        
+        # If shift or campus changed, update student ID
+        old_campus = student.campus
+        # Get campus from classroom's grade level or use old campus
+        if to_classroom and to_classroom.grade and to_classroom.grade.level and to_classroom.grade.level.campus:
+            new_campus = to_classroom.grade.level.campus
+        else:
+            new_campus = old_campus
+        
+        # Convert shift to ID format ('M' or 'A')
+        shift_code = 'M' if to_shift == 'morning' else 'A'
+        
+        # Update ID if shift or campus changed
+        if to_shift != grade_skip_transfer.from_shift or old_campus != new_campus:
+            # Create TransferRequest for ID change if needed
+            transfer_request = TransferRequest.objects.create(
+                request_type='student',
+                from_campus=old_campus,
+                from_shift='M' if grade_skip_transfer.from_shift == 'morning' else 'A',
+                to_campus=new_campus,
+                to_shift=shift_code,
+                student=student,
+                reason=f"Grade skip transfer: {grade_skip_transfer.reason}",
+                requested_date=grade_skip_transfer.requested_date,
+                requesting_principal=changed_by,
+                receiving_principal=changed_by,
+                status='approved',  # Auto-approved since coordinators already approved
+            )
+            
+            # Link to grade skip transfer
+            grade_skip_transfer.transfer_request = transfer_request
+            grade_skip_transfer.save()
+            
+            # Update student ID
+            IDUpdateService.update_student_id(
+                student=student,
+                new_campus=new_campus,
+                new_shift=shift_code,
+                transfer_request=transfer_request,
+                changed_by=changed_by,
+                reason=f"Grade skip: {grade_skip_transfer.reason}",
+            )
+    
+    # Mark actor and skip generic student profile notifications
+    student._actor = changed_by
+    student._skip_notifications = True
+    student.save()
+    
+    # Send notification to destination class teacher
+    try:
+        from notifications.services import create_notification
+        from django.contrib.auth import get_user_model
+        UserModel = get_user_model()
+        
+        if final_classroom:
+            # Get coordinator name (from changed_by or grade_skip_transfer coordinator)
+            coordinator_name = "Coordinator"
+            if hasattr(changed_by, 'coordinator'):
+                coordinator_name = changed_by.coordinator.full_name if changed_by.coordinator else "Coordinator"
+            elif grade_skip_transfer.to_grade_coordinator:
+                coordinator_name = grade_skip_transfer.to_grade_coordinator.full_name
+            elif grade_skip_transfer.from_grade_coordinator:
+                coordinator_name = grade_skip_transfer.from_grade_coordinator.full_name
+            
+            # Get class teacher user
+            if final_classroom.class_teacher:
+                class_teacher = final_classroom.class_teacher
+                teacher_user = getattr(class_teacher, 'user', None)
+                if not teacher_user and class_teacher.employee_code:
+                    teacher_user = UserModel.objects.filter(username=class_teacher.employee_code).first()
+                if not teacher_user and class_teacher.email:
+                    teacher_user = UserModel.objects.filter(email__iexact=class_teacher.email).first()
+                
+                if teacher_user:
+                    verb = f"{coordinator_name} has assigned new student {student.name} in your class by transfer request"
+                    target_text = f"{final_classroom.grade.name} - {final_classroom.section} ({final_classroom.shift})"
+                    create_notification(
+                        recipient=teacher_user,
+                        actor=changed_by,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            "type": "grade_skip_transfer.student_assigned",
+                            "grade_skip_transfer_id": grade_skip_transfer.id,
+                            "student_id": student.id,
+                            "classroom_id": final_classroom.id,
+                        },
+                    )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to send notification to class teacher for grade skip transfer {grade_skip_transfer.id}: {str(e)}")
+    
+    emit_transfer_event(
+        'grade_skip_transfer.applied',
+        {
+            'student_id': student.id,
+            'grade_skip_transfer_id': grade_skip_transfer.id,
+            'from_grade': grade_skip_transfer.from_grade_name,
+            'to_grade': grade_skip_transfer.to_grade_name,
+            'changed_by_id': changed_by.id if changed_by else None,
+        },
+    )
+    
+    return {
+        'student': student,
+        'transfer_request': grade_skip_transfer.transfer_request,
+    }
 

@@ -31,5 +31,14 @@ urlpatterns = [
 
     # ID Preview
     path('preview-id-change/', views.preview_id_change, name='preview_id_change'),
+
+    # Grade Skip Transfer Management
+    path('grade-skip/available-grades/', views.available_grades_for_skip, name='available_grades_for_skip'),
+    path('grade-skip/available-sections/', views.available_sections_for_grade_skip, name='available_sections_for_grade_skip'),
+    path('grade-skip/list/', views.list_grade_skip_transfers, name='list_grade_skip_transfers'),
+    path('grade-skip/create/', views.create_grade_skip_transfer, name='create_grade_skip_transfer'),
+    path('grade-skip/<int:transfer_id>/approve-own/', views.approve_grade_skip_own_coord, name='approve_grade_skip_own_coord'),
+    path('grade-skip/<int:transfer_id>/approve-other/', views.approve_grade_skip_other_coord, name='approve_grade_skip_other_coord'),
+    path('grade-skip/<int:transfer_id>/decline/', views.decline_grade_skip_transfer, name='decline_grade_skip_transfer'),
 ]
 

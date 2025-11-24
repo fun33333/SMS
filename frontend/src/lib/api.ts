@@ -2198,6 +2198,7 @@ export interface AvailableClassroomOption {
   id: number;
   label: string;
   grade_name: string;
+  grade_id?: number;  // Actual grade ID (may differ from requested grade ID if alternative grade was used)
   section: string;
   shift: string;
   class_teacher_name?: string | null;
@@ -2439,6 +2440,136 @@ export async function getAvailableShiftSections(studentId: number, toShift: 'mor
   } catch (error) {
     console.error('Failed to fetch available shift sections:', error);
     return [];
+  }
+}
+
+// Grade Skip Transfer APIs
+export interface GradeSkipTransfer {
+  id: number;
+  student: number;
+  student_name: string;
+  student_id: string;
+  campus: number;
+  campus_name: string;
+  from_grade: number;
+  from_grade_name: string;
+  to_grade: number;
+  to_grade_name: string;
+  from_classroom: number | null;
+  from_classroom_display: string | null;
+  to_classroom: number | null;
+  to_classroom_display: string | null;
+  from_section: string | null;
+  to_section: string | null;
+  from_shift: string;
+  to_shift: string | null;
+  initiated_by_teacher: number | null;
+  initiated_by_teacher_name: string | null;
+  from_grade_coordinator: number | null;
+  from_grade_coordinator_name: string | null;
+  to_grade_coordinator: number | null;
+  to_grade_coordinator_name: string | null;
+  principal: number | null;
+  principal_name: string | null;
+  transfer_request: number | null;
+  status: 'pending_own_coord' | 'pending_other_coord' | 'approved' | 'declined' | 'cancelled';
+  reason: string;
+  requested_date: string;
+  decline_reason: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AvailableGradeForSkip {
+  id: number;
+  name: string;
+  level_name: string | null;
+  campus_name: string | null;
+}
+
+export async function getAvailableGradesForSkip(studentId: number) {
+  try {
+    const url = `/api/transfers/grade-skip/available-grades/?student_id=${studentId}`;
+    return await apiGet<AvailableGradeForSkip>(url);
+  } catch (error) {
+    console.error('Failed to fetch available grades for skip:', error);
+    throw error;
+  }
+}
+
+export async function getAvailableSectionsForGradeSkip(
+  studentId: number,
+  toGradeId: number,
+  toShift?: 'morning' | 'afternoon'
+) {
+  try {
+    const qs = new URLSearchParams();
+    qs.append('student_id', studentId.toString());
+    qs.append('to_grade_id', toGradeId.toString());
+    if (toShift) {
+      qs.append('to_shift', toShift);
+    }
+    const url = `/api/transfers/grade-skip/available-sections/?${qs.toString()}`;
+    const result = await apiGet<AvailableClassroomOption[]>(url);
+    return result;
+  } catch (error) {
+    console.error('Failed to fetch available sections for grade skip:', error);
+    return [];
+  }
+}
+
+export async function createGradeSkipTransfer(data: {
+  student: number;
+  to_grade: number;
+  to_classroom?: number;
+  to_shift?: 'morning' | 'afternoon';
+  reason: string;
+  requested_date: string;
+}) {
+  try {
+    return await apiPost('/api/transfers/grade-skip/create/', data);
+  } catch (error) {
+    console.error('Failed to create grade skip transfer:', error);
+    throw error;
+  }
+}
+
+export async function getGradeSkipTransfers(params?: { status?: string }) {
+  try {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.append('status', params.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return await apiGet<GradeSkipTransfer[]>(`/api/transfers/grade-skip/list/${suffix}`);
+  } catch (error) {
+    console.error('Failed to fetch grade skip transfers:', error);
+    return [];
+  }
+}
+
+export async function approveGradeSkipOwnCoord(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/grade-skip/${transferId}/approve-own/`, {});
+  } catch (error) {
+    console.error('Failed to approve grade skip transfer (own coordinator):', error);
+    throw error;
+  }
+}
+
+export async function approveGradeSkipOtherCoord(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/grade-skip/${transferId}/approve-other/`, {});
+  } catch (error) {
+    console.error('Failed to approve grade skip transfer (other coordinator):', error);
+    throw error;
+  }
+}
+
+export async function declineGradeSkip(transferId: number, reason: string) {
+  try {
+    return await apiPost(`/api/transfers/grade-skip/${transferId}/decline/`, { reason });
+  } catch (error) {
+    console.error('Failed to decline grade skip transfer:', error);
+    throw error;
   }
 }
 

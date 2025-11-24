@@ -14,6 +14,7 @@ from .models import (
     ClassTransfer,
     ShiftTransfer,
     TransferApproval,
+    GradeSkipTransfer,
 )
 from .serializers import (
     TransferRequestSerializer,
@@ -26,12 +27,16 @@ from .serializers import (
     ShiftTransferSerializer,
     ShiftTransferCreateSerializer,
     TransferApprovalStepSerializer,
+    GradeSkipTransferSerializer,
+    GradeSkipTransferCreateSerializer,
 )
 from .services import (
     IDUpdateService,
     apply_class_transfer,
     link_and_apply_shift_transfer,
     emit_transfer_event,
+    detect_grade_skip_coordinators,
+    apply_grade_skip_transfer,
 )
 from notifications.services import create_notification
 from students.models import Student
@@ -1860,5 +1865,818 @@ def available_shift_sections(request):
             )
         
         return Response(available_data)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ---------------------------------------------------------------------------
+# Grade Skip Transfer APIs
+# ---------------------------------------------------------------------------
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def available_grades_for_skip(request):
+    """
+    Return available grade for skip (exactly 1 grade ahead, e.g., Grade 1 → Grade 3).
+    Returns only the skip grade (current + 2).
+    """
+    try:
+        student_id = request.GET.get('student_id')
+        if not student_id:
+            return Response({'error': 'student_id parameter is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        student = get_object_or_404(Student, id=student_id)
+        current_classroom = student.classroom
+        if not current_classroom:
+            return Response(
+                {'error': 'Student is not currently assigned to any classroom'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from_grade = current_classroom.grade
+        if not from_grade:
+            return Response(
+                {'error': 'Student\'s current classroom does not have a grade assigned'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Extract grade number and handle both "Grade-X" and "KG-X" formats
+        import re
+        from classes.models import Grade
+        
+        grade_name = from_grade.name.strip()
+        grade_name_lower = grade_name.lower()
+        
+        # Roman numeral mapping
+        roman_map = {'i': 1, 'ii': 2, 'iii': 3, 'iv': 4, 'v': 5, 'vi': 6, 'vii': 7, 'viii': 8, 'ix': 9, 'x': 10}
+        roman_map_reverse = {1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X'}
+        
+        # Handle KG grades (KG-I, KG-II, KG-1, KG-2, etc.)
+        if grade_name_lower.startswith('kg'):
+            # Extract number from KG grade (KG-2, KG-II, etc.)
+            kg_match = re.search(r'(\d+)', grade_name)
+            if not kg_match:
+                # Try Roman numerals (KG-I, KG-II)
+                kg_roman = re.search(r'kg[-\s]*(i{1,3}|iv|v|vi{0,3}|ix|x)', grade_name_lower)
+                if kg_roman:
+                    kg_num = roman_map.get(kg_roman.group(1).lower(), 1)
+                else:
+                    return Response(
+                        {'error': 'Unable to determine KG grade number'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            else:
+                kg_num = int(kg_match.group(1))
+            
+            # For KG grades, skip to Grade-{kg_num} (e.g., KG-2 → Grade-2, skipping Grade-1)
+            to_grade_num = kg_num
+        else:
+            # Handle regular Grade-X format
+            from_match = re.search(r'(\d+)', grade_name)
+            if not from_match:
+                # Try to extract Roman numeral from grade name
+                grade_roman = re.search(r'grade[-\s]*(i{1,3}|iv|v|vi{0,3}|ix|x)', grade_name_lower)
+                if grade_roman:
+                    from_grade_num = roman_map.get(grade_roman.group(1).lower(), 1)
+                else:
+                    return Response(
+                        {'error': 'Unable to determine current grade number'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            else:
+                from_grade_num = int(from_match.group(1))
+            
+            to_grade_num = from_grade_num + 2  # Skip exactly 1 grade (e.g., Grade-1 → Grade-3)
+
+        # Map number to Roman numeral for matching
+        roman_numeral = roman_map_reverse.get(to_grade_num, str(to_grade_num))
+        
+        # Search for both formats: "Grade-2", "Grade 2", "Grade II", "Grade-II", etc.
+        # Try multiple patterns to be more flexible
+        to_grades = Grade.objects.filter(
+            level__campus=student.campus,
+        ).filter(
+            Q(name__iregex=rf'^Grade[-\s]*{to_grade_num}$') |  # Exact match "Grade-2", "Grade 2"
+            Q(name__iregex=rf'^Grade[-\s]*{roman_numeral}$') |  # Exact match "Grade II", "Grade-II"
+            Q(name__iexact=f'Grade-{to_grade_num}') |  # Exact "Grade-2"
+            Q(name__iexact=f'Grade {to_grade_num}') |  # Exact "Grade 2"
+            Q(name__iexact=f'Grade-{roman_numeral}') |  # Exact "Grade-II"
+            Q(name__iexact=f'Grade {roman_numeral}') |  # Exact "Grade II"
+            Q(name__icontains=f'Grade-{to_grade_num}') |  # Contains "Grade-2"
+            Q(name__icontains=f'Grade {to_grade_num}') |  # Contains "Grade 2"
+            Q(name__icontains=f'Grade-{roman_numeral}') |  # Contains "Grade-II"
+            Q(name__icontains=f'Grade {roman_numeral}')  # Contains "Grade II"
+        )
+
+        if not to_grades.exists():
+            # Last resort: try to find any grade with just the number or roman numeral
+            fallback_grades = Grade.objects.filter(
+                level__campus=student.campus,
+            ).filter(
+                Q(name__icontains=str(to_grade_num)) |
+                Q(name__icontains=roman_numeral)
+            ).exclude(
+                name__icontains='KG'  # Exclude KG grades
+            )
+            
+            if fallback_grades.exists():
+                to_grade = fallback_grades.first()
+            else:
+                # Debug: list available grades in campus
+                all_grades = Grade.objects.filter(level__campus=student.campus).values_list('name', flat=True)
+                return Response(
+                    {
+                        'error': f'No skip grade found for {grade_name} in the same campus. Expected: Grade-{to_grade_num} or Grade {roman_numeral}',
+                        'available_grades': list(all_grades),
+                        'campus': student.campus.campus_name if student.campus else 'Unknown'
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        else:
+            to_grade = to_grades.first()
+
+        # Return the first matching grade (should be unique per campus)
+        return Response({
+            'id': to_grade.id,
+            'name': to_grade.name,
+            'level_name': to_grade.level.name if to_grade.level else None,
+            'campus_name': to_grade.level.campus.campus_name if to_grade.level and to_grade.level.campus else None,
+        })
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def available_sections_for_grade_skip(request):
+    """
+    Return available sections/classrooms for grade skip in target grade.
+    Filters by target grade and optionally by shift.
+    """
+    try:
+        student_id = request.GET.get('student_id')
+        to_grade_id = request.GET.get('to_grade_id')
+        to_shift = request.GET.get('to_shift')  # Optional
+
+        if not student_id or not to_grade_id:
+            return Response(
+                {'error': 'student_id and to_grade_id parameters are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        student = get_object_or_404(Student, id=student_id)
+        current_classroom = student.classroom
+        if not current_classroom:
+            return Response(
+                {'error': 'Student is not currently assigned to any classroom'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from classes.models import Grade
+        to_grade = get_object_or_404(Grade, id=to_grade_id)
+        
+        # If shift is specified and the grade doesn't have sections for that shift,
+        # try to find another Grade with the same name that has sections for that shift
+        if to_shift:
+            normalized_shift_for_lookup = to_shift.lower().strip()
+            if normalized_shift_for_lookup == 'm':
+                normalized_shift_for_lookup = 'morning'
+            elif normalized_shift_for_lookup == 'a':
+                normalized_shift_for_lookup = 'afternoon'
+            
+            # Check if current grade has sections for this shift
+            has_sections_for_shift = ClassRoom.objects.filter(
+                grade=to_grade,
+                grade__level__campus=student.campus,
+                shift=normalized_shift_for_lookup
+            ).exists()
+            
+            # If not, try to find another Grade with the same name that has sections for this shift
+            if not has_sections_for_shift:
+                alternative_grade = Grade.objects.filter(
+                    name=to_grade.name,  # Exact name match
+                    level__campus=student.campus,
+                ).exclude(id=to_grade.id).first()
+                
+                if alternative_grade:
+                    # Check if alternative grade has sections for this shift
+                    has_alt_sections = ClassRoom.objects.filter(
+                        grade=alternative_grade,
+                        grade__level__campus=student.campus,
+                        shift=normalized_shift_for_lookup
+                    ).exists()
+                    
+                    if has_alt_sections:
+                        to_grade = alternative_grade
+
+        # Filter classrooms by target grade and same campus
+        # ClassRoom gets campus through grade->level->campus
+        classrooms_query = ClassRoom.objects.filter(
+            grade=to_grade,
+            grade__level__campus=student.campus,
+        )
+
+        # Filter by shift if provided
+        normalized_shift = None
+        if to_shift:
+            # Normalize shift value - handle both 'morning'/'afternoon' and 'M'/'A' formats
+            normalized_shift = to_shift.lower().strip()
+            if normalized_shift == 'm':
+                normalized_shift = 'morning'
+            elif normalized_shift == 'a':
+                normalized_shift = 'afternoon'
+            # If already 'morning' or 'afternoon', keep as is
+            classrooms_query = classrooms_query.filter(shift=normalized_shift)
+        else:
+            # If no shift specified, show classrooms in current shift
+            # Normalize student shift too
+            student_shift = student.shift
+            if student_shift:
+                normalized_shift = str(student_shift).lower().strip()
+                if normalized_shift == 'm':
+                    normalized_shift = 'morning'
+                elif normalized_shift == 'a':
+                    normalized_shift = 'afternoon'
+                # If already 'morning' or 'afternoon', keep as is
+                classrooms_query = classrooms_query.filter(shift=normalized_shift)
+        
+        classrooms = classrooms_query.order_by('section')
+
+        # Build available sections data
+        available_data = []
+        for cr in classrooms:
+            class_teacher_name = cr.class_teacher.full_name if cr.class_teacher else None
+
+            # Find coordinator for this classroom
+            coordinator_name = None
+            if cr.grade and cr.grade.level:
+                coordinators = Coordinator.objects.filter(
+                    is_currently_active=True,
+                    campus=student.campus,
+                )
+                for coord in coordinators:
+                    if coord.shift == 'both' and coord.assigned_levels.exists():
+                        if cr.grade.level in coord.assigned_levels.all():
+                            coordinator_name = coord.full_name
+                            break
+                    elif coord.shift == 'both' and coord.level == cr.grade.level:
+                        coordinator_name = coord.full_name
+                        break
+                    elif coord.shift == cr.shift and coord.level == cr.grade.level:
+                        coordinator_name = coord.full_name
+                        break
+
+            # Count students in classroom
+            student_count = cr.students.count()
+
+            available_data.append({
+                'id': cr.id,
+                'label': f"{cr.grade.name} - {cr.section} ({cr.shift})",
+                'grade_name': cr.grade.name,
+                'grade_id': cr.grade.id,  # Include actual grade ID used
+                'section': cr.section,
+                'shift': cr.shift,
+                'class_teacher_name': class_teacher_name,
+                'coordinator_name': coordinator_name,
+                'student_count': student_count,
+                'capacity': cr.capacity,
+                'is_full': student_count >= cr.capacity,
+            })
+
+        return Response(available_data)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def create_grade_skip_transfer(request):
+    """
+    Create a grade skip transfer request.
+    Teacher provides student, target grade, optional target classroom, optional target shift, reason, requested_date.
+    """
+    try:
+        user = request.user
+        teacher = _get_teacher_for_user(user)
+        if not teacher:
+            return Response(
+                {'error': 'Only teachers can create grade skip transfer requests'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = GradeSkipTransferCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        student = serializer.validated_data['student']
+        to_grade = serializer.validated_data['to_grade']
+        to_classroom = serializer.validated_data.get('to_classroom')
+        to_shift = serializer.validated_data.get('to_shift')
+        reason = serializer.validated_data['reason']
+        requested_date = serializer.validated_data['requested_date']
+
+        # Get student's current classroom and grade
+        from_classroom = student.classroom
+        if not from_classroom or not from_classroom.grade:
+            return Response(
+                {'error': 'Student is not assigned to a classroom with a grade'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from_grade = from_classroom.grade
+        from_shift_actual = student.shift
+
+        # Use provided to_shift or default to current shift
+        if not to_shift:
+            to_shift = from_shift_actual
+
+        # Detect coordinators
+        from_coordinator, to_coordinator, is_same_coordinator = detect_grade_skip_coordinators(
+            student, to_grade, to_shift
+        )
+
+        if not from_coordinator:
+            return Response(
+                {'error': 'No coordinator found for student\'s current grade/level'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Create grade skip transfer
+        grade_skip_transfer = GradeSkipTransfer.objects.create(
+            student=student,
+            campus=student.campus,
+            from_grade=from_grade,
+            from_grade_name=from_grade.name,
+            to_grade=to_grade,
+            to_grade_name=to_grade.name,
+            from_classroom=from_classroom,
+            from_section=from_classroom.section,
+            to_classroom=to_classroom,
+            to_section=to_classroom.section if to_classroom else None,
+            from_shift=from_shift_actual,
+            to_shift=to_shift,
+            initiated_by_teacher=teacher,
+            from_grade_coordinator=from_coordinator,
+            to_grade_coordinator=to_coordinator,
+            status='pending_own_coord',
+            reason=reason,
+            requested_date=requested_date,
+        )
+
+        # Send notifications
+        try:
+            from django.contrib.auth import get_user_model
+            UserModel = get_user_model()
+
+            student_name = student.name
+            teacher_name = teacher.full_name
+
+            # Notification to teacher's coordinator
+            if from_coordinator:
+                coordinator_user = getattr(from_coordinator, 'user', None)
+                if not coordinator_user and from_coordinator.employee_code:
+                    coordinator_user = UserModel.objects.filter(
+                        username=from_coordinator.employee_code
+                    ).first()
+                if not coordinator_user and getattr(from_coordinator, 'email', None):
+                    coordinator_user = UserModel.objects.filter(
+                        email__iexact=from_coordinator.email
+                    ).first()
+
+                if coordinator_user:
+                    verb = f"{teacher_name} has made a request of grade skipping of {student_name} please kindly review"
+                    target_text = f"Grade skip: {from_grade.name} → {to_grade.name}"
+                    create_notification(
+                        recipient=coordinator_user,
+                        actor=user,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            "type": "grade_skip.requested",
+                            "grade_skip_transfer_id": grade_skip_transfer.id,
+                            "student_id": student.id,
+                        },
+                    )
+
+                    # Second notification to coordinator
+                    verb2 = f"Request of grade skipping of {student_name} needs your approval please kindly review the request"
+                    create_notification(
+                        recipient=coordinator_user,
+                        actor=user,
+                        verb=verb2,
+                        target_text=target_text,
+                        data={
+                            "type": "grade_skip.pending_approval",
+                            "grade_skip_transfer_id": grade_skip_transfer.id,
+                            "student_id": student.id,
+                        },
+                    )
+        except Exception as notify_err:
+            print(f"[WARN] Failed to send grade skip creation notifications: {notify_err}")
+
+        return Response(
+            GradeSkipTransferSerializer(grade_skip_transfer).data,
+            status=status.HTTP_201_CREATED,
+        )
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def approve_grade_skip_own_coord(request, transfer_id):
+    """
+    First coordinator approval step for a grade skip transfer.
+    If same coordinator: apply transfer immediately.
+    If different coordinator: change status to pending_other_coord and transfer to other coordinator.
+    """
+    try:
+        user = request.user
+        coordinator = _get_coordinator_for_user(user)
+        if not coordinator:
+            return Response(
+                {'error': 'Only coordinators can approve grade skip transfers'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        grade_skip_transfer = get_object_or_404(GradeSkipTransfer, id=transfer_id)
+
+        if grade_skip_transfer.status != 'pending_own_coord':
+            return Response(
+                {'error': 'This grade skip transfer is not waiting for coordinator approval'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if grade_skip_transfer.from_grade_coordinator and grade_skip_transfer.from_grade_coordinator != coordinator:
+            return Response(
+                {'error': 'This grade skip transfer is not assigned to you as coordinator'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        student = grade_skip_transfer.student
+        student_name = student.name
+        from_grade_display = grade_skip_transfer.from_grade_name or 'current grade'
+        to_grade_display = grade_skip_transfer.to_grade_name or 'target grade'
+
+        # Check if same coordinator or different
+        is_same_coordinator = (
+            grade_skip_transfer.from_grade_coordinator and
+            grade_skip_transfer.to_grade_coordinator and
+            grade_skip_transfer.from_grade_coordinator.id == grade_skip_transfer.to_grade_coordinator.id
+        )
+
+        if is_same_coordinator:
+            # Same coordinator: apply immediately
+            apply_grade_skip_transfer(grade_skip_transfer, user)
+            grade_skip_transfer.status = 'approved'
+            grade_skip_transfer.save()
+
+            # Notifications for same coordinator approval
+            try:
+                from django.contrib.auth import get_user_model
+                UserModel = get_user_model()
+
+                # Notify teacher
+                if grade_skip_transfer.initiated_by_teacher:
+                    teacher = grade_skip_transfer.initiated_by_teacher
+                    teacher_user = getattr(teacher, 'user', None)
+                    if not teacher_user and teacher.employee_code:
+                        teacher_user = UserModel.objects.filter(username=teacher.employee_code).first()
+                    if not teacher_user and teacher.email:
+                        teacher_user = UserModel.objects.filter(email__iexact=teacher.email).first()
+
+                    if teacher_user:
+                        verb = f"Your request of Grade skipping has been approved by {coordinator.full_name} now student can skip their grade"
+                        target_text = f"{student_name}: {from_grade_display} → {to_grade_display}"
+                        create_notification(
+                            recipient=teacher_user,
+                            actor=user,
+                            verb=verb,
+                            target_text=target_text,
+                            data={
+                                "type": "grade_skip.approved",
+                                "grade_skip_transfer_id": grade_skip_transfer.id,
+                                "student_id": student.id,
+                            },
+                        )
+            except Exception as notify_err:
+                print(f"[WARN] Failed to send grade skip approval notifications: {notify_err}")
+        else:
+            # Different coordinator: transfer to other coordinator
+            grade_skip_transfer.status = 'pending_other_coord'
+            grade_skip_transfer.save()
+
+            # Notifications for different coordinator scenario
+            try:
+                from django.contrib.auth import get_user_model
+                UserModel = get_user_model()
+
+                # Notify teacher
+                if grade_skip_transfer.initiated_by_teacher:
+                    teacher = grade_skip_transfer.initiated_by_teacher
+                    teacher_user = getattr(teacher, 'user', None)
+                    if not teacher_user and teacher.employee_code:
+                        teacher_user = UserModel.objects.filter(username=teacher.employee_code).first()
+                    if not teacher_user and teacher.email:
+                        teacher_user = UserModel.objects.filter(email__iexact=teacher.email).first()
+
+                    if teacher_user:
+                        verb = "Your request of grade skipping has been approved by your coordinator pending by other shift coordinator"
+                        target_text = f"{student_name}: {from_grade_display} → {to_grade_display}"
+                        create_notification(
+                            recipient=teacher_user,
+                            actor=user,
+                            verb=verb,
+                            target_text=target_text,
+                            data={
+                                "type": "grade_skip.pending_other_coord",
+                                "grade_skip_transfer_id": grade_skip_transfer.id,
+                                "student_id": student.id,
+                            },
+                        )
+
+                # Notify other coordinator
+                if grade_skip_transfer.to_grade_coordinator:
+                    to_coord = grade_skip_transfer.to_grade_coordinator
+                    to_coord_user = getattr(to_coord, 'user', None)
+                    if not to_coord_user and to_coord.employee_code:
+                        to_coord_user = UserModel.objects.filter(username=to_coord.employee_code).first()
+                    if not to_coord_user and getattr(to_coord, 'email', None):
+                        to_coord_user = UserModel.objects.filter(email__iexact=to_coord.email).first()
+
+                    if to_coord_user:
+                        # First notification
+                        verb1 = f"{coordinator.full_name} has made a request for grade skipping of {student_name} in {grade_skip_transfer.to_classroom.grade.name if grade_skip_transfer.to_classroom else to_grade_display} {grade_skip_transfer.to_section or ''}"
+                        target_text1 = f"{student_name}: {from_grade_display} → {to_grade_display}"
+                        create_notification(
+                            recipient=to_coord_user,
+                            actor=user,
+                            verb=verb1,
+                            target_text=target_text1,
+                            data={
+                                "type": "grade_skip.pending_other_coord",
+                                "grade_skip_transfer_id": grade_skip_transfer.id,
+                                "student_id": student.id,
+                            },
+                        )
+
+                        # Second notification
+                        verb2 = f"Request of grade skipping of {student_name} needs your approval please review"
+                        create_notification(
+                            recipient=to_coord_user,
+                            actor=user,
+                            verb=verb2,
+                            target_text=target_text1,
+                            data={
+                                "type": "grade_skip.pending_approval",
+                                "grade_skip_transfer_id": grade_skip_transfer.id,
+                                "student_id": student.id,
+                            },
+                        )
+            except Exception as notify_err:
+                print(f"[WARN] Failed to send grade skip transfer notifications: {notify_err}")
+
+        return Response(
+            {
+                'message': 'Grade skip transfer approved' + (' and applied' if is_same_coordinator else ''),
+                'grade_skip_transfer': GradeSkipTransferSerializer(grade_skip_transfer).data,
+            }
+        )
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def approve_grade_skip_other_coord(request, transfer_id):
+    """
+    Second coordinator approval step for a grade skip transfer (when different coordinators).
+    Applies the transfer: updates student grade, classroom, shift (if changed), and ID if needed.
+    """
+    try:
+        user = request.user
+        coordinator = _get_coordinator_for_user(user)
+        if not coordinator:
+            return Response(
+                {'error': 'Only coordinators can approve grade skip transfers'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        grade_skip_transfer = get_object_or_404(GradeSkipTransfer, id=transfer_id)
+
+        if grade_skip_transfer.status != 'pending_other_coord':
+            return Response(
+                {'error': 'This grade skip transfer is not waiting for other coordinator approval'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if grade_skip_transfer.to_grade_coordinator and grade_skip_transfer.to_grade_coordinator != coordinator:
+            return Response(
+                {'error': 'This grade skip transfer is not assigned to you as coordinator'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        student = grade_skip_transfer.student
+        student_name = student.name
+        from_grade_display = grade_skip_transfer.from_grade_name or 'current grade'
+        to_grade_display = grade_skip_transfer.to_grade_name or 'target grade'
+
+        # Apply the transfer
+        apply_grade_skip_transfer(grade_skip_transfer, user)
+        grade_skip_transfer.status = 'approved'
+        grade_skip_transfer.save()
+
+        # Send final approval notifications
+        try:
+            from django.contrib.auth import get_user_model
+            UserModel = get_user_model()
+
+            # Notify teacher
+            if grade_skip_transfer.initiated_by_teacher:
+                teacher = grade_skip_transfer.initiated_by_teacher
+                teacher_user = getattr(teacher, 'user', None)
+                if not teacher_user and teacher.employee_code:
+                    teacher_user = UserModel.objects.filter(username=teacher.employee_code).first()
+                if not teacher_user and teacher.email:
+                    teacher_user = UserModel.objects.filter(email__iexact=teacher.email).first()
+
+                if teacher_user:
+                    verb = f"Your request of Grade skipping has been approved by {coordinator.full_name} now student can skip their grade"
+                    target_text = f"{student_name}: {from_grade_display} → {to_grade_display}"
+                    create_notification(
+                        recipient=teacher_user,
+                        actor=user,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            "type": "grade_skip.approved",
+                            "grade_skip_transfer_id": grade_skip_transfer.id,
+                            "student_id": student.id,
+                        },
+                    )
+
+            # Notify first coordinator
+            if grade_skip_transfer.from_grade_coordinator:
+                from_coord = grade_skip_transfer.from_grade_coordinator
+                from_coord_user = getattr(from_coord, 'user', None)
+                if not from_coord_user and from_coord.employee_code:
+                    from_coord_user = UserModel.objects.filter(username=from_coord.employee_code).first()
+                if not from_coord_user and getattr(from_coord, 'email', None):
+                    from_coord_user = UserModel.objects.filter(email__iexact=from_coord.email).first()
+
+                if from_coord_user:
+                    verb = f"Your request of Grade skipping has been approved by {coordinator.full_name} now student can skip their grade"
+                    target_text = f"{student_name}: {from_grade_display} → {to_grade_display}"
+                    create_notification(
+                        recipient=from_coord_user,
+                        actor=user,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            "type": "grade_skip.approved",
+                            "grade_skip_transfer_id": grade_skip_transfer.id,
+                            "student_id": student.id,
+                        },
+                    )
+        except Exception as notify_err:
+            print(f"[WARN] Failed to send grade skip final approval notifications: {notify_err}")
+
+        return Response(
+            {
+                'message': 'Grade skip transfer fully approved and applied successfully',
+                'grade_skip_transfer': GradeSkipTransferSerializer(grade_skip_transfer).data,
+            }
+        )
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_grade_skip_transfers(request):
+    """
+    List grade skip transfer requests visible to the current user.
+    - Teacher: own initiated transfers
+    - Coordinator: transfers where they are from/to coordinator
+    - Principal: all for now (later can be campus-bound)
+    """
+    try:
+        user = request.user
+        teacher = _get_teacher_for_user(user)
+        coordinator = _get_coordinator_for_user(user)
+
+        queryset = GradeSkipTransfer.objects.select_related(
+            'student',
+            'campus',
+            'from_grade',
+            'to_grade',
+            'from_classroom',
+            'to_classroom',
+            'initiated_by_teacher',
+            'from_grade_coordinator',
+            'to_grade_coordinator',
+            'principal',
+        )
+
+        if teacher:
+            queryset = queryset.filter(initiated_by_teacher=teacher)
+        elif coordinator:
+            queryset = queryset.filter(
+                Q(from_grade_coordinator=coordinator) | Q(to_grade_coordinator=coordinator)
+            )
+        elif _is_principal(user) or user.is_superuser:
+            pass
+        else:
+            return Response(
+                {'error': 'You do not have permission to view grade skip transfers'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        status_filter = request.GET.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        serializer = GradeSkipTransferSerializer(queryset.order_by('-created_at'), many=True)
+        return Response(serializer.data)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def decline_grade_skip_transfer(request, transfer_id):
+    """
+    Decline a grade skip transfer request from either coordinator.
+    """
+    try:
+        user = request.user
+        coordinator = _get_coordinator_for_user(user)
+        if not coordinator and not _is_principal(user):
+            return Response(
+                {'error': 'Only coordinators or principals can decline grade skip transfers'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        grade_skip_transfer = get_object_or_404(GradeSkipTransfer, id=transfer_id)
+
+        current_status = grade_skip_transfer.status
+        if current_status not in ['pending_own_coord', 'pending_other_coord']:
+            return Response(
+                {'error': 'Only pending grade skip transfers can be declined'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = TransferApprovalSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data.get('reason', '')
+
+        grade_skip_transfer.status = 'declined'
+        grade_skip_transfer.decline_reason = reason
+        if _is_principal(user):
+            grade_skip_transfer.principal = user
+        grade_skip_transfer.save()
+
+        # Send decline notifications
+        try:
+            from django.contrib.auth import get_user_model
+            UserModel = get_user_model()
+
+            student_name = grade_skip_transfer.student.name
+
+            # Notify teacher
+            if grade_skip_transfer.initiated_by_teacher:
+                teacher = grade_skip_transfer.initiated_by_teacher
+                teacher_user = getattr(teacher, 'user', None)
+                if not teacher_user and teacher.employee_code:
+                    teacher_user = UserModel.objects.filter(username=teacher.employee_code).first()
+                if not teacher_user and teacher.email:
+                    teacher_user = UserModel.objects.filter(email__iexact=teacher.email).first()
+
+                if teacher_user:
+                    verb = f"Your grade skip transfer request for {student_name} has been declined"
+                    target_text = f"Reason: {reason}"
+                    create_notification(
+                        recipient=teacher_user,
+                        actor=user,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            "type": "grade_skip.declined",
+                            "grade_skip_transfer_id": grade_skip_transfer.id,
+                            "student_id": grade_skip_transfer.student.id,
+                        },
+                    )
+        except Exception as notify_err:
+            print(f"[WARN] Failed to send grade skip decline notifications: {notify_err}")
+
+        return Response(
+            {
+                'message': 'Grade skip transfer declined successfully',
+                'grade_skip_transfer': GradeSkipTransferSerializer(grade_skip_transfer).data,
+            }
+        )
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
