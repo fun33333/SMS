@@ -2404,3 +2404,62 @@ def get_attendance_list(request):
         
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_delete_logs(request):
+    """
+    Get delete audit logs for the current user or all (based on permissions)
+    """
+    try:
+        from .models import AuditLog
+        from .serializers import DeleteLogSerializer
+        
+        # Get query parameters
+        feature = request.GET.get('feature')  # Optional filter by feature
+        limit = request.GET.get('limit', 50)  # Default 50, max 200
+        try:
+            limit = min(int(limit), 200)
+        except (ValueError, TypeError):
+            limit = 50
+        
+        # Base queryset - only delete actions
+        queryset = AuditLog.objects.filter(action='delete').select_related('user').order_by('-timestamp')
+        
+        # Filter by feature if provided
+        if feature:
+            queryset = queryset.filter(feature=feature)
+        
+        # Permission-based filtering
+        user = request.user
+        if user.is_superuser or (hasattr(user, 'role') and user.role == 'superadmin'):
+            # Super admin can see all delete logs
+            pass
+        elif hasattr(user, 'role') and user.role == 'principal':
+            # Principal can see delete logs for their campus
+            if user.campus:
+                # Filter by campus-related features or entities in their campus
+                queryset = queryset.filter(
+                    Q(feature__in=['student', 'teacher', 'coordinator', 'classroom', 'grade', 'level']) |
+                    Q(changes__campus_id=user.campus.id) |
+                    Q(changes__campus=user.campus.id)
+                )
+        else:
+            # Other users see only their own delete logs
+            queryset = queryset.filter(user=user)
+        
+        # Limit results
+        delete_logs = queryset[:limit]
+        
+        # Serialize the data
+        serializer = DeleteLogSerializer(delete_logs, many=True)
+        
+        return Response({
+            'results': serializer.data,
+            'count': len(serializer.data),
+            'total': queryset.count()
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)

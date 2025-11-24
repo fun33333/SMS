@@ -2497,6 +2497,46 @@ export async function getAvailableGradesForSkip(studentId: number) {
   }
 }
 
+// Delete Logs API
+export interface DeleteLogResponse {
+  results: Array<{
+    id: number;
+    feature: string;
+    feature_display: string;
+    action: string;
+    action_display: string;
+    entity_type: string;
+    entity_id: number;
+    entity_name: string;
+    user: number | null;
+    user_name: string;
+    user_role: string | null;
+    timestamp: string;
+    ip_address: string | null;
+    changes: Record<string, any>;
+    reason: string;
+  }>;
+  count: number;
+  total: number;
+}
+
+export async function getDeleteLogs(feature?: string, limit?: number): Promise<DeleteLogResponse> {
+  try {
+    const qs = new URLSearchParams();
+    if (feature) {
+      qs.append('feature', feature);
+    }
+    if (limit) {
+      qs.append('limit', limit.toString());
+    }
+    const url = `/api/attendance/delete-logs/${qs.toString() ? `?${qs.toString()}` : ''}`;
+    return await apiGet<DeleteLogResponse>(url);
+  } catch (error) {
+    console.error('Failed to fetch delete logs:', error);
+    throw error;
+  }
+}
+
 export async function getAvailableSectionsForGradeSkip(
   studentId: number,
   toGradeId: number,

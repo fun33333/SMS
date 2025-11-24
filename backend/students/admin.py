@@ -67,7 +67,36 @@ class StudentAdmin(admin.ModelAdmin):
         already_deleted = 0
         for student in queryset:
             if not student.is_deleted:
+                # Store student info before deletion for audit log
+                student_id = student.id
+                student_name = student.name
+                
                 student.soft_delete()
+                
+                # Get user name for audit log
+                user = request.user
+                user_name = user.get_full_name() if hasattr(user, 'get_full_name') else (user.username or 'Unknown')
+                user_role = user.get_role_display() if hasattr(user, 'get_role_display') else (user.role or 'User')
+                
+                # Create audit log after soft deletion
+                try:
+                    from attendance.models import AuditLog
+                    AuditLog.objects.create(
+                        feature='student',
+                        action='delete',
+                        entity_type='Student',
+                        entity_id=student_id,
+                        user=user,
+                        ip_address=request.META.get('REMOTE_ADDR'),
+                        changes={'name': student_name, 'student_id': student_id},
+                        reason=f'Student {student_name} soft deleted by {user_role} {user_name}'
+                    )
+                except Exception as e:
+                    # Log error but don't fail the deletion
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Failed to create audit log for student soft deletion: {str(e)}")
+                
                 count += 1
             else:
                 already_deleted += 1
@@ -84,6 +113,10 @@ class StudentAdmin(admin.ModelAdmin):
         errors = []
         for student in queryset:
             try:
+                # Store student info before deletion for audit log
+                student_id = student.id
+                student_name = student.name
+                
                 # Create exit record before deletion
                 from student_status.models import ExitRecord
                 ExitRecord.objects.create(
@@ -95,6 +128,31 @@ class StudentAdmin(admin.ModelAdmin):
                     notes='Deleted via admin panel'
                 )
                 student.hard_delete()
+                
+                # Get user name for audit log
+                user = request.user
+                user_name = user.get_full_name() if hasattr(user, 'get_full_name') else (user.username or 'Unknown')
+                user_role = user.get_role_display() if hasattr(user, 'get_role_display') else (user.role or 'User')
+                
+                # Create audit log after deletion
+                try:
+                    from attendance.models import AuditLog
+                    AuditLog.objects.create(
+                        feature='student',
+                        action='delete',
+                        entity_type='Student',
+                        entity_id=student_id,
+                        user=user,
+                        ip_address=request.META.get('REMOTE_ADDR'),
+                        changes={'name': student_name, 'student_id': student_id},
+                        reason=f'Student {student_name} deleted by {user_role} {user_name}'
+                    )
+                except Exception as e:
+                    # Log error but don't fail the deletion
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Failed to create audit log for student deletion: {str(e)}")
+                
                 count += 1
             except Exception as e:
                 errors.append(f"{student.name}: {str(e)}")

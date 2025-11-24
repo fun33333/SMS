@@ -419,7 +419,15 @@ class ShiftTransferCreateSerializer(serializers.ModelSerializer):
 class TransferApprovalStepSerializer(serializers.ModelSerializer):
     """Serializer for the generic TransferApproval model."""
 
-    approved_by_name = serializers.CharField(source='approved_by.get_full_name', read_only=True)
+    approved_by_name = serializers.SerializerMethodField()
+    
+    def get_approved_by_name(self, obj):
+        """Get approved by name with role"""
+        if not obj.approved_by:
+            return None
+        role_display = obj.approved_by.get_role_display() if hasattr(obj.approved_by, 'get_role_display') else (obj.approved_by.role or 'User')
+        full_name = obj.approved_by.get_full_name() if hasattr(obj.approved_by, 'get_full_name') else (obj.approved_by.username or 'Unknown')
+        return f"{role_display} {full_name}"
 
     class Meta:
         model = TransferApproval

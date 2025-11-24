@@ -195,9 +195,40 @@ class StudentViewSet(viewsets.ModelViewSet):
         instance.save()
     
     def perform_destroy(self, instance):
-        """Set actor before deleting student"""
+        """Set actor before deleting student and create audit log"""
         instance._actor = self.request.user
+        
+        # Store student info before deletion for audit log
+        student_id = instance.id
+        student_name = instance.name
+        student_campus = instance.campus
+        
+        # Get user name for audit log
+        user = self.request.user
+        user_name = user.get_full_name() if hasattr(user, 'get_full_name') else (user.username or 'Unknown')
+        user_role = user.get_role_display() if hasattr(user, 'get_role_display') else (user.role or 'User')
+        
+        # Delete the student
         super().perform_destroy(instance)
+        
+        # Create audit log after deletion
+        try:
+            from attendance.models import AuditLog
+            AuditLog.objects.create(
+                feature='student',
+                action='delete',
+                entity_type='Student',
+                entity_id=student_id,
+                user=user,
+                ip_address=self.request.META.get('REMOTE_ADDR'),
+                changes={'name': student_name, 'student_id': student_id},
+                reason=f'Student {student_name} deleted by {user_role} {user_name}'
+            )
+        except Exception as e:
+            # Log error but don't fail the deletion
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to create audit log for student deletion: {str(e)}")
 
     @action(detail=False, methods=["get"])
     def total(self, request):

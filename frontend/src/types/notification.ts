@@ -15,3 +15,21 @@ export interface Notification {
   unread: boolean;
   timestamp: string;
 }
+
+export interface DeleteLog {
+  id: number;
+  feature: string;
+  feature_display: string;
+  action: string;
+  action_display: string;
+  entity_type: string;
+  entity_id: number;
+  entity_name: string;
+  user: number | null;
+  user_name: string;
+  user_role: string | null;
+  timestamp: string;
+  ip_address: string | null;
+  changes: Record<string, any>;
+  reason: string;
+}
