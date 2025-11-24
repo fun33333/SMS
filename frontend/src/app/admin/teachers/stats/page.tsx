@@ -122,7 +122,7 @@ export default function TeacherClassDashboard() {
           
           // Set selected classroom (use first one if not already selected)
           const classroomToUse = selectedClassroomId 
-            ? options.find(c => c.id === selectedClassroomId) || options[0]
+            ? options.find((c: any) => c.id === selectedClassroomId) || options[0]
             : options[0]
           
           if (!selectedClassroomId) {
