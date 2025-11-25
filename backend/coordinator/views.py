@@ -62,9 +62,10 @@ class CoordinatorViewSet(viewsets.ModelViewSet):
         instance.save()
     
     def perform_destroy(self, instance):
-        """Set actor before deleting coordinator"""
+        """Soft delete coordinator by marking as inactive instead of removing from DB"""
         instance._actor = self.request.user
-        super().perform_destroy(instance)
+        instance.is_currently_active = False
+        instance.save()
     
     def create(self, request, *args, **kwargs):
         """Override create method to add debug logging"""
@@ -116,7 +117,8 @@ class CoordinatorViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Override to handle role-based filtering and optimize queries"""
-        queryset = Coordinator.objects.select_related('campus').all()
+        # Only return currently active coordinators in normal API responses
+        queryset = Coordinator.objects.select_related('campus').filter(is_currently_active=True)
         
         # Role-based filtering
         user = self.request.user

@@ -23,13 +23,14 @@ class TeacherViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Override to handle role-based filtering and optimize queries"""
+        # Only return currently active teachers in normal API responses
         queryset = Teacher.objects.select_related(
             'current_campus',
             'assigned_classroom',
         ).prefetch_related(
             'assigned_coordinators',
             'assigned_classrooms',
-        ).all()
+        ).filter(is_currently_active=True)
         
         # Role-based filtering
         user = self.request.user
@@ -129,9 +130,11 @@ class TeacherViewSet(viewsets.ModelViewSet):
         return teacher
     
     def perform_destroy(self, instance):
-        """Set actor before deleting teacher"""
+        """Soft delete teacher by marking as inactive instead of removing from DB"""
         instance._actor = self.request.user
-        super().perform_destroy(instance)
+        # Mark teacher as not currently active so it disappears from normal views
+        instance.is_currently_active = False
+        instance.save()
     
     @decorators.action(detail=False, methods=['get'])
     def by_coordinator(self, request):

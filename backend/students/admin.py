@@ -30,6 +30,16 @@ class StudentAdmin(admin.ModelAdmin):
 
     actions = ["mark_as_terminated", "soft_delete_students", "hard_delete_students", "restore_students"]
 
+    def get_queryset(self, request):
+        """
+        In Django admin we want to see ALL students, including soft-deleted ones.
+        Use the custom manager helper with_deleted() so records with is_deleted=True
+        still appear in the admin table and can be searched / restored.
+        """
+        qs = Student.objects.with_deleted()
+        # Respect model's default ordering
+        return qs
+
     # --- Custom Display Methods ---
     def get_campus_name(self, obj):
         if obj.campus:

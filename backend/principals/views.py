@@ -26,7 +26,8 @@ class PrincipalViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Override to optimize queries and handle filtering"""
-        queryset = Principal.objects.select_related('campus', 'user').all()
+        # By default only return active principals; soft-deleted/inactive ones stay in DB
+        queryset = Principal.objects.select_related('campus', 'user').filter(is_currently_active=True)
         
         # Role-based filtering - only super admin can access all principals
         user = self.request.user
@@ -117,11 +118,19 @@ class PrincipalViewSet(viewsets.ModelViewSet):
             principal.user.email = principal.email
             principal.user.save()
     
+    def perform_destroy(self, instance):
+        """Soft delete principal by marking as inactive instead of removing from DB"""
+        instance._actor = self.request.user
+        instance.is_currently_active = False
+        instance.save()
+    
     @decorators.action(detail=False, methods=['get'])
     def stats(self, request):
         """Get principal statistics"""
-        total = self.get_queryset().count()
-        active = self.get_queryset().filter(is_currently_active=True).count()
+        # Use base queryset without is_currently_active filter so stats include all
+        base_qs = Principal.objects.select_related('campus', 'user').all()
+        total = base_qs.count()
+        active = base_qs.filter(is_currently_active=True).count()
         inactive = total - active
         
         return Response({

@@ -25,16 +25,20 @@ class StudentViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Override to handle role-based filtering for list views and stats actions"""
-        # Use all() to bypass custom manager's default filter, then apply is_deleted=False explicitly
-        # Note: We don't filter by is_active here to match attendance behavior - all non-deleted students should appear
-        queryset = Student.objects.all().filter(is_deleted=False).select_related('campus', 'classroom')
+        user = self.request.user
+        
+        # Start with ALL students (including soft-deleted) using custom manager helper
+        queryset = Student.objects.with_deleted().select_related('campus', 'classroom')
+        
+        # For non-superadmin roles, hide soft-deleted students from normal views
+        # Superadmin should be able to see deleted records as well
+        if not user.is_superadmin():
+            queryset = queryset.filter(is_deleted=False)
         
         # Apply role-based filtering for list views and stats actions
         if self.action in ['list', 'gender_stats', 'campus_stats', 'grade_distribution', 
                           'enrollment_trend', 'mother_tongue_distribution', 
                           'religion_distribution', 'total']:
-            user = self.request.user
-            
             # Superadmin gets ALL students for both list and stats
             if user.is_superadmin():
                 return queryset
@@ -195,10 +199,10 @@ class StudentViewSet(viewsets.ModelViewSet):
         instance.save()
     
     def perform_destroy(self, instance):
-        """Set actor before deleting student and create audit log"""
+        """Soft delete student, keep record, and create audit log"""
         instance._actor = self.request.user
         
-        # Store student info before deletion for audit log
+        # Store student info before soft delete for audit log
         student_id = instance.id
         student_name = instance.name
         student_campus = instance.campus
@@ -206,17 +210,24 @@ class StudentViewSet(viewsets.ModelViewSet):
         # Get user name for audit log
         user = self.request.user
         user_name = user.get_full_name() if hasattr(user, 'get_full_name') else (user.username or 'Unknown')
-        user_role = user.get_role_display() if hasattr(user, 'get_role_display') else (user.role or 'User')
+        user_role = user.get_role_display() if hasattr(user, 'get_role_display') else (getattr(user, 'role', None) or 'User')
         
-        # Delete the student
-        super().perform_destroy(instance)
+        # Soft delete the student instead of hard delete
+        try:
+            # Use model's soft_delete helper to mark as deleted but keep in DB
+            instance.soft_delete()
+        except Exception as e:
+            # Log error but continue to create audit log so action is still tracked
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to soft delete student {student_id}: {str(e)}")
         
-        # Create audit log after deletion
+        # Create audit log after soft delete
         try:
             from attendance.models import AuditLog
             AuditLog.objects.create(
                 feature='student',
-                action='delete',
+                action='delete',  # keep action name 'delete' so existing reports stay same
                 entity_type='Student',
                 entity_id=student_id,
                 user=user,
@@ -225,7 +236,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                 reason=f'Student {student_name} deleted by {user_role} {user_name}'
             )
         except Exception as e:
-            # Log error but don't fail the deletion
+            # Log error but don't fail the request
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to create audit log for student deletion: {str(e)}")

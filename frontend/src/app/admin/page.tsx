@@ -502,11 +502,11 @@ export default function MainDashboardPage() {
               
               let present = 0
               let absent = 0
-                dayRecords.forEach((record: any) => {
-                  if (record.present_count) present += record.present_count
-                  if (record.absent_count) absent += record.absent_count
-                })
-                
+              dayRecords.forEach((record: any) => {
+                if (record.present_count) present += record.present_count
+                if (record.absent_count) absent += record.absent_count
+              })
+              
                 // Calculate total students in records (sum of all total_students from records)
                 const totalStudentsInRecords = dayRecords.reduce((sum: number, record: any) => {
                   return sum + (record.total_students || 0)
