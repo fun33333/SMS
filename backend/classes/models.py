@@ -125,26 +125,75 @@ class Grade(models.Model):
     )
 
     def save(self, *args, **kwargs):
+        """
+        Auto-generate a human-readable grade code that is:
+        - Campus-aware via the parent Level.code (e.g., C04-L2-M)
+        - Clearly showing the grade number at the end (G1, G2, ..., G10)
+
+        Examples:
+        - Campus 4, Level 2, Morning, Grade 1  -> C04-L2-M-G1
+        - Campus 6, Level 2, Afternoon, Grade 1 -> C06-L2-A-G1
+        """
         if not self.code and self.level:
-            level_code = self.level.code
+            level_code = self.level.code  # e.g. C04-L2-M
+
+            # Normalize the name for mapping / parsing
+            raw_name = (self.name or "").strip()
+            normalized = raw_name.lower()
+
+            # Explicit mappings for non-numeric grades
             grade_mapping = {
-                'Nursery': 'N',
-                'KG-I': 'KG1',
-                'KG-II': 'KG2',
-                'Grade-1': 'G01',
-                'Grade-2': 'G02',
-                'Grade-3': 'G03',
-                'Grade-4': 'G04',
-                'Grade-5': 'G05',
-                'Grade-6': 'G06',
-                'Grade-7': 'G07',
-                'Grade-8': 'G08',
-                'Grade-9': 'G09',
-                'Grade-10': 'G10',
-                'Special Class': 'SC',
+                'nursery': 'N',
+                'kg-i': 'KG1',
+                'kg 1': 'KG1',
+                'kg-i.': 'KG1',
+                'kg-ii': 'KG2',
+                'kg 2': 'KG2',
+                'special class': 'SC',
             }
-            grade_code = grade_mapping.get(self.name, self.name[:3].upper())
+
+            grade_code = None
+
+            # 1) Try direct mapping first (after simple normalization)
+            key = normalized.replace('_', ' ').replace('-', ' ').replace('  ', ' ')
+            key = ' '.join(key.split())  # collapse multiple spaces
+            grade_code = grade_mapping.get(key)
+
+            # 2) If it's a "Grade X" style name, derive G1, G2, ..., G10
+            if grade_code is None and normalized.startswith("grade"):
+                # Case 1: Grade-1 / Grade 1 / Grade 10  -> use digits directly
+                digits = "".join(ch for ch in normalized if ch.isdigit())
+                if digits:
+                    grade_code = f"G{digits}"  # e.g. Grade-1 / Grade 1 -> G1
+                else:
+                    # Case 2: Grade I / Grade II / Grade III ... (roman numerals)
+                    # Normalize separators so "Grade-I" and "Grade I" both work
+                    cleaned = normalized.replace('-', ' ')
+                    parts = cleaned.split()
+                    if len(parts) >= 2:
+                        roman = parts[1].strip('.')
+                        roman_map = {
+                            'i': 1,
+                            'ii': 2,
+                            'iii': 3,
+                            'iv': 4,
+                            'v': 5,
+                            'vi': 6,
+                            'vii': 7,
+                            'viii': 8,
+                            'ix': 9,
+                            'x': 10,
+                        }
+                        value = roman_map.get(roman)
+                        if value:
+                            grade_code = f"G{value}"
+
+            # 3) Fallback: first 3 letters of the original name (legacy safety net)
+            if grade_code is None:
+                grade_code = raw_name[:3].upper() or "GRD"
+
             self.code = f"{level_code}-{grade_code}"
+
         super().save(*args, **kwargs)
 
     class Meta:

@@ -2518,6 +2518,178 @@ export async function getAvailableSectionsForGradeSkip(
   }
 }
 
+// Campus Transfer APIs
+export interface CampusTransfer {
+  id: number;
+  student: number;
+  student_name: string;
+  student_id: string;
+  from_campus: number;
+  from_campus_name: string;
+  to_campus: number;
+  to_campus_name: string;
+  from_shift: 'morning' | 'afternoon';
+  to_shift: 'morning' | 'afternoon';
+  from_classroom: number | null;
+  to_classroom: number | null;
+  from_grade: number | null;
+  to_grade: number | null;
+  from_grade_name: string | null;
+  to_grade_name: string | null;
+  from_section: string | null;
+  to_section: string | null;
+  skip_grade: boolean;
+  initiated_by_teacher: number | null;
+  initiated_by_teacher_name?: string | null;
+  from_coordinator: number | null;
+  from_coordinator_name?: string | null;
+  to_coordinator: number | null;
+  to_coordinator_name?: string | null;
+  from_principal: number | null;
+  from_principal_name?: string | null;
+  to_principal: number | null;
+  to_principal_name?: string | null;
+  transfer_request: number | null;
+  status:
+    | 'pending_from_coord'
+    | 'pending_from_principal'
+    | 'pending_to_principal'
+    | 'pending_to_coord'
+    | 'approved'
+    | 'declined'
+    | 'cancelled';
+  reason: string;
+  requested_date: string;
+  decline_reason?: string | null;
+  letter_generated_at?: string | null;
+  letter_new_student_id?: string | null;
+  letter_from_campus_name?: string | null;
+  letter_to_campus_name?: string | null;
+  letter_from_class_label?: string | null;
+  letter_to_class_label?: string | null;
+  letter_from_principal_name?: string | null;
+  letter_to_principal_name?: string | null;
+  letter_to_coordinator_name?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CampusTransferLetterPayload {
+  student_name: string;
+  student_old_id: string;
+  student_new_id: string;
+  from_campus_name: string;
+  to_campus_name: string;
+  from_class_label: string | null;
+  to_class_label: string | null;
+  from_principal_name: string | null;
+  to_principal_name: string | null;
+  to_coordinator_name: string | null;
+  approved_at: string;
+  requested_date: string;
+  reason: string;
+}
+
+export async function createCampusTransfer(data: {
+  student: number;
+  to_campus: number;
+  to_shift: 'morning' | 'afternoon';
+  to_grade?: number;
+  to_classroom?: number;
+  skip_grade?: boolean;
+  reason: string;
+  requested_date: string;
+}) {
+  try {
+    return await apiPost('/api/transfers/campus/create/', data);
+  } catch (error) {
+    console.error('Failed to create campus transfer:', error);
+    throw error;
+  }
+}
+
+export async function getCampusTransfers(params?: {
+  status?: string;
+  direction?: 'incoming' | 'outgoing' | 'all';
+}) {
+  try {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.append('status', params.status);
+    if (params?.direction) qs.append('direction', params.direction);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return await apiGet<CampusTransfer[]>(`/api/transfers/campus/list/${suffix}`);
+  } catch (error) {
+    console.error('Failed to fetch campus transfers:', error);
+    return [];
+  }
+}
+
+export async function approveCampusTransferFromCoord(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/campus/${transferId}/approve-from-coord/`, {});
+  } catch (error) {
+    console.error('Failed to approve campus transfer (from coordinator):', error);
+    throw error;
+  }
+}
+
+export async function approveCampusTransferFromPrincipal(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/campus/${transferId}/approve-from-principal/`, {});
+  } catch (error) {
+    console.error('Failed to approve campus transfer (from principal):', error);
+    throw error;
+  }
+}
+
+export async function approveCampusTransferToPrincipal(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/campus/${transferId}/approve-to-principal/`, {});
+  } catch (error) {
+    console.error('Failed to approve campus transfer (to principal):', error);
+    throw error;
+  }
+}
+
+export async function confirmCampusTransfer(transferId: number, confirmText: string, comment?: string) {
+  try {
+    return await apiPost(`/api/transfers/campus/${transferId}/confirm/`, {
+      confirm_text: confirmText,
+      comment,
+    });
+  } catch (error) {
+    console.error('Failed to confirm campus transfer:', error);
+    throw error;
+  }
+}
+
+export async function declineCampusTransfer(transferId: number, reason: string) {
+  try {
+    return await apiPost(`/api/transfers/campus/${transferId}/decline/`, { reason });
+  } catch (error) {
+    console.error('Failed to decline campus transfer:', error);
+    throw error;
+  }
+}
+
+export async function cancelCampusTransfer(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/campus/${transferId}/cancel/`, {});
+  } catch (error) {
+    console.error('Failed to cancel campus transfer:', error);
+    throw error;
+  }
+}
+
+export async function getCampusTransferLetter(transferId: number) {
+  try {
+    return await apiGet<CampusTransferLetterPayload>(`/api/transfers/campus/${transferId}/letter/`);
+  } catch (error) {
+    console.error('Failed to fetch campus transfer letter:', error);
+    throw error;
+  }
+}
+
 export async function createGradeSkipTransfer(data: {
   student: number;
   to_grade: number;

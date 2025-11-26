@@ -8,6 +8,7 @@ from .models import (
     ShiftTransfer,
     TransferApproval,
     GradeSkipTransfer,
+    CampusTransfer,
 )
 from students.models import Student
 from teachers.models import Teacher
@@ -646,5 +647,193 @@ class GradeSkipTransferCreateSerializer(serializers.ModelSerializer):
 
         # If to_shift is provided, it can be same or different (shift change is optional for grade skip)
         # No validation needed - user can keep same shift or change it
+
+        return data
+
+
+class CampusTransferSerializer(serializers.ModelSerializer):
+    """Read serializer for campus transfers."""
+
+    student_name = serializers.CharField(source='student.name', read_only=True)
+    student_id = serializers.CharField(source='student.student_id', read_only=True)
+    from_campus_name = serializers.CharField(source='from_campus.campus_name', read_only=True)
+    to_campus_name = serializers.CharField(source='to_campus.campus_name', read_only=True)
+    initiated_by_teacher_name = serializers.CharField(
+        source='initiated_by_teacher.full_name',
+        read_only=True,
+    )
+    from_coordinator_name = serializers.CharField(
+        source='from_coordinator.full_name',
+        read_only=True,
+    )
+    to_coordinator_name = serializers.CharField(
+        source='to_coordinator.full_name',
+        read_only=True,
+    )
+    from_principal_name = serializers.CharField(
+        source='from_principal.get_full_name',
+        read_only=True,
+    )
+    to_principal_name = serializers.CharField(
+        source='to_principal.get_full_name',
+        read_only=True,
+    )
+
+    class Meta:
+        model = CampusTransfer
+        fields = [
+            'id',
+            'student',
+            'student_name',
+            'student_id',
+            'from_campus',
+            'from_campus_name',
+            'to_campus',
+            'to_campus_name',
+            'from_shift',
+            'to_shift',
+            'from_classroom',
+            'to_classroom',
+            'from_grade',
+            'to_grade',
+            'from_grade_name',
+            'to_grade_name',
+            'from_section',
+            'to_section',
+            'skip_grade',
+            'initiated_by_teacher',
+            'initiated_by_teacher_name',
+            'from_coordinator',
+            'from_coordinator_name',
+            'to_coordinator',
+            'to_coordinator_name',
+            'from_principal',
+            'from_principal_name',
+            'to_principal',
+            'to_principal_name',
+            'transfer_request',
+            'status',
+            'reason',
+            'requested_date',
+            'decline_reason',
+            'letter_generated_at',
+            'letter_new_student_id',
+            'letter_from_campus_name',
+            'letter_to_campus_name',
+            'letter_from_class_label',
+            'letter_to_class_label',
+            'letter_from_principal_name',
+            'letter_to_principal_name',
+            'letter_to_coordinator_name',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'created_at',
+            'updated_at',
+            'from_grade_name',
+            'to_grade_name',
+            'from_section',
+            'to_section',
+            'transfer_request',
+            'letter_generated_at',
+            'letter_new_student_id',
+            'letter_from_campus_name',
+            'letter_to_campus_name',
+            'letter_from_class_label',
+            'letter_to_class_label',
+            'letter_from_principal_name',
+            'letter_to_principal_name',
+            'letter_to_coordinator_name',
+        ]
+
+
+class CampusTransferCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating a campus transfer request.
+    Teacher provides student, target campus, target shift, optional target grade/classroom,
+    skip_grade flag, reason and requested_date.
+    """
+
+    skip_grade = serializers.BooleanField(required=False, default=False)
+
+    class Meta:
+        model = CampusTransfer
+        fields = [
+            'student',
+            'to_campus',
+            'to_shift',
+            'to_grade',
+            'to_classroom',
+            'skip_grade',
+            'reason',
+            'requested_date',
+        ]
+
+    def validate_reason(self, value):
+        """Validate reason field: minimum 20, maximum 500 characters."""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Reason for transfer is required.")
+        if len(value.strip()) < 20:
+            raise serializers.ValidationError("Reason for transfer must be at least 20 characters long.")
+        if len(value) > 500:
+            raise serializers.ValidationError("Reason for transfer cannot exceed 500 characters.")
+        return value.strip()
+
+    def validate(self, data):
+        from students.models import Student  # local import for clarity
+
+        student = data.get('student')
+        to_campus = data.get('to_campus')
+        to_shift = data.get('to_shift')
+        to_grade = data.get('to_grade')
+        to_classroom = data.get('to_classroom')
+        skip_grade = data.get('skip_grade', False)
+
+        if not isinstance(student, Student):
+            raise serializers.ValidationError("Student is required for campus transfer.")
+
+        if not to_campus:
+            raise serializers.ValidationError("Destination campus is required for campus transfer.")
+
+        if not to_shift:
+            raise serializers.ValidationError("Destination shift is required for campus transfer.")
+
+        if student.campus_id == to_campus.id:
+            raise serializers.ValidationError("Destination campus must be different from current campus.")
+
+        # Validate grade / classroom logic
+        from_classroom = student.classroom
+        if not from_classroom:
+            raise serializers.ValidationError("Student is not currently assigned to any classroom.")
+
+        from_grade = from_classroom.grade
+        if not from_grade:
+            raise serializers.ValidationError("Student's current classroom does not have a grade assigned.")
+
+        # If skip_grade is False, we expect same grade on destination campus (optional explicit selection)
+        if not skip_grade:
+            if to_grade and to_grade.name != from_grade.name:
+                raise serializers.ValidationError("Without grade skipping, destination grade must match current grade.")
+        else:
+            # Reuse GradeSkipTransferCreateSerializer grade-skip rules but allow cross-campus
+            dummy = {
+                'student': student,
+                'to_grade': to_grade,
+                'to_classroom': to_classroom,
+                'to_shift': to_shift,
+                'reason': data.get('reason', ''),
+                'requested_date': data.get('requested_date'),
+            }
+            gst_serializer = GradeSkipTransferCreateSerializer(data=dummy)
+            gst_serializer.is_valid(raise_exception=True)
+
+        # If classroom is provided, enforce same campus/grade alignment
+        if to_classroom:
+            if to_classroom.grade and to_grade and to_classroom.grade != to_grade:
+                raise serializers.ValidationError("Target classroom must belong to the selected target grade.")
+            if to_classroom.campus != to_campus:
+                raise serializers.ValidationError("Target classroom must be in the destination campus.")
 
         return data

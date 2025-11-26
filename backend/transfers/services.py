@@ -2,7 +2,7 @@ from datetime import datetime
 from django.db import transaction
 from django.contrib.auth.models import User
 
-from .models import IDHistory, TransferRequest, ClassTransfer, ShiftTransfer, TransferApproval, GradeSkipTransfer
+from .models import IDHistory, TransferRequest, ClassTransfer, ShiftTransfer, TransferApproval, GradeSkipTransfer, CampusTransfer
 
 
 def emit_transfer_event(event_type: str, payload: dict) -> None:
@@ -603,5 +603,195 @@ def apply_grade_skip_transfer(grade_skip_transfer, changed_by):
     return {
         'student': student,
         'transfer_request': grade_skip_transfer.transfer_request,
+    }
+
+
+@transaction.atomic
+def apply_campus_transfer(campus_transfer: CampusTransfer, changed_by: User):
+    """
+    Apply a campus transfer:
+    - Create and link a TransferRequest for ID change
+    - Update student ID, campus and shift
+    - Move student to destination classroom / grade / section
+    - Populate letter helper fields for frontend
+    """
+    from campus.models import Campus  # local import to avoid circulars
+    from classes.models import ClassRoom
+
+    student = campus_transfer.student
+    from_campus = campus_transfer.from_campus
+    to_campus = campus_transfer.to_campus
+    from_shift = campus_transfer.from_shift
+    to_shift = campus_transfer.to_shift
+
+    # Safety checks
+    if not isinstance(from_campus, Campus) or not isinstance(to_campus, Campus):
+        raise ValueError("CampusTransfer must have valid from_campus and to_campus instances")
+
+    # Convert shifts from 'morning'/'afternoon' to ID codes 'M'/'A'
+    from_shift_code = 'M' if from_shift == 'morning' else 'A'
+    to_shift_code = 'M' if to_shift == 'morning' else 'A'
+
+    # Create TransferRequest that will own the IDHistory
+    transfer_request = TransferRequest.objects.create(
+        request_type='student',
+        transfer_category='campus',
+        from_campus=from_campus,
+        from_shift=from_shift_code,
+        to_campus=to_campus,
+        to_shift=to_shift_code,
+        requesting_principal=campus_transfer.from_principal or changed_by,
+        receiving_principal=campus_transfer.to_principal or changed_by,
+        student=student,
+        reason=f"Campus transfer: {campus_transfer.reason}",
+        requested_date=campus_transfer.requested_date,
+        notes='Auto-approved campus transfer after full workflow.',
+        status='approved',
+        reviewed_at=timezone.now(),
+    )
+
+    # Apply ID update (also updates student.campus and student.shift)
+    id_result = IDUpdateService.update_student_id(
+        student=student,
+        new_campus=to_campus,
+        new_shift=to_shift_code,
+        transfer_request=transfer_request,
+        changed_by=changed_by,
+        reason=f"Campus transfer applied: {campus_transfer.reason}",
+    )
+
+    # Determine destination classroom
+    to_classroom = campus_transfer.to_classroom
+    if not to_classroom and campus_transfer.to_grade:
+        # Auto-pick a classroom in the target grade on the destination campus + shift
+        target_shift = to_shift
+        available_rooms = ClassRoom.objects.filter(
+            grade=campus_transfer.to_grade,
+            grade__level__campus=to_campus,
+            shift=target_shift,
+        ).exclude(students__id=student.id).order_by('section')
+
+        # Choose first with capacity or first available
+        chosen = None
+        for room in available_rooms:
+            if room.students.count() < room.capacity:
+                chosen = room
+                break
+        if not chosen and available_rooms.exists():
+            chosen = available_rooms.first()
+
+        to_classroom = chosen
+
+    from_classroom = campus_transfer.from_classroom or student.classroom
+
+    # Move student into destination classroom if any
+    if to_classroom:
+        student.classroom = to_classroom
+        if to_classroom.grade:
+            student.current_grade = to_classroom.grade.name
+        student.section = to_classroom.section
+        if to_classroom.grade and to_classroom.grade.level and to_classroom.grade.level.campus:
+            student.campus = to_classroom.grade.level.campus
+
+    # Mark actor and skip generic notifications
+    student._actor = changed_by
+    student._skip_notifications = True
+    student.save()
+
+    # Update CampusTransfer links and letter helper fields
+    campus_transfer.transfer_request = transfer_request
+    campus_transfer.status = 'approved'
+
+    # Cache labels
+    if from_classroom:
+        campus_transfer.from_grade = from_classroom.grade
+        campus_transfer.from_grade_name = getattr(from_classroom.grade, "name", None)
+        campus_transfer.from_section = from_classroom.section
+    if to_classroom:
+        campus_transfer.to_grade = to_classroom.grade
+        campus_transfer.to_grade_name = getattr(to_classroom.grade, "name", None)
+        campus_transfer.to_section = to_classroom.section
+
+    campus_transfer.letter_generated_at = timezone.now()
+    campus_transfer.letter_new_student_id = id_result.get('new_id')
+    campus_transfer.letter_from_campus_name = getattr(from_campus, 'campus_name', str(from_campus))
+    campus_transfer.letter_to_campus_name = getattr(to_campus, 'campus_name', str(to_campus))
+
+    # Helper class labels like "Grade 1-A (Morning)"
+    def _class_label(room, shift_value):
+        if not room:
+            return None
+        grade_name = getattr(room.grade, "name", "")
+        section = room.section or ""
+        return f"{grade_name} - {section} ({shift_value})".strip()
+
+    campus_transfer.letter_from_class_label = _class_label(from_classroom, from_shift)
+    campus_transfer.letter_to_class_label = _class_label(to_classroom, to_shift)
+
+    campus_transfer.letter_from_principal_name = getattr(
+        campus_transfer.from_principal, "get_full_name", lambda: None
+    )() if campus_transfer.from_principal else None
+    campus_transfer.letter_to_principal_name = getattr(
+        campus_transfer.to_principal, "get_full_name", lambda: None
+    )() if campus_transfer.to_principal else None
+    campus_transfer.letter_to_coordinator_name = getattr(
+        campus_transfer.to_coordinator, "full_name", None
+    )
+
+    campus_transfer.save()
+
+    # Notify destination class teacher about new student
+    try:
+        if to_classroom and to_classroom.class_teacher:
+            from notifications.services import create_notification
+            from django.contrib.auth import get_user_model
+
+            UserModel = get_user_model()
+            class_teacher = to_classroom.class_teacher
+            teacher_user = getattr(class_teacher, 'user', None)
+            if not teacher_user and class_teacher.employee_code:
+                teacher_user = UserModel.objects.filter(username=class_teacher.employee_code).first()
+            if not teacher_user and class_teacher.email:
+                teacher_user = UserModel.objects.filter(email__iexact=class_teacher.email).first()
+
+            if teacher_user:
+                coordinator_name = campus_transfer.letter_to_coordinator_name or "Coordinator"
+                verb = f"{coordinator_name} has assigned new student {student.name} in your class by campus transfer"
+                target_text = campus_transfer.letter_to_class_label or _class_label(to_classroom, to_shift)
+                create_notification(
+                    recipient=teacher_user,
+                    actor=changed_by,
+                    verb=verb,
+                    target_text=target_text,
+                    data={
+                        "type": "campus_transfer.student_assigned",
+                        "campus_transfer_id": campus_transfer.id,
+                        "student_id": student.id,
+                        "classroom_id": to_classroom.id,
+                        "new_student_id": campus_transfer.letter_new_student_id,
+                    },
+                )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to send notification to class teacher for campus transfer {campus_transfer.id}: {str(e)}")
+
+    emit_transfer_event(
+        "campus_transfer.applied",
+        {
+            "student_id": student.id,
+            "campus_transfer_id": campus_transfer.id,
+            "transfer_request_id": transfer_request.id,
+            "from_campus_id": from_campus.id,
+            "to_campus_id": to_campus.id,
+            "new_id": id_result.get("new_id"),
+            "changed_by_id": changed_by.id if changed_by else None,
+        },
+    )
+
+    return {
+        "student": student,
+        "transfer_request": transfer_request,
+        "campus_transfer": campus_transfer,
     }
 

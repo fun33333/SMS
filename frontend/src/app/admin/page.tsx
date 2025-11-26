@@ -62,6 +62,8 @@ export default function MainDashboardPage() {
   const ageDistributionChartRef = useRef<HTMLDivElement>(null)
   const zakatStatusChartRef = useRef<HTMLDivElement>(null)
   const houseOwnershipChartRef = useRef<HTMLDivElement>(null)
+  // Track whether initial charts load has already happened via main fetchData
+  const hasInitialChartsLoadedRef = useRef(false)
   
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -126,6 +128,8 @@ export default function MainDashboardPage() {
 
   // Principal campus filtering and shift filter
   const [userCampus, setUserCampus] = useState<string>("");
+  // All campuses from backend (used for campus filter options)
+  const [allCampuses, setAllCampuses] = useState<any[]>([]);
   const [, setPrincipalShift] = useState<string>("both");
   
   // Print / Save PDF (two-column with summaries, like Custom Export)
@@ -475,7 +479,20 @@ export default function MainDashboardPage() {
               return []
             }
           })(),
-          apiGet('/api/attendance/').catch(() => [])
+          // Pass campus filter (first selected campus) as ID so backend
+          // can scope attendance for Weekly Attendance chart.
+          (async () => {
+            try {
+              const campusIdParam =
+                campusFilterIds && campusFilterIds.length > 0
+                  ? `?campus=${encodeURIComponent(String(campusFilterIds[0]))}`
+                  : ''
+              const resp: any = await apiGet(`/api/attendance/${campusIdParam}`)
+              return Array.isArray(resp) ? resp : []
+            } catch {
+              return []
+            }
+          })()
         ])
         
         // Set KPI data immediately
@@ -528,7 +545,8 @@ export default function MainDashboardPage() {
         const chartParams: any = {
           // Map filter state to API params
           enrollment_year: filters.academicYears,
-          campus: userRole === 'principal' && userCampus ? undefined : filters.campuses, // principal scoped by server
+          // For non-principals, pass campus IDs so backend ModelChoiceFilter works
+          campus: userRole === 'principal' && userCampus ? undefined : campusFilterIds,
           current_grade: filters.grades,
           // Normalize gender to lowercase to match backend expectations
           gender: (filters.genders || []).map((g: any) => String(g).toLowerCase()),
@@ -626,6 +644,8 @@ export default function MainDashboardPage() {
 
           const studentsArray = filterStudentsResponse.results || []
           const campusArray = Array.isArray(campuses) ? campuses : (Array.isArray((campuses as any)?.results) ? (campuses as any).results : [])
+          // Cache full campus list for filters (includes campuses even if they currently have 0 students)
+          setAllCampuses(campusArray)
           
           // Map minimal student data for filters
         const idToCampusCode = new Map<string, string>(
@@ -687,17 +707,104 @@ export default function MainDashboardPage() {
     }
   }, [userRole, userCampus, shiftFilter])
 
+  // Map selected campus labels (e.g., "Campus 6" or "C06") to backend IDs
+  // so that Django's ModelChoiceFilter(campus=...) receives valid PK values.
+  const campusFilterIds = useMemo(() => {
+    if (!filters.campuses.length || !allCampuses.length) return undefined
+
+    const labelToId = new Map<string, number>()
+    allCampuses.forEach((c: any) => {
+      const label = (c.campus_name || c.name || c.campus_code || c.code || '').toString().trim()
+      if (label) {
+        labelToId.set(label, Number(c.id))
+      }
+    })
+
+    const ids = filters.campuses
+      .map((label) => labelToId.get(String(label)))
+      .filter((v): v is number => v !== undefined)
+
+    return ids.length ? ids : undefined
+  }, [filters.campuses, allCampuses])
+
+  // Refetch weekly attendance when campus filter or shift changes
+  useEffect(() => {
+    if (!userRole) return
+    let cancelled = false
+
+    async function fetchWeeklyAttendance() {
+      try {
+        const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        const campusIdParam =
+          campusFilterIds && campusFilterIds.length > 0
+            ? `?campus=${encodeURIComponent(String(campusFilterIds[0]))}`
+            : ''
+
+        const attendanceResponse: any = await apiGet(`/api/attendance/${campusIdParam}`).catch(() => [])
+
+        if (cancelled) return
+
+        if (attendanceResponse && Array.isArray(attendanceResponse)) {
+          const last7Days = Array.from({ length: 7 }, (_, i) => {
+            const date = new Date()
+            date.setDate(date.getDate() - (6 - i))
+            return date
+          })
+
+          const weekData = last7Days.map((date) => {
+            const dayName = daysOfWeek[date.getDay() === 0 ? 6 : date.getDay() - 1]
+            const dateStr = date.toISOString().split('T')[0]
+            const dayRecords = attendanceResponse.filter((record: any) =>
+              record.date === dateStr || record.date?.startsWith(dateStr)
+            )
+
+            let present = 0
+            let absent = 0
+            dayRecords.forEach((record: any) => {
+              if (record.present_count) present += record.present_count
+              if (record.absent_count) absent += record.absent_count
+            })
+
+            const totalStudentsInRecords = dayRecords.reduce((sum: number, record: any) => {
+              return sum + (record.total_students || 0)
+            }, 0)
+
+            return { day: dayName, present, absent, totalStudentsInRecords }
+          })
+
+          const filteredWeekData = weekData.filter((item: any) => item.day !== 'Sun')
+          setWeeklyAttendanceData(filteredWeekData)
+        } else {
+          const weekDaysWithoutSunday = daysOfWeek.filter(day => day !== 'Sun')
+          setWeeklyAttendanceData(weekDaysWithoutSunday.map(day => ({ day, present: 0, absent: 0 })))
+        }
+      } catch (e) {
+        console.error('Error fetching weekly attendance for campus filter:', e)
+      }
+    }
+
+    fetchWeeklyAttendance()
+    return () => { cancelled = true }
+  }, [campusFilterIds, shiftFilter, userRole])
+
   // Refetch charts when filters change (so charts always reflect selected filters)
   useEffect(() => {
     let cancelled = false
     async function refetchChartsForFilters() {
       // Skip until role known
       if (!userRole) return
+      // On very first load, main fetchData already fetched charts,
+      // so we just mark as loaded and skip this effect once to avoid
+      // double-loading and duplicate chart flashes.
+      if (!hasInitialChartsLoadedRef.current) {
+        hasInitialChartsLoadedRef.current = true
+        return
+      }
       setChartsLoading(true)
       try {
         const chartParams: any = {
           enrollment_year: filters.academicYears,
-          campus: userRole === 'principal' && userCampus ? undefined : filters.campuses,
+          campus: userRole === 'principal' && userCampus ? undefined : campusFilterIds,
           current_grade: filters.grades,
           gender: (filters.genders || []).map((g: any) => String(g).toLowerCase()),
           // mother_tongue: filters.motherTongues, // disabled
@@ -767,10 +874,23 @@ export default function MainDashboardPage() {
     return teachers.filter((t: any) => {
       // Campus filter
       if (filters.campuses.length > 0) {
-        const tc = t?.campus
-        const teacherCampus = typeof tc === 'object' && tc
-          ? (tc.campus_name || tc.name || tc.campus_code || tc.code || '').toString().trim()
-          : (tc || '').toString().trim()
+        // Normalise teacher's campus label so it matches what we show
+        // in the campus filter ("Campus 4", "Campus 6", etc.).
+        const rawCampus =
+          // 1) Dedicated serializer field
+          t?.campus_name ||
+          // 2) Nested campus data
+          t?.campus_data?.campus_name ||
+          t?.campus_data?.name ||
+          t?.campus_data?.campus_code ||
+          t?.campus_data?.code ||
+          // 3) Fallbacks
+          t?.current_campus?.campus_name ||
+          t?.current_campus?.campus_code ||
+          t?.campus ||
+          ''
+
+        const teacherCampus = String(rawCampus).trim()
         if (!filters.campuses.includes(teacherCampus)) return false
       }
       // Gender filter (if teacher has gender field)
@@ -899,6 +1019,22 @@ export default function MainDashboardPage() {
   }, [apiChartData, chartsLoading, students])
   
   const dynamicCampuses = useMemo(() => {
+    // Prefer full campus list from backend so we show campuses
+    // even if they currently have 0 students.
+    if (allCampuses && allCampuses.length > 0) {
+      const campuses = Array.from(
+        new Set(
+          allCampuses.map((c: any) =>
+            (c.campus_name || c.name || c.campus_code || c.code || '').toString().trim()
+          )
+        )
+      )
+        .filter(Boolean)
+        .sort((a, b) => collator.compare(a as string, b as string))
+      return campuses as string[]
+    }
+
+    // Fallbacks based on chart data or students (legacy behaviour)
     if (apiChartData && !chartsLoading && Array.isArray(apiChartData.campusPerformance)) {
       const campuses = Array.from(new Set(apiChartData.campusPerformance.map((c: any) => (c.name || '').toString().trim())))
         .filter(Boolean)
@@ -909,19 +1045,59 @@ export default function MainDashboardPage() {
       .filter(Boolean)
       .sort((a, b) => collator.compare(a as string, b as string))
     return campuses as string[]
-  }, [apiChartData, chartsLoading, students, collator])
+  }, [allCampuses, apiChartData, chartsLoading, students, collator])
   
   const dynamicGrades = useMemo(() => {
-    if (apiChartData && !chartsLoading) {
-      const grades = Array.from(new Set((apiChartData.gradeDistribution || []).map((g: any) => (g.name || '').toString().trim())))
-        .filter(Boolean)
-        .sort((a, b) => collator.compare(a as string, b as string))
-      return grades as string[]
+    // Desired logical order for grade labels coming from backend normalization
+    const gradeOrder = [
+      "Special Class",
+      "Nursery",
+      "KG-I",
+      "KG-II",
+      "Grade 1",
+      "Grade 2",
+      "Grade 3",
+      "Grade 4",
+      "Grade 5",
+      "Grade 6",
+      "Grade 7",
+      "Grade 8",
+      "Grade 9",
+      "Grade 10",
+      "Unknown Grade",
+    ]
+
+    const sortByCustomGradeOrder = (arr: string[]) => {
+      return [...arr].sort((a, b) => {
+        const ia = gradeOrder.indexOf(a)
+        const ib = gradeOrder.indexOf(b)
+        const aRank = ia === -1 ? gradeOrder.length + 1 : ia
+        const bRank = ib === -1 ? gradeOrder.length + 1 : ib
+        if (aRank !== bRank) return aRank - bRank
+        // Fallback to locale compare for any unknown labels
+        return collator.compare(a, b)
+      })
     }
-    const grades = Array.from(new Set(students.map(s => (s.grade || '').toString().trim())))
-      .filter(Boolean)
-      .sort((a, b) => collator.compare(a as string, b as string))
-    return grades as string[]
+
+    if (apiChartData && !chartsLoading) {
+      const grades = Array.from(
+        new Set(
+          (apiChartData.gradeDistribution || []).map((g: any) =>
+            (g.name || "").toString().trim()
+          )
+        )
+      ).filter(Boolean) as string[]
+
+      return sortByCustomGradeOrder(grades)
+    }
+
+    const grades = Array.from(
+      new Set(
+        students.map((s) => (s.grade || "").toString().trim())
+      )
+    ).filter(Boolean) as string[]
+
+    return sortByCustomGradeOrder(grades)
   }, [apiChartData, chartsLoading, students, collator])
   
   const dynamicMotherTongues = useMemo(() => {
@@ -1437,11 +1613,11 @@ export default function MainDashboardPage() {
               {userRole === 'principal' && (
                 <MultiSelectFilter
                   title="Shift"
-                  options={["All", "Morning", "Afternoon", "Both"]}
+                  options={["All", "Morning", "Afternoon"]}
                   selectedValues={[
                     shiftFilter === 'all' ? 'All' :
                     shiftFilter === 'morning' ? 'Morning' :
-                    shiftFilter === 'afternoon' ? 'Afternoon' : 'Both'
+                    shiftFilter === 'afternoon' ? 'Afternoon' : 'All'
                   ]}
                   onSelectionChange={(val) => {
                     // For single selection, replace the entire array with the new selection

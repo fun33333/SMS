@@ -36,9 +36,11 @@ import {
   ClassTransfer,
   ShiftTransfer,
   GradeSkipTransfer,
+  CampusTransfer,
   getClassTransfers,
   getShiftTransfers,
   getGradeSkipTransfers,
+  getCampusTransfers,
   approveClassTransfer,
   declineClassTransfer,
   approveShiftTransferOwn,
@@ -47,6 +49,14 @@ import {
   approveGradeSkipOwnCoord,
   approveGradeSkipOtherCoord,
   declineGradeSkip,
+  approveCampusTransferFromCoord,
+  approveCampusTransferFromPrincipal,
+  approveCampusTransferToPrincipal,
+  confirmCampusTransfer,
+  declineCampusTransfer,
+  cancelCampusTransfer,
+  getCampusTransferLetter,
+  CampusTransferLetterPayload,
 } from '@/lib/api';
 import { getCurrentUserRole } from '@/lib/permissions';
 import { getCurrentUserProfile } from '@/lib/api';
@@ -90,6 +100,13 @@ export default function TransferManagementPage() {
   const [selectedClassTransfer, setSelectedClassTransfer] = useState<ClassTransfer | null>(null);
   const [selectedShiftTransfer, setSelectedShiftTransfer] = useState<ShiftTransfer | null>(null);
   const [selectedGradeSkipTransfer, setSelectedGradeSkipTransfer] = useState<GradeSkipTransfer | null>(null);
+  const [campusTransfers, setCampusTransfers] = useState<CampusTransfer[]>([]);
+  const [campusStatusFilter, setCampusStatusFilter] = useState<'pending' | 'history'>('pending');
+  const [campusDirectionFilter, setCampusDirectionFilter] = useState<'incoming' | 'outgoing'>('incoming');
+  const [expandedCampusId, setExpandedCampusId] = useState<number | null>(null);
+  const [selectedCampusTransfer, setSelectedCampusTransfer] = useState<CampusTransfer | null>(null);
+  const [campusLetter, setCampusLetter] = useState<CampusTransferLetterPayload | null>(null);
+  const [showCampusLetter, setShowCampusLetter] = useState(false);
 
 
   // Load current user profile to get IDs
@@ -142,14 +159,16 @@ export default function TransferManagementPage() {
   const loadTeacherCoordinatorTransfers = async () => {
     try {
       setLoading(true);
-      const [classes, shifts, gradeSkips] = await Promise.all([
+      const [classes, shifts, gradeSkips, campus] = await Promise.all([
         getClassTransfers(),
         getShiftTransfers(),
         getGradeSkipTransfers(),
+        getCampusTransfers(),
       ]);
       setClassTransfers(classes as ClassTransfer[]);
       setShiftTransfers(shifts as ShiftTransfer[]);
       setGradeSkipTransfers(gradeSkips as GradeSkipTransfer[]);
+      setCampusTransfers(campus as CampusTransfer[]);
     } catch (error) {
       console.error('Error loading transfers:', error);
       toast.error('Failed to load transfer data');
@@ -1008,6 +1027,17 @@ export default function TransferManagementPage() {
         : (t.status !== 'pending_own_coord' && t.status !== 'pending_other_coord')
     );
 
+    // Campus transfers (for teacher/coordinator views, treat all as incoming/outgoing based on direction)
+    const campusIncoming = campusTransfers; // Coordinators will already be filtered server-side
+    const campusOutgoing = campusTransfers; // Teachers see their own created ones
+
+    const filteredCampusTransfers = (campusDirectionFilter === 'incoming' ? campusIncoming : campusOutgoing).filter(
+      t =>
+        campusStatusFilter === 'pending'
+          ? t.status !== 'approved' && t.status !== 'declined' && t.status !== 'cancelled'
+          : t.status === 'approved' || t.status === 'declined' || t.status === 'cancelled',
+    );
+
     // Calculate counts for current direction
     const pendingClassCount = (classDirectionFilter === 'incoming' ? classIncoming : classOutgoing).filter(
       t => t.status === 'pending'
@@ -1021,6 +1051,13 @@ export default function TransferManagementPage() {
     ).length;
     const historyShiftCount = (shiftDirectionFilter === 'incoming' ? shiftIncoming : shiftOutgoing).filter(
       t => t.status !== 'pending_own_coord' && t.status !== 'pending_other_coord'
+    ).length;
+
+    const pendingCampusCount = (campusDirectionFilter === 'incoming' ? campusIncoming : campusOutgoing).filter(
+      t => t.status !== 'approved' && t.status !== 'declined' && t.status !== 'cancelled',
+    ).length;
+    const historyCampusCount = (campusDirectionFilter === 'incoming' ? campusIncoming : campusOutgoing).filter(
+      t => t.status === 'approved' || t.status === 'declined' || t.status === 'cancelled',
     ).length;
 
     return (
@@ -1055,7 +1092,7 @@ export default function TransferManagementPage() {
           </div>
 
           <Tabs defaultValue="class" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="class">
                 Class Transfers
               </TabsTrigger>
@@ -1064,6 +1101,9 @@ export default function TransferManagementPage() {
               </TabsTrigger>
               <TabsTrigger value="grade-skip">
                 Grade Skip Transfers
+              </TabsTrigger>
+              <TabsTrigger value="campus">
+                Campus Transfers
               </TabsTrigger>
             </TabsList>
 
@@ -1318,6 +1358,127 @@ export default function TransferManagementPage() {
               ) : (
                 <div className="grid gap-3">
                   {filteredGradeSkipTransfers.map(transfer => renderGradeSkipTransferCard(transfer))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="campus" className="space-y-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-gray-700">Campus Transfers</h2>
+                <div className="flex items-center gap-3">
+                  {/* Incoming/Outgoing Tabs */}
+                  <div className="inline-flex rounded-full bg-gray-100 p-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setCampusDirectionFilter('incoming')}
+                      className={`px-3 py-1 rounded-full transition ${
+                        campusDirectionFilter === 'incoming'
+                          ? 'bg-white shadow-sm text-blue-600 font-medium'
+                          : 'text-gray-500'
+                      }`}
+                    >
+                      Incoming
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCampusDirectionFilter('outgoing')}
+                      className={`px-3 py-1 rounded-full transition ${
+                        campusDirectionFilter === 'outgoing'
+                          ? 'bg-white shadow-sm text-blue-600 font-medium'
+                          : 'text-gray-500'
+                      }`}
+                    >
+                      Outgoing
+                    </button>
+                  </div>
+                  {/* Pending/History Tabs */}
+                  <div className="inline-flex rounded-full bg-gray-100 p-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setCampusStatusFilter('pending')}
+                      className={`px-3 py-1 rounded-full transition ${
+                        campusStatusFilter === 'pending'
+                          ? 'bg-white shadow-sm text-blue-600'
+                          : 'text-gray-500'
+                      }`}
+                    >
+                      Pending ({pendingCampusCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCampusStatusFilter('history')}
+                      className={`px-3 py-1 rounded-full transition ${
+                        campusStatusFilter === 'history'
+                          ? 'bg-white shadow-sm text-blue-600'
+                          : 'text-gray-500'
+                      }`}
+                    >
+                      History ({historyCampusCount})
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {filteredCampusTransfers.length === 0 ? (
+                <Card className="border-dashed border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
+                  <CardContent className="py-10 px-6 text-center flex flex-col items-center justify-center gap-3">
+                    <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center mb-1">
+                      <Building className="h-6 w-6 text-blue-500" />
+                    </div>
+                    <p className="text-base font-semibold text-gray-800">
+                      {campusStatusFilter === 'pending'
+                        ? `No pending ${campusDirectionFilter} campus transfers`
+                        : `No ${campusDirectionFilter} campus transfer history yet`}
+                    </p>
+                    <p className="text-xs text-gray-500 max-w-md">
+                      {campusStatusFilter === 'pending'
+                        ? campusDirectionFilter === 'incoming'
+                          ? 'There are currently no campus transfer requests waiting for your approval.'
+                          : 'You have not created any pending campus transfer requests.'
+                        : campusDirectionFilter === 'incoming'
+                          ? 'Approved or declined campus transfers will be listed here for your records.'
+                          : 'Your approved or declined campus transfer requests will appear here.'}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid gap-3">
+                  {filteredCampusTransfers.map(transfer => (
+                    <Card
+                      key={transfer.id}
+                      className="hover:shadow-md transition-shadow border border-gray-100 rounded-2xl bg-white/80"
+                    >
+                      <CardContent className="p-4 md:p-5">
+                        <div className="flex items-center gap-2 mb-2">
+                          <button
+                            onClick={() =>
+                              setExpandedCampusId(prev => (prev === transfer.id ? null : transfer.id))
+                            }
+                            className="flex-1 flex items-center justify-between gap-3 text-left"
+                          >
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              <GraduationCap className="h-4 w-4 md:h-5 md:w-5 text-blue-600 shrink-0" />
+                              <div className="min-w-0 flex-1">
+                                <h3 className="font-semibold text-sm md:text-base text-gray-900 truncate">
+                                  {transfer.student_name}
+                                </h3>
+                                <p className="text-xs text-gray-500 truncate">
+                                  {transfer.student_id}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="hidden sm:block">{getStatusBadge(transfer.status)}</div>
+                              <ChevronDown
+                                className={`h-4 w-4 text-gray-400 transition-transform ${
+                                  expandedCampusId === transfer.id ? 'rotate-180' : ''
+                                }`}
+                              />
+                            </div>
+                          </button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
               )}
             </TabsContent>

@@ -2389,13 +2389,34 @@ def get_attendance_list(request):
     Get list of attendance records for dashboard
     """
     try:
+        # Optional campus filter: restrict attendance to classrooms
+        # whose grade.level.campus matches the given campus ID.
+        campus_id = request.GET.get('campus')
+
+        # For principals, default to their campus if no explicit campus param is provided
+        user = request.user
+        if not campus_id and hasattr(user, 'campus') and user.campus:
+            campus_id = str(user.campus.id)
+
         # Get attendance records from last 30 days
         thirty_days_ago = timezone.now().date() - timedelta(days=30)
         
         attendances = Attendance.objects.filter(
             date__gte=thirty_days_ago,
             is_deleted=False
-        ).select_related('classroom').order_by('-date')
+        ).select_related('classroom')
+
+        if campus_id:
+            try:
+                campus_id_int = int(campus_id)
+                attendances = attendances.filter(
+                    classroom__grade__level__campus_id=campus_id_int
+                )
+            except ValueError:
+                # Ignore invalid campus values and fall back to all campuses
+                pass
+
+        attendances = attendances.order_by('-date')
         
         # Serialize the data
         serializer = AttendanceSerializer(attendances, many=True, context={'request': request})

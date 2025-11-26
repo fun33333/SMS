@@ -42,6 +42,14 @@ class UserCreationService:
     def generate_employee_code(entity, entity_type):
         """Generate employee code for entity"""
         try:
+            # If entity already has an employee_code (generated in model.save),
+            # reuse it instead of generating a new one. This prevents the
+            # global role counter from being incremented twice and ensures
+            # continuous sequences without gaps (e.g. ...T-0008, T-0009, T-0010).
+            existing_code = getattr(entity, "employee_code", None)
+            if existing_code:
+                return existing_code
+
             # Get campus field based on entity type
             if entity_type == 'teacher':
                 campus = entity.current_campus

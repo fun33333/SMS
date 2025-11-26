@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { useEffect, useMemo, useState } from "react"
-import { getLevels, getGrades, getClassrooms, getAllCoordinators } from "@/lib/api"
+import { getLevels, getGrades, getClassrooms, getAllCoordinators, getAllCampuses, getUserCampusId, getStoredUserProfile } from "@/lib/api"
 import { toast as sonnerToast } from "sonner"
 import { Checkbox } from "@/components/ui/checkbox"
 
@@ -25,6 +25,8 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
   const [loadingGrades, setLoadingGrades] = useState(false)
   const [loadingClassrooms, setLoadingClassrooms] = useState(false)
   const [loadingCoordinators, setLoadingCoordinators] = useState(false)
+  const [campuses, setCampuses] = useState<any[]>([])
+  const [loadingCampuses, setLoadingCampuses] = useState(false)
   // For BOTH shift workflow
   const [selectedLevels, setSelectedLevels] = useState<number[]>(Array.isArray(formData.assigned_levels) ? formData.assigned_levels : [])
   const [levelGrades, setLevelGrades] = useState<Record<string, string>>({})
@@ -44,6 +46,45 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
         .finally(() => setLoadingLevels(false))
     }
   }, [formData.current_campus])
+
+  // Load campuses based on logged-in user so principal ko sirf apna campus dikhe
+  useEffect(() => {
+    let cancelled = false
+    const initCampuses = async () => {
+      try {
+        setLoadingCampuses(true)
+        const all = await getAllCampuses()
+        const profile = getStoredUserProfile() as any
+        const userCampusId =
+          getUserCampusId() ??
+          profile?.campus_id ??
+          (typeof profile?.campus === "object" ? profile.campus.id : profile?.campus) ??
+          null
+
+        let filtered = all
+        if (userCampusId) {
+          filtered = (all || []).filter((c: any) => Number(c.id ?? c.campus_id) === Number(userCampusId))
+        }
+
+        if (!cancelled) {
+          setCampuses(filtered)
+          // If formData.current_campus empty, default to user campus
+          if (!formData.current_campus && userCampusId) {
+            onInputChange("current_campus", String(userCampusId))
+          }
+        }
+      } catch (err) {
+        if (!cancelled) setCampuses([])
+      } finally {
+        if (!cancelled) setLoadingCampuses(false)
+      }
+    }
+    initCampuses()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Fetch coordinators for the selected campus (only for non-class teachers)
   useEffect(() => {
@@ -323,10 +364,14 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
             <Label htmlFor="current_campus">Current Campus *</Label>
             <Select value={formData.current_campus || ""} onValueChange={(v) => onInputChange("current_campus", v)}>
               <SelectTrigger className={`mt-2 border-2 focus:border-primary ${invalidFields.includes("current_campus") ? "border-red-500" : ""}`}>
-                <SelectValue placeholder="Select campus" />
+                <SelectValue placeholder={loadingCampuses ? "Loading campus..." : "Select campus"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="6">Campus 6</SelectItem>
+                {campuses.map((campus) => (
+                  <SelectItem key={campus.id ?? campus.campus_id} value={String(campus.id ?? campus.campus_id)}>
+                    {campus.campus_name || campus.name || `Campus ${campus.campus_code || campus.id}`}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             {invalidFields.includes("current_campus") && <p className="text-sm text-red-600 mt-1">Current campus is required</p>}

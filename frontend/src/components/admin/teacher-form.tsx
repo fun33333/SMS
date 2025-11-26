@@ -12,7 +12,7 @@ import { ExperienceStep } from "./teacher-form/experience-step"
 import { TeacherPreview } from "./teacher-form/teacher-preview"
 import { useToast } from "@/hooks/use-toast"
 import { toast as sonnerToast } from "sonner"
-import { getAllCampuses, getClassrooms, checkEmailExists } from "@/lib/api"
+import { getAllCampuses, getClassrooms, checkEmailExists, getStoredUserProfile, getUserCampusId } from "@/lib/api"
 import { useFormErrorHandler } from "@/hooks/use-error-handler"
 import { ErrorDisplay } from "@/components/ui/error-display"
 import { getApiBaseUrl } from "@/lib/api"
@@ -28,6 +28,7 @@ export function TeacherForm() {
   const { toast } = useToast()
   const [currentStep, setCurrentStep] = useState(1)
   const [showPreview, setShowPreview] = useState(false)
+  const [currentUserCampusId, setCurrentUserCampusId] = useState<number | null>(null)
   const [formData, setFormData] = useState<any>({
     // Personal Information (8 fields - 6 required, 2 optional)
     full_name: '',
@@ -59,7 +60,8 @@ export function TeacherForm() {
     total_experience_years: 0,
     
     // Current Role Information (5 fields - 3 required, 2 optional)
-    current_campus: '6', // Default to Campus 6 for principal
+    // NOTE: actual default for principals will be set from logged-in user's campus
+    current_campus: '',
     joining_date: '',
     shift: 'morning',
     current_subjects: '',
@@ -95,6 +97,31 @@ export function TeacherForm() {
   })
 
   const totalSteps = steps.length
+
+  // Initialize current campus from logged-in user (principal / coordinator etc.)
+  // so that whichever campus user is assigned to, wahi default aa jaye.
+  useState(() => {
+    if (typeof window === "undefined") return
+    try {
+      const storedCampusId = getUserCampusId()
+      const profile = getStoredUserProfile() as any
+      const fallbackCampusId =
+        storedCampusId ??
+        profile?.campus_id ??
+        (typeof profile?.campus === "object" ? profile.campus.id : profile?.campus) ??
+        null
+
+      if (fallbackCampusId) {
+        setCurrentUserCampusId(Number(fallbackCampusId))
+        setFormData((prev: any) => ({
+          ...prev,
+          current_campus: String(fallbackCampusId),
+        }))
+      }
+    } catch {
+      // ignore – form will ask user to pick campus if we can't infer it
+    }
+  })
 
   const handleInputChange = (field: string, value: any) => {
     setFormData((prev: any) => ({ ...prev, [field]: value }))

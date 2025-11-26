@@ -29,10 +29,20 @@ class StudentViewSet(viewsets.ModelViewSet):
         # Note: We don't filter by is_active here to match attendance behavior - all non-deleted students should appear
         queryset = Student.objects.all().filter(is_deleted=False).select_related('campus', 'classroom')
         
-        # Apply role-based filtering for list views and stats actions
-        if self.action in ['list', 'gender_stats', 'campus_stats', 'grade_distribution', 
-                          'enrollment_trend', 'mother_tongue_distribution', 
-                          'religion_distribution', 'total']:
+        # Apply role-based filtering for list views and ALL dashboard stats actions
+        if self.action in [
+            'list',
+            'gender_stats',
+            'campus_stats',
+            'grade_distribution',
+            'enrollment_trend',
+            'mother_tongue_distribution',
+            'religion_distribution',
+            'age_distribution',
+            'zakat_status',
+            'house_ownership',
+            'total',
+        ]:
             user = self.request.user
             
             # Superadmin gets ALL students for both list and stats
@@ -296,30 +306,29 @@ class StudentViewSet(viewsets.ModelViewSet):
         
         return Response(data)
     
-    @action(detail=False, methods=["get"])
+    @action(detail=False, methods=["get"], url_path='enrollment_trend')
     def enrollment_trend(self, request):
-        """Get enrollment trend by year"""
+        """
+        Get enrollment trend by year.
+
+        Uses filter_queryset(self.get_queryset()) so that:
+        - Role-based scoping from get_queryset is applied (principal, teacher, coordinator, etc.)
+        - Query params (campus, enrollment_year, gender, shift, etc.) from StudentFilter
+          are respected – this is critical for the superadmin dashboard campus filter.
+        """
         from django.db.models import Count
-        
-        user_campus = request.user.campus
-        
-        # Base queryset
-        if request.user.is_principal() and user_campus:
-            students_qs = Student.objects.filter(campus=user_campus)
-        else:
-            students_qs = Student.objects.all()
-        
-        # Group by enrollment year
-        trend_data = students_qs.values('enrollment_year').annotate(
+
+        queryset = self.filter_queryset(self.get_queryset())
+
+        trend_data = queryset.values('enrollment_year').annotate(
             count=Count('id')
         ).order_by('enrollment_year')
-        
-        # Format response for Recharts (year as string for X-axis)
+
         data = [
             {"year": str(item['enrollment_year'] or 2025), "count": item['count']}
             for item in trend_data
         ]
-        
+
         return Response(data)
     
     @action(detail=False, methods=["get"])
@@ -427,21 +436,96 @@ class StudentViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='grade_distribution')
     def grade_distribution(self, request):
-        """Get grade-wise student distribution"""
+        """
+        Get grade-wise student distribution with NORMALIZED grade labels.
+
+        Problems we solve here:
+        - Raw data can contain mixed formats like "Grade 1", "Grade I", "Grade-1",
+          "KG-1", "KG-I", "KG1", etc.
+        - Dashboard filters should show clean, canonical labels:
+          "Nursery", "KG-I", "KG-II", "Grade 1" .. "Grade 10", "Special Class".
+
+        We aggregate counts by a normalized label so that:
+        - Filters look clean
+        - Selecting "Grade 1" in the frontend still works (StudentFilter.current_grade
+          already accepts both roman and numeric variations).
+        """
         queryset = self.filter_queryset(self.get_queryset())
-        
-        grade_data = queryset.values('current_grade').annotate(
+
+        grade_rows = queryset.values('current_grade').annotate(
             count=Count('id')
         ).order_by('current_grade')
-        
-        data = []
-        for item in grade_data:
-            grade = item['current_grade'] or 'Unknown Grade'
-            data.append({
-                'grade': grade,
-                'count': item['count']
-            })
-        
+
+        def normalize_grade_label(raw: str) -> str:
+            if not raw:
+                return "Unknown Grade"
+
+            value = (raw or "").strip()
+            lower = value.lower()
+
+            # Direct mappings for pre-primary / special
+            if 'nursery' in lower:
+                return 'Nursery'
+            if 'special' in lower:
+                return 'Special Class'
+
+            # Roman ↔ number helpers
+            roman_to_num = {
+                'i': '1', 'ii': '2', 'iii': '3', 'iv': '4', 'v': '5',
+                'vi': '6', 'vii': '7', 'viii': '8', 'ix': '9', 'x': '10',
+            }
+            num_to_roman = {v: k.upper() for k, v in roman_to_num.items()}
+
+            import re
+
+            # KG grades
+            if 'kg' in lower:
+                match = re.search(r'kg[-_\s]?([ivx\d]+)', lower)
+                if match:
+                    token = match.group(1)
+                    # token can be roman or number
+                    if token in roman_to_num:
+                        num = roman_to_num[token]
+                    else:
+                        num = token
+                    # Canonical: KG-I, KG-II
+                    if num in num_to_roman:
+                        roman = num_to_roman[num]
+                        return f"KG-{roman}"
+                    return f"KG-{num}"
+                return "KG-I"
+
+            # Regular grades
+            if 'grade' in lower:
+                match = re.search(r'grade[-_\s]*([ivx\d]+)', lower)
+                if match:
+                    token = match.group(1)
+                    if token in roman_to_num:
+                        num = roman_to_num[token]
+                    else:
+                        num = token
+                    # Canonical: Grade 1 .. Grade 10
+                    return f"Grade {num}"
+                # Fallback: just "Grade"
+                return "Grade"
+
+            # Fallback: keep original capitalization but trim
+            return value
+
+        # Aggregate counts per normalized label
+        aggregated: dict[str, int] = {}
+        for row in grade_rows:
+            raw_grade = row['current_grade']
+            count = row['count'] or 0
+            label = normalize_grade_label(raw_grade)
+            aggregated[label] = aggregated.get(label, 0) + count
+
+        # Build response sorted by label (simple, readable order)
+        data = [
+            {"grade": label, "count": count}
+            for label, count in sorted(aggregated.items(), key=lambda x: x[0])
+        ]
+
         return Response(data)
     
     
