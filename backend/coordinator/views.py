@@ -320,19 +320,34 @@ class CoordinatorViewSet(viewsets.ModelViewSet):
                 )
         
         subject_distribution = {}
+        teachers_with_subjects = 0
+        
         for teacher in teachers:
             if teacher.current_subjects:
                 # Split subjects by comma and clean them
                 subjects = [s.strip() for s in teacher.current_subjects.split(',') if s.strip()]
+                if subjects:
+                    teachers_with_subjects += 1
                 for subject in subjects:
                     subject_distribution[subject] = subject_distribution.get(subject, 0) + 1
         
-        # Convert to list format for frontend
+        # Calculate total teachers for percentage calculation
+        total_teachers_for_subjects = teachers_count if teachers_count > 0 else len(teachers)
+        
+        # Add "none" category for teachers without subjects
+        teachers_without_subjects = total_teachers_for_subjects - teachers_with_subjects
+        if teachers_without_subjects > 0:
+            subject_distribution['none'] = teachers_without_subjects
+        
+        # Convert to list format for frontend with percentage
         subject_data = []
         for subject, count in subject_distribution.items():
+            # Calculate percentage based on total teachers
+            percentage = (count / total_teachers_for_subjects * 100) if total_teachers_for_subjects > 0 else 0
             subject_data.append({
                 'name': subject,
                 'value': count,
+                'percentage': round(percentage, 1),  # Round to 1 decimal place
                 'color': f'#{hash(subject) % 0xFFFFFF:06x}'  # Generate color based on subject name
             })
         

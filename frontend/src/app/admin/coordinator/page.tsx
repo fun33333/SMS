@@ -39,7 +39,7 @@ import { getCurrentUserRole, getCurrentUser } from "@/lib/permissions"
 import { ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell } from "recharts"
 import type { PieLabelRenderProps } from "recharts"
 
-type SubjectSlice = { name: string; value: number; color?: string }
+type SubjectSlice = { name: string; value: number; percentage?: number; color?: string }
 
 interface ClassroomData {
   id: number
@@ -281,7 +281,8 @@ function renderSubjectLabel({
   midAngle,
   outerRadius,
   name,
-  value
+  value,
+  payload
 }: PieLabelRenderProps) {
   const numericCx = typeof cx === "number" ? cx : Number(cx) || 0
   const numericCy = typeof cy === "number" ? cy : Number(cy) || 0
@@ -290,6 +291,10 @@ function renderSubjectLabel({
   const numericMidAngle = typeof midAngle === "number" ? midAngle : Number(midAngle) || 0
   const numericValue = typeof value === "number" ? value : Number(value) || 0
   const label = typeof name === "string" ? name : String(name)
+  
+  // Get percentage from payload if available
+  const percentage = (payload as any)?.percentage
+  const percentageText = percentage !== undefined ? `${percentage}%` : ""
 
   const radius = numericOuterRadius + 18
   const x = numericCx + radius * Math.cos(-numericMidAngle * RADIAN)
@@ -304,7 +309,7 @@ function renderSubjectLabel({
       dominantBaseline="central"
       fontSize={12}
     >
-      {`${label} (${numericValue})`}
+      {percentageText ? `${label} - ${percentageText}` : `${label}`}
     </text>
   )
 }
@@ -678,29 +683,94 @@ export default function CoordinatorPage() {
   const filteredSubjectData = useMemo(() => {
     if (!filteredTeachers.length) return []
     const counts: Record<string, number> = {}
+    let teachersWithSubjects = 0
+    
     filteredTeachers.forEach((teacher: any) => {
-      if (!teacher.current_subjects) return
-      const subjects = teacher.current_subjects
-        .split(",")
-        .map((subject: string) => subject.trim())
-        .filter(Boolean)
-      subjects.forEach((subject: string) => {
-        counts[subject] = (counts[subject] || 0) + 1
-      })
+      if (teacher.current_subjects) {
+        const subjects = teacher.current_subjects
+          .split(",")
+          .map((subject: string) => subject.trim())
+          .filter(Boolean)
+        if (subjects.length > 0) {
+          teachersWithSubjects += 1
+          subjects.forEach((subject: string) => {
+            counts[subject] = (counts[subject] || 0) + 1
+          })
+        }
+      }
     })
-    return Object.entries(counts).map(([name, value]) => ({ name, value }))
-  }, [filteredTeachers])
+    
+    // Add "none" category for teachers without subjects
+    const teachersWithoutSubjects = filteredTeachers.length - teachersWithSubjects
+    if (teachersWithoutSubjects > 0) {
+      counts['none'] = teachersWithoutSubjects
+    }
+    
+    // Calculate percentage for each subject based on total teachers (not filtered)
+    // Use coreStats.total_teachers for consistent percentage calculation
+    const totalTeachers = coreStats.total_teachers || filteredTeachers.length
+    
+    // First calculate raw percentages
+    const rawData = Object.entries(counts).map(([name, value]) => ({
+      name,
+      value,
+      rawPercentage: totalTeachers > 0 ? (value / totalTeachers) * 100 : 0
+    }))
+    
+    // Calculate sum of all raw percentages
+    const sumOfPercentages = rawData.reduce((sum, item) => sum + item.rawPercentage, 0)
+    
+    // Normalize percentages so they sum to 100%
+    return rawData.map((item) => ({
+      name: item.name,
+      value: item.value,
+      percentage: sumOfPercentages > 0
+        ? Math.round((item.rawPercentage / sumOfPercentages) * 100 * 10) / 10
+        : 0
+    }))
+  }, [filteredTeachers, coreStats.total_teachers])
 
   const subjectChartData = useMemo(() => {
     const source =
       filtersActive || filteredSubjectData.length
         ? filteredSubjectData
         : subjectData
-    return source.map((slice, index) => ({
-      ...slice,
-      color: SUBJECT_COLORS[index % SUBJECT_COLORS.length]
-    }))
-  }, [filteredSubjectData, subjectData, filtersActive])
+    
+    if (source.length === 0) return []
+    
+    // Recalculate percentage based on real total_teachers for accuracy
+    const totalTeachers = coreStats.total_teachers || 0
+    
+    // First, calculate raw percentages
+    const dataWithRawPercentages = source.map((slice) => {
+      const rawPercentage = totalTeachers > 0 
+        ? (slice.value / totalTeachers) * 100
+        : (slice.percentage || 0)
+      
+      return {
+        ...slice,
+        rawPercentage
+      }
+    })
+    
+    // Calculate sum of all raw percentages
+    const sumOfPercentages = dataWithRawPercentages.reduce((sum, item) => sum + item.rawPercentage, 0)
+    
+    // Normalize percentages so they sum to 100%
+    const normalizedData = dataWithRawPercentages.map((item, index) => {
+      const normalizedPercentage = sumOfPercentages > 0
+        ? Math.round((item.rawPercentage / sumOfPercentages) * 100 * 10) / 10
+        : 0
+      
+      return {
+        ...item,
+        percentage: normalizedPercentage,
+        color: SUBJECT_COLORS[index % SUBJECT_COLORS.length]
+      }
+    })
+    
+    return normalizedData
+  }, [filteredSubjectData, subjectData, filtersActive, coreStats.total_teachers])
 
   const filteredLevelSummaries = useMemo(() => {
     if (!effectiveLevelIds.length) return Object.values(levelSummaries)
@@ -1322,6 +1392,9 @@ export default function CoordinatorPage() {
               <PieChart className="h-5 w-5" />
               Teacher Distribution by Subject
             </CardTitle>
+            <p className="text-sm text-gray-500 mt-1">
+              Total Teachers: {coreStats.total_teachers}
+            </p>
           </CardHeader>
           <CardContent className="h-80 flex items-center justify-center">
             {subjectChartData.length ? (

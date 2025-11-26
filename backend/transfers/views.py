@@ -49,6 +49,15 @@ from classes.models import ClassRoom
 from coordinator.models import Coordinator
 
 
+def get_user_role_name(user):
+    """Helper function to get user role display name and full name"""
+    if not user:
+        return "Unknown User"
+    role_display = user.get_role_display() if hasattr(user, 'get_role_display') else (user.role or 'User')
+    full_name = user.get_full_name() if hasattr(user, 'get_full_name') else (user.username or 'Unknown')
+    return f"{role_display} {full_name}"
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_transfer_request(request):
@@ -1230,7 +1239,8 @@ def approve_shift_transfer_own_coord(request, transfer_id):
                     ).first()
 
                 if teacher_user:
-                    verb = "Your shift transfer request has been approved by your coordinator"
+                    approver_role_name = get_user_role_name(user)
+                    verb = f"Your shift transfer request has been approved by {approver_role_name}"
                     target_text = (
                         f"{student_name}: {from_shift_display} → {to_shift_display}"
                     )
@@ -2460,7 +2470,14 @@ def approve_shift_transfer_other_coord(request, transfer_id):
 
             student = shift_transfer.student
             student_name = student.name
-            coordinator_name = coordinator.full_name if hasattr(coordinator, 'full_name') else (coordinator.name if hasattr(coordinator, 'name') else 'Coordinator')
+            # Get coordinator user to get role
+            coordinator_user_obj = getattr(coordinator, 'user', None)
+            if not coordinator_user_obj and hasattr(coordinator, 'employee_code') and coordinator.employee_code:
+                coordinator_user_obj = UserModel.objects.filter(username=coordinator.employee_code).first()
+            if not coordinator_user_obj and hasattr(coordinator, 'email') and coordinator.email:
+                coordinator_user_obj = UserModel.objects.filter(email__iexact=coordinator.email).first()
+            
+            coordinator_name = get_user_role_name(coordinator_user_obj) if coordinator_user_obj else (coordinator.full_name if hasattr(coordinator, 'full_name') else (coordinator.name if hasattr(coordinator, 'name') else 'Coordinator'))
 
             # Notify coordinator (who approved the transfer)
             coordinator_user = getattr(coordinator, 'user', None)
@@ -3294,7 +3311,8 @@ def approve_grade_skip_own_coord(request, transfer_id):
                         teacher_user = UserModel.objects.filter(email__iexact=teacher.email).first()
 
                     if teacher_user:
-                        verb = f"Your request of Grade skipping has been approved by {coordinator.full_name} now student can skip their grade"
+                        approver_role_name = get_user_role_name(user)
+                        verb = f"Your request of Grade skipping has been approved by {approver_role_name} now student can skip their grade"
                         target_text = f"{student_name}: {from_grade_display} → {to_grade_display}"
                         create_notification(
                             recipient=teacher_user,
@@ -3354,7 +3372,15 @@ def approve_grade_skip_own_coord(request, transfer_id):
 
                     if to_coord_user:
                         # First notification
-                        verb1 = f"{coordinator.full_name} has made a request for grade skipping of {student_name} in {grade_skip_transfer.to_classroom.grade.name if grade_skip_transfer.to_classroom else to_grade_display} {grade_skip_transfer.to_section or ''}"
+                        # Get coordinator user to get role
+                        coord_user = getattr(coordinator, 'user', None)
+                        if not coord_user and hasattr(coordinator, 'employee_code'):
+                            coord_user = UserModel.objects.filter(username=coordinator.employee_code).first()
+                        if not coord_user and hasattr(coordinator, 'email'):
+                            coord_user = UserModel.objects.filter(email__iexact=coordinator.email).first()
+                        
+                        coord_role_name = get_user_role_name(coord_user) if coord_user else coordinator.full_name
+                        verb1 = f"{coord_role_name} has made a request for grade skipping of {student_name} in {grade_skip_transfer.to_classroom.grade.name if grade_skip_transfer.to_classroom else to_grade_display} {grade_skip_transfer.to_section or ''}"
                         target_text1 = f"{student_name}: {from_grade_display} → {to_grade_display}"
                         create_notification(
                             recipient=to_coord_user,
@@ -3450,7 +3476,8 @@ def approve_grade_skip_other_coord(request, transfer_id):
                     teacher_user = UserModel.objects.filter(email__iexact=teacher.email).first()
 
                 if teacher_user:
-                    verb = f"Your request of Grade skipping has been approved by {coordinator.full_name} now student can skip their grade"
+                    approver_role_name = get_user_role_name(user)
+                    verb = f"Your request of Grade skipping has been approved by {approver_role_name} now student can skip their grade"
                     target_text = f"{student_name}: {from_grade_display} → {to_grade_display}"
                     create_notification(
                         recipient=teacher_user,
@@ -3474,7 +3501,8 @@ def approve_grade_skip_other_coord(request, transfer_id):
                     from_coord_user = UserModel.objects.filter(email__iexact=from_coord.email).first()
 
                 if from_coord_user:
-                    verb = f"Your request of Grade skipping has been approved by {coordinator.full_name} now student can skip their grade"
+                    approver_role_name = get_user_role_name(user)
+                    verb = f"Your request of Grade skipping has been approved by {approver_role_name} now student can skip their grade"
                     target_text = f"{student_name}: {from_grade_display} → {to_grade_display}"
                     create_notification(
                         recipient=from_coord_user,

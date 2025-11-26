@@ -490,8 +490,14 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
 
             <nav className="space-y-2 flex-1 overflow-y-auto hide-scrollbar pr-1">
               {menuItems.map((item) => {
-                const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
+                // More strict matching: 
+                // 1. Exact match always works
+                // 2. For items with subItems, check if pathname starts with href + "/"
+                // 3. For items without subItems (like Dashboard), only exact match
+                const isExactMatch = pathname === item.href
                 const hasSubItems = item.subItems.length > 0
+                const isSubRoute = hasSubItems && pathname.startsWith(item.href + "/")
+                const isActive = isExactMatch || isSubRoute
 
                 return (
                   <div key={item.key}>
