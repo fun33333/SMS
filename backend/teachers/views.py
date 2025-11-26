@@ -24,8 +24,12 @@ class TeacherViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Override to handle role-based filtering and optimize queries"""
         queryset = Teacher.objects.select_related(
-            'current_campus', 'assigned_classroom'
-        ).prefetch_related('assigned_coordinators').all()
+            'current_campus',
+            'assigned_classroom',
+        ).prefetch_related(
+            'assigned_coordinators',
+            'assigned_classrooms',
+        ).all()
         
         # Role-based filtering
         user = self.request.user
@@ -61,17 +65,68 @@ class TeacherViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Set actor before creating teacher"""
-        instance = serializer.save()
-        instance._actor = self.request.user
-        # Save again to trigger signals with actor
-        instance.save()
+        # Attach actor before first save so signals can see it
+        instance = serializer.instance
+        if instance is not None:
+          instance._actor = self.request.user
+        teacher = serializer.save()
+        # No second save needed; post_save will have access to _actor
+        return teacher
     
     def perform_update(self, serializer):
         """Set actor before updating teacher"""
-        instance = serializer.save()
-        instance._actor = self.request.user
-        # Save again to trigger signals with actor
-        instance.save()
+        instance = serializer.instance
+        user = self.request.user
+        if instance is not None:
+            instance._actor = user
+            changed_fields = []
+            try:
+                # Fields we care about for "profile updated" notifications
+                monitored = [
+                    # Personal info
+                    'full_name',
+                    'dob',
+                    'gender',
+                    'contact_number',
+                    'email',
+                    'permanent_address',
+                    'current_address',
+                    'marital_status',
+                    'cnic',
+                    # Education
+                    'education_level',
+                    'institution_name',
+                    'year_of_passing',
+                    'education_subjects',
+                    'education_grade',
+                    # Experience
+                    'previous_institution_name',
+                    'previous_position',
+                    'experience_from_date',
+                    'experience_to_date',
+                    'total_experience_years',
+                    # Current role
+                    'joining_date',
+                    'current_role_title',
+                    'current_campus',
+                    'shift',
+                    'current_subjects',
+                    'current_classes_taught',
+                    'current_extra_responsibilities',
+                    'role_start_date',
+                    'is_currently_active',
+                ]
+                for field in monitored:
+                    if field in serializer.validated_data:
+                        old_val = getattr(instance, field, None)
+                        new_val = serializer.validated_data.get(field)
+                        if old_val != new_val:
+                            changed_fields.append(field)
+            except Exception:
+                changed_fields = []
+            instance._changed_fields = changed_fields
+        teacher = serializer.save()
+        return teacher
     
     def perform_destroy(self, instance):
         """Set actor before deleting teacher"""

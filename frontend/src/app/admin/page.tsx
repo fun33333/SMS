@@ -507,7 +507,12 @@ export default function MainDashboardPage() {
                 if (record.absent_count) absent += record.absent_count
               })
               
-              return { day: dayName, present, absent }
+                // Calculate total students in records (sum of all total_students from records)
+                const totalStudentsInRecords = dayRecords.reduce((sum: number, record: any) => {
+                  return sum + (record.total_students || 0)
+                }, 0)
+                
+                return { day: dayName, present, absent, totalStudentsInRecords }
             })
             // Filter out Sunday from the data
             const filteredWeekData = weekData.filter((item: any) => item.day !== 'Sun')
@@ -782,9 +787,37 @@ export default function MainDashboardPage() {
     const totalStudents = totalStudentsCount > 0 ? totalStudentsCount : filteredStudents.length
     const teachersVisible = filteredTeachersCount
     
-    // Calculate real attendance from weekly data (average of present students)
-    const averageAttendance = weeklyAttendanceData.length > 0 
-      ? Math.round(weeklyAttendanceData.reduce((sum, day) => sum + day.present, 0) / weeklyAttendanceData.length)
+    
+    const today = new Date()
+    const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    const todayDayName = daysOfWeek[today.getDay() === 0 ? 6 : today.getDay() - 1] // Convert Sunday=0 to Monday=1
+    
+    const todayData = weeklyAttendanceData.find((day: any) => day.day === todayDayName)
+    const averageAttendance = todayData 
+      ? (() => {
+          const present = todayData.present || 0
+          const absentFromRecords = todayData.absent || 0
+          const totalStudentsInRecords = todayData.totalStudentsInRecords || 0
+          
+          // Total students = actual total students count (from API)
+          const totalStudentsCount = totalStudents > 0 ? totalStudents : 0
+          
+          // Students without attendance records = Total - Students in records
+          const studentsWithoutRecords = totalStudentsCount > totalStudentsInRecords 
+            ? totalStudentsCount - totalStudentsInRecords 
+            : 0
+          
+          // Final absent = Absent from records + Students without records
+          const totalAbsent = absentFromRecords + studentsWithoutRecords
+          
+          // Total for calculation = Present + Total Absent
+          const totalForCalculation = present + totalAbsent
+          
+          if (totalForCalculation > 0) {
+            return Math.round((present / totalForCalculation) * 100)
+          }
+          return 0
+        })()
       : 0
     
     // Teacher:Student ratio based on actual student count
@@ -1059,16 +1092,18 @@ export default function MainDashboardPage() {
                   record.date === dateStr || record.date?.startsWith(dateStr)
                 )
                 
-                // Calculate present/absent from records
+                // Calculate present/absent from records and total students
                 let present = 0
                 let absent = 0
+                let totalStudentsInRecords = 0
                 
                 dayRecords.forEach((record: any) => {
                   if (record.present_count) present += record.present_count
                   if (record.absent_count) absent += record.absent_count
+                  if (record.total_students) totalStudentsInRecords += record.total_students
                 })
                 
-                return { day: dayName, present, absent }
+                return { day: dayName, present, absent, totalStudentsInRecords }
               })
               .filter((item: any) => item.day !== 'Sun') // Filter out Sunday
             
@@ -1448,8 +1483,8 @@ export default function MainDashboardPage() {
           />
           <KpiCard 
             title="Avg Attendance" 
-                value={`${metrics.averageAttendance}`} 
-            description="Daily average present students" 
+                value={`${metrics.averageAttendance}%`} 
+            description="Today's attendance percentage" 
             icon={Users} 
             bgColor="#adb5bd" 
             textColor="text-white" 

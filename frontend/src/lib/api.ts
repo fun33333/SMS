@@ -388,6 +388,11 @@ export interface DashboardStats {
   campusStats: Array<{ campus: string; count: number }>;
 }
 
+export interface CampusCountStat {
+  campus: string;
+  count: number;
+}
+
 export async function getDashboardStats(): Promise<DashboardStats> {
   try {
     const [totalRes, genderRes, campusRes] = await Promise.all([
@@ -419,6 +424,39 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       other: 0,
       campusStats: []
     };
+  }
+}
+
+// Simple helpers for campus-wise counts (students & teachers)
+export async function getStudentCampusStats(): Promise<CampusCountStat[]> {
+  try {
+    const data = await apiGet<CampusCountStat[]>(API_ENDPOINTS.STUDENTS_CAMPUS_STATS);
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('Failed to fetch student campus stats:', error);
+    return [];
+  }
+}
+
+export async function getTeacherCampusStats(): Promise<CampusCountStat[]> {
+  try {
+    const url = `${API_ENDPOINTS.TEACHERS}campus_stats/`;
+    const data = await apiGet<CampusCountStat[]>(url);
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('Failed to fetch teacher campus stats:', error);
+    return [];
+  }
+}
+
+export async function getClassroomCampusStats(): Promise<CampusCountStat[]> {
+  try {
+    const url = `${API_ENDPOINTS.CLASSROOMS}campus_stats/`;
+    const data = await apiGet<CampusCountStat[]>(url);
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('Failed to fetch classroom campus stats:', error);
+    return [];
   }
 }
 
@@ -901,6 +939,39 @@ export async function getCoordinatorGeneralStats(coordinatorId: number) {
   } catch (error) {
     console.error('Failed to fetch coordinator dashboard stats:', error);
     return { stats: { total_teachers: 0, total_students: 0, total_classes: 0, pending_requests: 0 } };
+  }
+}
+
+// Get classrooms for a coordinator by ID (for principal view)
+export async function getCoordinatorClassrooms(coordinatorId: number) {
+  try {
+    const baseUrl = getApiBaseUrl();
+    const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+    const url = `${cleanBaseUrl}/api/coordinators/${coordinatorId}/classrooms/`;
+    console.log('Fetching classrooms from:', url);
+    
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('sis_access_token')}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.warn(`Classrooms endpoint not found (404) for coordinator ${coordinatorId}. Make sure backend server is running and endpoint is registered.`);
+      } else {
+        console.error(`Failed to fetch classrooms: ${response.status} ${response.statusText}`);
+      }
+      // Return empty array if endpoint doesn't exist or error occurs
+      return [];
+    }
+    
+    const data = await response.json();
+    return Array.isArray(data) ? data : (data.classrooms || []);
+  } catch (error) {
+    console.error('Failed to fetch coordinator classrooms:', error);
+    return [];
   }
 }
 
@@ -2001,6 +2072,7 @@ export async function getRealtimeMetrics() {
 export interface TransferRequest {
   id: number;
   request_type: 'student' | 'teacher';
+  transfer_category?: string | null;
   status: 'draft' | 'pending' | 'approved' | 'declined' | 'cancelled';
   entity_name: string;
   current_id: string;
@@ -2063,6 +2135,76 @@ export interface IDPreview {
   };
 }
 
+// Class/Section Transfer
+export interface ClassTransfer {
+  id: number;
+  student: number;
+  student_name: string;
+  student_id: string;
+  from_classroom: number | null;
+  from_classroom_display?: string | null;
+  to_classroom: number | null;
+  to_classroom_display?: string | null;
+  from_section?: string | null;
+  to_section?: string | null;
+  from_grade_name?: string | null;
+  to_grade_name?: string | null;
+  initiated_by_teacher: number | null;
+  initiated_by_teacher_name?: string | null;
+  coordinator: number | null;
+  coordinator_name?: string | null;
+  principal: number | null;
+  principal_name?: string | null;
+  status: 'pending' | 'approved' | 'declined' | 'cancelled';
+  reason: string;
+  requested_date: string;
+  decline_reason?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Shift Transfer
+export interface ShiftTransfer {
+  id: number;
+  student: number;
+  student_name: string;
+  student_id: string;
+  campus: number;
+  campus_name: string;
+  from_shift: 'morning' | 'afternoon';
+  to_shift: 'morning' | 'afternoon';
+  from_classroom: number | null;
+  from_classroom_display?: string | null;
+  to_classroom: number | null;
+  to_classroom_display?: string | null;
+  requesting_teacher: number | null;
+  requesting_teacher_name?: string | null;
+  from_shift_coordinator: number | null;
+  from_shift_coordinator_name?: string | null;
+  to_shift_coordinator: number | null;
+  to_shift_coordinator_name?: string | null;
+  principal: number | null;
+  principal_name?: string | null;
+  transfer_request: number | null;
+  status: 'pending_own_coord' | 'pending_other_coord' | 'approved' | 'declined' | 'cancelled';
+  reason: string;
+  requested_date: string;
+  decline_reason?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AvailableClassroomOption {
+  id: number;
+  label: string;
+  grade_name: string;
+  grade_id?: number;  // Actual grade ID (may differ from requested grade ID if alternative grade was used)
+  section: string;
+  shift: string;
+  class_teacher_name?: string | null;
+  coordinator_name?: string | null;
+}
+
 // Transfer Request APIs
 export async function createTransferRequest(data: {
   request_type: 'student' | 'teacher';
@@ -2076,6 +2218,7 @@ export async function createTransferRequest(data: {
   requested_date: string;
   notes?: string;
   transfer_type?: 'campus' | 'shift';
+  transfer_category?: string;
 }) {
   try {
     return await apiPost('/api/transfers/request/', data);
@@ -2173,6 +2316,299 @@ export async function previewIDChange(data: {
     return await apiPost('/api/transfers/preview-id-change/', data);
   } catch (error) {
     console.error('Failed to preview ID change:', error);
+    throw error;
+  }
+}
+
+// Class Transfer APIs
+export async function createClassTransfer(data: {
+  student: number;
+  to_classroom: number;
+  reason: string;
+  requested_date: string;
+}) {
+  try {
+    return await apiPost('/api/transfers/class/request/', data);
+  } catch (error) {
+    console.error('Failed to create class transfer:', error);
+    throw error;
+  }
+}
+
+export async function getClassTransfers(params?: { status?: string }) {
+  try {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.append('status', params.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return await apiGet<ClassTransfer[]>(`/api/transfers/class/list/${suffix}`);
+  } catch (error) {
+    console.error('Failed to fetch class transfers:', error);
+    return [];
+  }
+}
+
+export async function approveClassTransfer(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/class/${transferId}/approve/`, {});
+  } catch (error) {
+    console.error('Failed to approve class transfer:', error);
+    throw error;
+  }
+}
+
+export async function declineClassTransfer(transferId: number, reason: string) {
+  try {
+    return await apiPost(`/api/transfers/class/${transferId}/decline/`, { reason });
+  } catch (error) {
+    console.error('Failed to decline class transfer:', error);
+    throw error;
+  }
+}
+
+export async function getAvailableClassSections(studentId: number) {
+  try {
+    const url = `/api/transfers/available-class-sections/?student=${studentId}`;
+    return await apiGet<AvailableClassroomOption[]>(url);
+  } catch (error) {
+    console.error('Failed to fetch available class sections:', error);
+    return [];
+  }
+}
+
+// Shift Transfer APIs
+export async function createShiftTransfer(data: {
+  student: number;
+  to_shift: 'morning' | 'afternoon';
+  to_classroom?: number;
+  reason: string;
+  requested_date: string;
+}) {
+  try {
+    return await apiPost('/api/transfers/shift/request/', data);
+  } catch (error) {
+    console.error('Failed to create shift transfer:', error);
+    throw error;
+  }
+}
+
+export async function getShiftTransfers(params?: { status?: string }) {
+  try {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.append('status', params.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return await apiGet<ShiftTransfer[]>(`/api/transfers/shift/list/${suffix}`);
+  } catch (error) {
+    console.error('Failed to fetch shift transfers:', error);
+    return [];
+  }
+}
+
+export async function approveShiftTransferOwn(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/shift/${transferId}/approve-own/`, {});
+  } catch (error) {
+    console.error('Failed to approve shift transfer (own coordinator):', error);
+    throw error;
+  }
+}
+
+export async function approveShiftTransferOther(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/shift/${transferId}/approve-other/`, {});
+  } catch (error) {
+    console.error('Failed to approve shift transfer (other coordinator):', error);
+    throw error;
+  }
+}
+
+export async function declineShiftTransfer(transferId: number, reason: string) {
+  try {
+    return await apiPost(`/api/transfers/shift/${transferId}/decline/`, { reason });
+  } catch (error) {
+    console.error('Failed to decline shift transfer:', error);
+    throw error;
+  }
+}
+
+export async function getAvailableShiftSections(studentId: number, toShift: 'morning' | 'afternoon') {
+  try {
+    const qs = new URLSearchParams();
+    qs.append('student', studentId.toString());
+    qs.append('to_shift', toShift);
+    const url = `/api/transfers/available-shift-sections/?${qs.toString()}`;
+    return await apiGet<AvailableClassroomOption[]>(url);
+  } catch (error) {
+    console.error('Failed to fetch available shift sections:', error);
+    return [];
+  }
+}
+
+// Grade Skip Transfer APIs
+export interface GradeSkipTransfer {
+  id: number;
+  student: number;
+  student_name: string;
+  student_id: string;
+  campus: number;
+  campus_name: string;
+  from_grade: number;
+  from_grade_name: string;
+  to_grade: number;
+  to_grade_name: string;
+  from_classroom: number | null;
+  from_classroom_display: string | null;
+  to_classroom: number | null;
+  to_classroom_display: string | null;
+  from_section: string | null;
+  to_section: string | null;
+  from_shift: string;
+  to_shift: string | null;
+  initiated_by_teacher: number | null;
+  initiated_by_teacher_name: string | null;
+  from_grade_coordinator: number | null;
+  from_grade_coordinator_name: string | null;
+  to_grade_coordinator: number | null;
+  to_grade_coordinator_name: string | null;
+  principal: number | null;
+  principal_name: string | null;
+  transfer_request: number | null;
+  status: 'pending_own_coord' | 'pending_other_coord' | 'approved' | 'declined' | 'cancelled';
+  reason: string;
+  requested_date: string;
+  decline_reason: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AvailableGradeForSkip {
+  id: number;
+  name: string;
+  level_name: string | null;
+  campus_name: string | null;
+}
+
+export async function getAvailableGradesForSkip(studentId: number) {
+  try {
+    const url = `/api/transfers/grade-skip/available-grades/?student_id=${studentId}`;
+    return await apiGet<AvailableGradeForSkip>(url);
+  } catch (error) {
+    console.error('Failed to fetch available grades for skip:', error);
+    throw error;
+  }
+}
+
+// Delete Logs API
+export interface DeleteLogResponse {
+  results: Array<{
+    id: number;
+    feature: string;
+    feature_display: string;
+    action: string;
+    action_display: string;
+    entity_type: string;
+    entity_id: number;
+    entity_name: string;
+    user: number | null;
+    user_name: string;
+    user_role: string | null;
+    timestamp: string;
+    ip_address: string | null;
+    changes: Record<string, any>;
+    reason: string;
+  }>;
+  count: number;
+  total: number;
+}
+
+export async function getDeleteLogs(feature?: string, limit?: number): Promise<DeleteLogResponse> {
+  try {
+    const qs = new URLSearchParams();
+    if (feature) {
+      qs.append('feature', feature);
+    }
+    if (limit) {
+      qs.append('limit', limit.toString());
+    }
+    const url = `/api/attendance/delete-logs/${qs.toString() ? `?${qs.toString()}` : ''}`;
+    return await apiGet<DeleteLogResponse>(url);
+  } catch (error) {
+    console.error('Failed to fetch delete logs:', error);
+    throw error;
+  }
+}
+
+export async function getAvailableSectionsForGradeSkip(
+  studentId: number,
+  toGradeId: number,
+  toShift?: 'morning' | 'afternoon'
+) {
+  try {
+    const qs = new URLSearchParams();
+    qs.append('student_id', studentId.toString());
+    qs.append('to_grade_id', toGradeId.toString());
+    if (toShift) {
+      qs.append('to_shift', toShift);
+    }
+    const url = `/api/transfers/grade-skip/available-sections/?${qs.toString()}`;
+    const result = await apiGet<AvailableClassroomOption[]>(url);
+    return result;
+  } catch (error) {
+    console.error('Failed to fetch available sections for grade skip:', error);
+    return [];
+  }
+}
+
+export async function createGradeSkipTransfer(data: {
+  student: number;
+  to_grade: number;
+  to_classroom?: number;
+  to_shift?: 'morning' | 'afternoon';
+  reason: string;
+  requested_date: string;
+}) {
+  try {
+    return await apiPost('/api/transfers/grade-skip/create/', data);
+  } catch (error) {
+    console.error('Failed to create grade skip transfer:', error);
+    throw error;
+  }
+}
+
+export async function getGradeSkipTransfers(params?: { status?: string }) {
+  try {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.append('status', params.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return await apiGet<GradeSkipTransfer[]>(`/api/transfers/grade-skip/list/${suffix}`);
+  } catch (error) {
+    console.error('Failed to fetch grade skip transfers:', error);
+    return [];
+  }
+}
+
+export async function approveGradeSkipOwnCoord(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/grade-skip/${transferId}/approve-own/`, {});
+  } catch (error) {
+    console.error('Failed to approve grade skip transfer (own coordinator):', error);
+    throw error;
+  }
+}
+
+export async function approveGradeSkipOtherCoord(transferId: number) {
+  try {
+    return await apiPost(`/api/transfers/grade-skip/${transferId}/approve-other/`, {});
+  } catch (error) {
+    console.error('Failed to approve grade skip transfer (other coordinator):', error);
+    throw error;
+  }
+}
+
+export async function declineGradeSkip(transferId: number, reason: string) {
+  try {
+    return await apiPost(`/api/transfers/grade-skip/${transferId}/decline/`, { reason });
+  } catch (error) {
+    console.error('Failed to decline grade skip transfer:', error);
     throw error;
   }
 }

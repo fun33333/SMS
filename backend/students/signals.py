@@ -18,8 +18,9 @@ def notify_student_operations(sender, instance, created, **kwargs):
     Send notifications for student create/update operations
     """
     try:
-        # Get actor from instance (set by viewset before save)
+        # Get actor from instance (set by viewset or services before save)
         actor = getattr(instance, '_actor', None)
+        skip_notifications = getattr(instance, '_skip_notifications', False)
         
         if created:
             # New student created - notify teacher and coordinator
@@ -63,53 +64,50 @@ def notify_student_operations(sender, instance, created, **kwargs):
             # Student updated - notify teacher and coordinator
             verb = f"Student {instance.name}'s profile has been updated"
             target_text = f"by {actor.get_full_name() if actor and hasattr(actor, 'get_full_name') else (str(actor) if actor else 'System')}"
-            
-            # Notify class teacher
-            if instance.classroom and instance.classroom.class_teacher:
-                teacher = instance.classroom.class_teacher
-                if teacher.user:
-                    create_notification(
-                        recipient=teacher.user,
-                        actor=actor,
-                        verb=verb,
-                        target_text=target_text,
-                        data={"student_id": instance.id, "student_name": instance.name}
-                    )
-                    logger.info(f"[OK] Sent update notification to teacher {teacher.full_name} for student {instance.name}")
-            
-            # Notify coordinator
-            if instance.classroom and instance.classroom.grade and instance.classroom.grade.level:
-                level = instance.classroom.grade.level
-                coordinators = Coordinator.objects.filter(
-                    Q(level=level) | Q(assigned_levels=level),
-                    is_currently_active=True
-                ).distinct()
+
+            if not skip_notifications:
+                # Notify class teacher
+                if instance.classroom and instance.classroom.class_teacher:
+                    teacher = instance.classroom.class_teacher
+                    if teacher.user:
+                        create_notification(
+                            recipient=teacher.user,
+                            actor=actor,
+                            verb=verb,
+                            target_text=target_text,
+                            data={"student_id": instance.id, "student_name": instance.name}
+                        )
+                        logger.info(f"[OK] Sent update notification to teacher {teacher.full_name} for student {instance.name}")
                 
-                for coordinator in coordinators:
-                    if coordinator.email:
-                        coordinator_user = User.objects.filter(email__iexact=coordinator.email).first()
-                        if coordinator_user:
-                            create_notification(
-                                recipient=coordinator_user,
-                                actor=actor,
-                                verb=verb,
-                                target_text=target_text,
-                                data={"student_id": instance.id, "student_name": instance.name}
-                            )
-                            logger.info(f"[OK] Sent update notification to coordinator {coordinator.full_name} for student {instance.name}")
+                # Notify coordinator
+                if instance.classroom and instance.classroom.grade and instance.classroom.grade.level:
+                    level = instance.classroom.grade.level
+                    coordinators = Coordinator.objects.filter(
+                        Q(level=level) | Q(assigned_levels=level),
+                        is_currently_active=True
+                    ).distinct()
+                    
+                    for coordinator in coordinators:
+                        if coordinator.email:
+                            coordinator_user = User.objects.filter(email__iexact=coordinator.email).first()
+                            if coordinator_user:
+                                create_notification(
+                                    recipient=coordinator_user,
+                                    actor=actor,
+                                    verb=verb,
+                                    target_text=target_text,
+                                    data={"student_id": instance.id, "student_name": instance.name}
+                                )
+                                logger.info(f"[OK] Sent update notification to coordinator {coordinator.full_name} for student {instance.name}")
     except Exception as e:
         logger.error(f"Error sending student notification: {str(e)}")
     
-    # Continue with existing assignment logic
     if created:
-        # New student - assign teacher and coordinator
         assign_student_to_teacher_and_coordinator(instance)
     else:
-        # Existing student - check if classroom changed
         if hasattr(instance, '_previous_classroom') and instance._previous_classroom != instance.classroom:
             logger.info(f"Student {instance.name} classroom changed from {instance._previous_classroom} to {instance.classroom}")
             
-            # Notify old classroom teacher (if exists)
             old_classroom = instance._previous_classroom
             if old_classroom and old_classroom.class_teacher:
                 old_teacher = old_classroom.class_teacher
@@ -125,7 +123,6 @@ def notify_student_operations(sender, instance, created, **kwargs):
                     )
                     logger.info(f"[OK] Sent classroom change notification to old teacher {old_teacher.full_name} for student {instance.name}")
             
-            # Notify new classroom teacher (if exists)
             new_classroom = instance.classroom
             if new_classroom and new_classroom.class_teacher:
                 new_teacher = new_classroom.class_teacher

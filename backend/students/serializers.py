@@ -16,12 +16,23 @@ class StudentSerializer(serializers.ModelSerializer):
     class_name = serializers.SerializerMethodField()
     class_teacher_name = serializers.SerializerMethodField()
     class_teacher_code = serializers.SerializerMethodField()
+    coordinator_name = serializers.SerializerMethodField()
     age = serializers.SerializerMethodField()
     
     class Meta:
         model = Student
         fields = '__all__'
-        extra_fields = ['campus_data', 'classroom_data', 'campus_name', 'classroom_name', 'class_name', 'class_teacher_name', 'class_teacher_code', 'age']
+        extra_fields = [
+            'campus_data',
+            'classroom_data',
+            'campus_name',
+            'classroom_name',
+            'class_name',
+            'class_teacher_name',
+            'class_teacher_code',
+            'coordinator_name',
+            'age',
+        ]
     
     def get_campus_name(self, obj):
         """Get campus name for display"""
@@ -40,15 +51,53 @@ class StudentSerializer(serializers.ModelSerializer):
         return None
     
     def get_class_teacher_name(self, obj):
-        """Get class teacher name"""
-        if obj.classroom and obj.classroom.class_teacher:
+        """Get class teacher name - checks both direct FK and M2M relationship"""
+        if not obj.classroom:
+            return None
+        
+        # First check direct FK relationship
+        if obj.classroom.class_teacher:
             return obj.classroom.class_teacher.full_name
+        
+        # Fallback: Check M2M relationship (for both shift teachers)
+        # class_teachers is the reverse relation from Teacher.assigned_classrooms
+        m2m_teachers = obj.classroom.class_teachers.all()
+        if m2m_teachers.exists():
+            # Return the first teacher found (should typically be one)
+            return m2m_teachers.first().full_name
+        
         return None
     
     def get_class_teacher_code(self, obj):
-        """Get class teacher employee code"""
-        if obj.classroom and obj.classroom.class_teacher:
+        """Get class teacher employee code - checks both direct FK and M2M relationship"""
+        if not obj.classroom:
+            return None
+        
+        # First check direct FK relationship
+        if obj.classroom.class_teacher:
             return obj.classroom.class_teacher.employee_code
+        
+        # Fallback: Check M2M relationship (for both shift teachers)
+        m2m_teachers = obj.classroom.class_teachers.all()
+        if m2m_teachers.exists():
+            return m2m_teachers.first().employee_code
+        
+        return None
+
+    def get_coordinator_name(self, obj):
+        """
+        Get coordinator name based on the student's classroom level.
+        This uses the Level.coordinator_name property so that the UI can
+        show the coordinator for the current class/grade.
+        """
+        try:
+            if obj.classroom and obj.classroom.grade and obj.classroom.grade.level:
+                level = obj.classroom.grade.level
+                # Level has a coordinator_name property that aggregates direct + M2M coordinators
+                return level.coordinator_name
+        except Exception:
+            # Fail silently – coordinator is purely display information
+            return None
         return None
     
     def get_age(self, obj):

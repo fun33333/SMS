@@ -1,9 +1,22 @@
-html, body, .hide-scrollbar {
+html, body, .hide-scrollbar, .scrollbar-hide {
   scrollbar-width: none !important; /* Firefox */
   -ms-overflow-style: none !important; /* IE 10+ */
 }
-html::-webkit-scrollbar, body::-webkit-scrollbar, .hide-scrollbar::-webkit-scrollbar {
+html::-webkit-scrollbar, body::-webkit-scrollbar, .hide-scrollbar::-webkit-scrollbar, .scrollbar-hide::-webkit-scrollbar {
   display: none !important; /* Chrome/Safari/Webkit */
+}
+
+@keyframes shine {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shine {
+  animation: shine 3s infinite;
 }
 
 @import "tailwindcss";

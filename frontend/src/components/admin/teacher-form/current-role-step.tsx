@@ -52,19 +52,19 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
       getAllCoordinators()
         .then((data: any) => {
           const coordinatorsList = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []
-          
+
           // Filter coordinators by campus first
           let campusCoordinators = coordinatorsList.filter((coord: any) => {
             // Try multiple ways to get campus ID
             const coordCampusId = coord.campus?.id || coord.campus?.pk || coord.campus_id || (typeof coord.campus === 'number' ? coord.campus : null)
             const formCampusId = typeof formData.current_campus === 'number' ? formData.current_campus : parseInt(formData.current_campus)
-            
+
             // Also check campus_name for matching (in case IDs don't match but it's the same campus)
             const coordCampusName = coord.campus?.campus_name || coord.campus_name || ''
-            
+
             // Match by ID first
             const idMatch = coordCampusId && String(coordCampusId) === String(formCampusId)
-            
+
             // Match by name if ID doesn't match (extract number from campus name like "Campus 6" -> 6)
             let nameMatch = false
             if (coordCampusName) {
@@ -74,41 +74,41 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
                 nameMatch = campusNumFromName === formCampusId
               }
             }
-            
+
             return idMatch || nameMatch
           })
-          
+
           // Filter coordinators by teacher's shift
           const teacherShift = (formData.shift || '').toString().toLowerCase()
           if (teacherShift && campusCoordinators.length > 0) {
             campusCoordinators = campusCoordinators.filter((coord: any) => {
               const coordShift = (coord.shift || '').toString().toLowerCase()
-              
+
               // If teacher shift is "both", show all coordinators
               if (teacherShift === 'both') {
                 return true // Show all coordinators (morning, afternoon, both)
               }
-              
+
               // If coordinator shift is "both", show for all teacher shifts
               if (coordShift === 'both') {
                 return true // Both shift coordinators show for morning, afternoon, and both teachers
               }
-              
+
               // If teacher shift is "morning", show morning coordinators and both coordinators
               if (teacherShift === 'morning') {
                 return coordShift === 'morning' || coordShift === 'both'
               }
-              
+
               // If teacher shift is "afternoon", show afternoon coordinators and both coordinators
               if (teacherShift === 'afternoon') {
                 return coordShift === 'afternoon' || coordShift === 'both'
               }
-              
+
               // Default: show if shifts match
               return coordShift === teacherShift
             })
           }
-          
+
           setCoordinators(campusCoordinators)
         })
         .catch(err => {
@@ -184,7 +184,7 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
         const sectionMatch = classroom.section === formData.class_teacher_section
         return gradeMatch && sectionMatch
       })
-      
+
       if (matchingClassroom && formData.assigned_classroom !== matchingClassroom.id) {
         // Prevent assigning if already occupied
         if (matchingClassroom.class_teacher) {
@@ -281,40 +281,40 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="md:col-span-2">
+          <div>
             <Label htmlFor="current_subjects">Current Subjects (Optional)</Label>
-            <Input 
-              id="current_subjects" 
-              value={formData.current_subjects || ""} 
+            <Input
+              id="current_subjects"
+              value={formData.current_subjects || ""}
               onChange={(e) => onInputChange("current_subjects", e.target.value)}
               placeholder="e.g., Mathematics, Physics, Chemistry"
             />
           </div>
-          
-          <div className="md:col-span-2">
+
+          <div>
             <Label htmlFor="current_classes_taught">Current Classes Taught (Optional)</Label>
-            <Input 
-              id="current_classes_taught" 
-              value={formData.current_classes_taught || ""} 
+            <Input
+              id="current_classes_taught"
+              value={formData.current_classes_taught || ""}
               onChange={(e) => onInputChange("current_classes_taught", e.target.value)}
               placeholder="e.g., Grade 6-8, Grade 9-10"
             />
           </div>
-          
-          <div className="md:col-span-2">
+
+          <div>
             <Label htmlFor="current_extra_responsibilities">Current Extra Responsibilities (Optional)</Label>
-            <Input 
-              id="current_extra_responsibilities" 
-              value={formData.current_extra_responsibilities || ""} 
+            <Input
+              id="current_extra_responsibilities"
+              value={formData.current_extra_responsibilities || ""}
               onChange={(e) => onInputChange("current_extra_responsibilities", e.target.value)}
               placeholder="e.g., Sports Coordinator, Library In-charge"
             />
           </div>
-        <div className="md:col-span-2">
+          <div>
             <Label htmlFor="current_role_title">Current Role(Optional)</Label>
-            <Input 
-              id="current_subjects" 
-              value={formData.current_role_title || ""} 
+            <Input
+              id="current_subjects"
+              value={formData.current_role_title || ""}
               onChange={(e) => onInputChange("current_role_title", e.target.value)}
               placeholder="e.g., Teacher, Subject-teacher"
             />
@@ -332,20 +332,20 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
             {invalidFields.includes("current_campus") && <p className="text-sm text-red-600 mt-1">Current campus is required</p>}
             <p className="text-xs text-gray-500 mt-1">Teachers can only be added to your assigned campus</p>
           </div>
-          
+
           <div>
             <Label htmlFor="joining_date">Joining Date *</Label>
-            <Input 
-              id="joining_date" 
-              type="date" 
-              value={formData.joining_date || ""} 
+            <Input
+              id="joining_date"
+              type="date"
+              value={formData.joining_date || ""}
               onChange={(e) => onInputChange("joining_date", e.target.value)}
               className={invalidFields.includes("joining_date") ? "border-red-500" : ""}
               max={new Date().toISOString().split('T')[0]}
             />
             {invalidFields.includes("joining_date") && <p className="text-sm text-red-600 mt-1">Joining date is required</p>}
           </div>
-          
+
           <div>
             <Label htmlFor="shift">Shift *</Label>
             <Select value={formData.shift || ""} onValueChange={(v) => onInputChange("shift", v)}>
@@ -360,10 +360,10 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
             </Select>
             {invalidFields.includes("shift") && <p className="text-sm text-red-600 mt-1">Shift is required</p>}
           </div>
-          
+
           <div>
             <Label htmlFor="is_currently_active">Is Currently Active</Label>
-            <Select value={String(Boolean(formData.is_currently_active))} onValueChange={(v) => onInputChange("is_currently_active", v === "true") }>
+            <Select value={String(Boolean(formData.is_currently_active))} onValueChange={(v) => onInputChange("is_currently_active", v === "true")}>
               <SelectTrigger className="mt-2 border-2 focus:border-primary">
                 <SelectValue placeholder="Select" />
               </SelectTrigger>
@@ -373,13 +373,13 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
               </SelectContent>
             </Select>
           </div>
-          
-          
-          
+
+
+
           <div>
             <Label htmlFor="is_class_teacher">Is Class Teacher</Label>
-            <Select 
-              value={String(Boolean(formData.is_class_teacher))} 
+            <Select
+              value={String(Boolean(formData.is_class_teacher))}
               onValueChange={(v) => onInputChange("is_class_teacher", v === "true")}
             >
               <SelectTrigger className="mt-2 border-2 focus:border-primary">
@@ -390,9 +390,8 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
                 <SelectItem value="false">No</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-sm text-gray-500 mt-1">Current value: {String(Boolean(formData.is_class_teacher))}</p>
           </div>
-          
+
           {formData.is_class_teacher && (
             <>
               {formData.shift === 'both' ? (
@@ -419,33 +418,33 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
                   </div>
                 </div>
               ) : (
-              <div>
+                <div>
                   <Label htmlFor="class_teacher_level">Class Teacher Level * </Label>
-                <Select 
-                  value={formData.class_teacher_level || ""} 
-                  onValueChange={(v) => {
-                    onInputChange("class_teacher_level", v)
-                    // Reset grade and section when level changes
-                    onInputChange("class_teacher_grade", "")
-                    onInputChange("class_teacher_section", "")
-                    onInputChange("assigned_classroom", "")
-                  }}
-                >
-                  <SelectTrigger className={`mt-2 border-2 focus:border-primary ${invalidFields.includes("class_teacher_level") ? "border-red-500" : ""}`}>
-                    <SelectValue placeholder={loadingLevels ? "Loading levels..." : "Select level"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {filteredLevels.map((level) => (
-                      <SelectItem key={level.id} value={level.id.toString()}>
-                        {level.name} - {level.shift_display || level.shift}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {invalidFields.includes("class_teacher_level") && <p className="text-sm text-red-600 mt-1">Class teacher level is required</p>}
-              </div>
+                  <Select
+                    value={formData.class_teacher_level || ""}
+                    onValueChange={(v) => {
+                      onInputChange("class_teacher_level", v)
+                      // Reset grade and section when level changes
+                      onInputChange("class_teacher_grade", "")
+                      onInputChange("class_teacher_section", "")
+                      onInputChange("assigned_classroom", "")
+                    }}
+                  >
+                    <SelectTrigger className={`mt-2 border-2 focus:border-primary ${invalidFields.includes("class_teacher_level") ? "border-red-500" : ""}`}>
+                      <SelectValue placeholder={loadingLevels ? "Loading levels..." : "Select level"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredLevels.map((level) => (
+                        <SelectItem key={level.id} value={level.id.toString()}>
+                          {level.name} - {level.shift_display || level.shift}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {invalidFields.includes("class_teacher_level") && <p className="text-sm text-red-600 mt-1">Class teacher level is required</p>}
+                </div>
               )}
-              
+
               {formData.shift === 'both' ? (
                 <div className="space-y-4">
                   {selectedLevels.map((levelId) => {
@@ -456,7 +455,7 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
                         <div className="font-medium text-sm mb-2">{levelObj?.name} • {(levelObj?.shift_display || levelObj?.shift)}</div>
                         <div>
                           <Label>Grade *</Label>
-                          <Select 
+                          <Select
                             value={levelGrades[String(levelId)] || ""}
                             onValueChange={(v) => handleLevelGradeChange(levelId, v)}
                           >
@@ -465,9 +464,9 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
                             </SelectTrigger>
                             <SelectContent>
                               {(levelGradesList as any[]).map((grade: any) => (
-                                  <SelectItem key={(grade.id||grade)} value={(grade.id||grade).toString()}>
-                                    {grade.name || grade.grade_name || grade.name_display || `Grade ${grade.id||grade}`}
-                                  </SelectItem>
+                                <SelectItem key={(grade.id || grade)} value={(grade.id || grade).toString()}>
+                                  {grade.name || grade.grade_name || grade.name_display || `Grade ${grade.id || grade}`}
+                                </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -475,7 +474,7 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
                         {levelGrades[String(levelId)] && (
                           <div className="mt-3">
                             <Label>Section *</Label>
-                            <Select 
+                            <Select
                               value={""}
                               onValueChange={(section) => handleAssignSectionForLevel(levelId, section)}
                               disabled={loadingClassrooms}
@@ -485,8 +484,8 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
                               </SelectTrigger>
                               <SelectContent>
                                 {(levelClassroomsMap[String(levelId)] || []).
-                                  filter((c:any)=> String(c.grade)===String(levelGrades[String(levelId)]) ).
-                                  map((classroom:any)=> (
+                                  filter((c: any) => String(c.grade) === String(levelGrades[String(levelId)])).
+                                  map((classroom: any) => (
                                     <SelectItem key={classroom.id} value={classroom.section}>
                                       {classroom.section}
                                     </SelectItem>
@@ -501,33 +500,33 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
                   })}
                 </div>
               ) : (
-              <div>
-                <Label htmlFor="class_teacher_grade">Class Teacher Grade *</Label>
-                <Select 
-                  value={formData.class_teacher_grade || ""} 
-                  onValueChange={(v) => {
-                    onInputChange("class_teacher_grade", v)
-                    // Reset section when grade changes
-                    onInputChange("class_teacher_section", "")
-                    onInputChange("assigned_classroom", "")
-                  }}
-                  disabled={!formData.class_teacher_level || loadingGrades}
-                >
-                  <SelectTrigger className={`mt-2 border-2 focus:border-primary ${invalidFields.includes("class_teacher_grade") ? "border-red-500" : ""}`}>
-                    <SelectValue placeholder={loadingGrades ? "Loading grades..." : "Select grade"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {grades.map((grade) => (
-                      <SelectItem key={grade.id} value={grade.id.toString()}>
-                        {grade.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {invalidFields.includes("class_teacher_grade") && <p className="text-sm text-red-600 mt-1">Class teacher grade is required</p>}
-              </div>
+                <div>
+                  <Label htmlFor="class_teacher_grade">Class Teacher Grade *</Label>
+                  <Select
+                    value={formData.class_teacher_grade || ""}
+                    onValueChange={(v) => {
+                      onInputChange("class_teacher_grade", v)
+                      // Reset section when grade changes
+                      onInputChange("class_teacher_section", "")
+                      onInputChange("assigned_classroom", "")
+                    }}
+                    disabled={!formData.class_teacher_level || loadingGrades}
+                  >
+                    <SelectTrigger className={`mt-2 border-2 focus:border-primary ${invalidFields.includes("class_teacher_grade") ? "border-red-500" : ""}`}>
+                      <SelectValue placeholder={loadingGrades ? "Loading grades..." : "Select grade"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {grades.map((grade) => (
+                        <SelectItem key={grade.id} value={grade.id.toString()}>
+                          {grade.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {invalidFields.includes("class_teacher_grade") && <p className="text-sm text-red-600 mt-1">Class teacher grade is required</p>}
+                </div>
               )}
-              
+
               {formData.shift === 'both' ? (
                 <div>
                   <Label htmlFor="assigned_classrooms">Class Teacher Classrooms *</Label>
@@ -559,8 +558,8 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
               ) : (
                 <div>
                   <Label htmlFor="class_teacher_section">Class Teacher Section *</Label>
-                  <Select 
-                    value={formData.class_teacher_section || ""} 
+                  <Select
+                    value={formData.class_teacher_section || ""}
                     onValueChange={(v) => {
                       onInputChange("class_teacher_section", v)
                       // Auto-assign classroom will be handled by useEffect
@@ -590,8 +589,8 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
           {!formData.is_class_teacher && (
             <div className="md:col-span-2">
               <Label htmlFor="assigned_coordinators">Assign Coordinators</Label>
-              <Select 
-                value="" 
+              <Select
+                value=""
                 onValueChange={(coordinatorId) => {
                   const currentCoordinators = Array.isArray(formData.assigned_coordinators) ? formData.assigned_coordinators : []
                   if (!currentCoordinators.includes(parseInt(coordinatorId))) {
@@ -607,8 +606,8 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
                   {coordinators.map((coordinator: any) => {
                     const isAlreadyAssigned = Array.isArray(formData.assigned_coordinators) && formData.assigned_coordinators.includes(coordinator.id)
                     return (
-                      <SelectItem 
-                        key={coordinator.id} 
+                      <SelectItem
+                        key={coordinator.id}
                         value={coordinator.id.toString()}
                         disabled={isAlreadyAssigned}
                       >
@@ -622,10 +621,10 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
                 </SelectContent>
               </Select>
               <p className="text-xs text-gray-500 mt-1">
-                {!formData.current_campus 
-                  ? "Please select a campus first" 
-                  : coordinators.length === 0 
-                    ? `No coordinators available for Campus ${formData.current_campus}. Make sure coordinators are assigned to this campus.` 
+                {!formData.current_campus
+                  ? "Please select a campus first"
+                  : coordinators.length === 0
+                    ? `No coordinators available for Campus ${formData.current_campus}. Make sure coordinators are assigned to this campus.`
                     : "Select coordinators to assign to this teacher"}
               </p>
               {coordinators.length === 0 && formData.current_campus && (
@@ -634,7 +633,7 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
                   <p>If you have coordinators but they're not showing, they might be assigned to a different campus. Check the coordinator list to update their campus assignment.</p>
                 </div>
               )}
-              
+
               {/* Display assigned coordinators */}
               {Array.isArray(formData.assigned_coordinators) && formData.assigned_coordinators.length > 0 && (
                 <div className="mt-3 space-y-2">
@@ -666,7 +665,6 @@ export function CurrentRoleStep({ formData, invalidFields, onInputChange }: Curr
               )}
             </div>
           )}
-          
         </div>
       </CardContent>
     </Card>

@@ -2,6 +2,7 @@
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
+from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from users.permissions import IsSuperAdminOrPrincipal, IsTeacherOrAbove
 from rest_framework.decorators import action
@@ -11,10 +12,17 @@ from .models import Student
 from .serializers import StudentSerializer
 from .filters import StudentFilter
 
+class StudentPagination(PageNumberPagination):
+    """Custom pagination for students - default 25 per page"""
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
 class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.all()
     serializer_class = StudentSerializer
     permission_classes = [IsAuthenticated, IsTeacherOrAbove]
+    pagination_class = StudentPagination
     
     # Filtering, search, and ordering
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -195,9 +203,40 @@ class StudentViewSet(viewsets.ModelViewSet):
         instance.save()
     
     def perform_destroy(self, instance):
-        """Set actor before deleting student"""
+        """Soft delete student and create audit log"""
         instance._actor = self.request.user
-        super().perform_destroy(instance)
+        
+        # Store student info before deletion for audit log
+        student_id = instance.id
+        student_name = instance.name
+        student_campus = instance.campus
+        
+        # Get user name for audit log
+        user = self.request.user
+        user_name = user.get_full_name() if hasattr(user, 'get_full_name') else (user.username or 'Unknown')
+        user_role = user.get_role_display() if hasattr(user, 'get_role_display') else (user.role or 'User')
+        
+        # Soft delete the student (instead of hard delete)
+        instance.soft_delete()
+        
+        # Create audit log after soft deletion
+        try:
+            from attendance.models import AuditLog
+            AuditLog.objects.create(
+                feature='student',
+                action='delete',
+                entity_type='Student',
+                entity_id=student_id,
+                user=user,
+                ip_address=self.request.META.get('REMOTE_ADDR'),
+                changes={'name': student_name, 'student_id': student_id, 'campus_id': student_campus.id if student_campus else None},
+                reason=f'Student {student_name} deleted by {user_role} {user_name}'
+            )
+        except Exception as e:
+            # Log error but don't fail the deletion
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to create audit log for student deletion: {str(e)}")
 
     @action(detail=False, methods=["get"])
     def total(self, request):

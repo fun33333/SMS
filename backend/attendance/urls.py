@@ -49,4 +49,7 @@ urlpatterns = [
     
     # Real-time metrics
     path('metrics/realtime/', views.get_realtime_attendance_metrics, name='realtime_metrics'),
+    
+    # Delete logs (audit trail)
+    path('delete-logs/', views.get_delete_logs, name='delete_logs'),
 ]

@@ -159,6 +159,9 @@ def notify_teacher_on_update(sender, instance, created, **kwargs):
     """Send notification to teacher when their profile is updated"""
     if not created:  # Only on updates, not creation
         try:
+            # Allow specific workflows to skip this generic notification
+            if getattr(instance, '_skip_profile_notification', False):
+                return
             # Get actor from instance (set by viewset before save)
             actor = getattr(instance, '_actor', None)
             
@@ -174,8 +177,57 @@ def notify_teacher_on_update(sender, instance, created, **kwargs):
             if teacher_user:
                 campus_name = getattr(getattr(instance, 'current_campus', None), 'campus_name', '')
                 actor_name = actor.get_full_name() if actor and hasattr(actor, 'get_full_name') else (str(actor) if actor else 'System')
-                verb = "Your Teacher profile has been updated"
-                target_text = f"by {actor_name}" + (f" at {campus_name}" if campus_name else "")
+                
+                # Build friendly text for changed fields if available
+                changed_fields = getattr(instance, '_changed_fields', []) or []
+                field_labels = {
+                    # Personal info
+                    'full_name': 'Full Name',
+                    'dob': 'Date of Birth',
+                    'gender': 'Gender',
+                    'contact_number': 'Contact Number',
+                    'email': 'Email',
+                    'permanent_address': 'Permanent Address',
+                    'current_address': 'Current Address',
+                    'marital_status': 'Marital Status',
+                    'cnic': 'CNIC',
+                    # Education
+                    'education_level': 'Education Level',
+                    'institution_name': 'Institution Name',
+                    'year_of_passing': 'Year of Passing',
+                    'education_subjects': 'Education Subjects',
+                    'education_grade': 'Education Grade',
+                    # Experience
+                    'previous_institution_name': 'Previous Institution',
+                    'previous_position': 'Previous Position',
+                    'experience_from_date': 'Experience From Date',
+                    'experience_to_date': 'Experience To Date',
+                    'total_experience_years': 'Total Experience (years)',
+                    # Current role
+                    'joining_date': 'Joining Date',
+                    'current_role_title': 'Current Role Title',
+                    'current_campus': 'Current Campus',
+                    'shift': 'Shift',
+                    'current_subjects': 'Current Subjects',
+                    'current_classes_taught': 'Current Classes Taught',
+                    'current_extra_responsibilities': 'Extra Responsibilities',
+                    'role_start_date': 'Role Start Date',
+                    'is_currently_active': 'Current Status',
+                }
+                if changed_fields:
+                    labels = [field_labels.get(f, f.replace('_', ' ').title()) for f in changed_fields]
+                    if len(labels) == 1:
+                        changed_text = f"{labels[0]}"
+                    else:
+                        changed_text = ", ".join(labels[:-1]) + f" and {labels[-1]}"
+                    verb = "Your teacher profile has been updated"
+                    target_text = (
+                        f"{changed_text} updated by {actor_name}"
+                        + (f" at {campus_name}" if campus_name else "")
+                    )
+                else:
+                    verb = "Your teacher profile has been updated"
+                    target_text = f"by {actor_name}" + (f" at {campus_name}" if campus_name else "")
                 create_notification(
                     recipient=teacher_user, 
                     actor=actor, 
