@@ -40,5 +40,16 @@ urlpatterns = [
     path('grade-skip/<int:transfer_id>/approve-own/', views.approve_grade_skip_own_coord, name='approve_grade_skip_own_coord'),
     path('grade-skip/<int:transfer_id>/approve-other/', views.approve_grade_skip_other_coord, name='approve_grade_skip_other_coord'),
     path('grade-skip/<int:transfer_id>/decline/', views.decline_grade_skip_transfer, name='decline_grade_skip_transfer'),
+
+    # Campus Transfer Management (cross-campus, teacher-initiated)
+    path('campus/create/', views.create_campus_transfer, name='create_campus_transfer'),
+    path('campus/list/', views.list_campus_transfers, name='list_campus_transfers'),
+    path('campus/<int:transfer_id>/approve-from-coord/', views.approve_campus_transfer_from_coord, name='approve_campus_transfer_from_coord'),
+    path('campus/<int:transfer_id>/approve-from-principal/', views.approve_campus_transfer_from_principal, name='approve_campus_transfer_from_principal'),
+    path('campus/<int:transfer_id>/approve-to-principal/', views.approve_campus_transfer_to_principal, name='approve_campus_transfer_to_principal'),
+    path('campus/<int:transfer_id>/confirm/', views.confirm_campus_transfer, name='confirm_campus_transfer'),
+    path('campus/<int:transfer_id>/decline/', views.decline_campus_transfer, name='decline_campus_transfer'),
+    path('campus/<int:transfer_id>/cancel/', views.cancel_campus_transfer, name='cancel_campus_transfer'),
+    path('campus/<int:transfer_id>/letter/', views.get_campus_transfer_letter, name='get_campus_transfer_letter'),
 ]
 

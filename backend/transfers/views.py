@@ -15,6 +15,7 @@ from .models import (
     ShiftTransfer,
     TransferApproval,
     GradeSkipTransfer,
+    CampusTransfer,
 )
 from .serializers import (
     TransferRequestSerializer,
@@ -29,6 +30,8 @@ from .serializers import (
     TransferApprovalStepSerializer,
     GradeSkipTransferSerializer,
     GradeSkipTransferCreateSerializer,
+    CampusTransferSerializer,
+    CampusTransferCreateSerializer,
 )
 from .services import (
     IDUpdateService,
@@ -1394,6 +1397,949 @@ def approve_shift_transfer_own_coord(request, transfer_id):
                 'shift_transfer': ShiftTransferSerializer(shift_transfer).data,
             }
         )
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ---------------------------------------------------------------------------
+# Campus Transfer APIs (teacher-initiated cross-campus workflow)
+# ---------------------------------------------------------------------------
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_campus_transfer(request):
+    """
+    Create a new campus transfer request.
+    Typically initiated by a class teacher.
+    """
+    try:
+        teacher = _get_teacher_for_user(request.user)
+        if not teacher:
+            return Response(
+                {'error': 'Only teachers can create campus transfer requests'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = CampusTransferCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+
+        student = validated['student']
+        to_campus = validated['to_campus']
+        to_shift = validated['to_shift']
+        to_grade = validated.get('to_grade')
+        to_classroom = validated.get('to_classroom')
+        skip_grade = validated.get('skip_grade', False)
+
+        from_campus = student.campus
+        from_shift = student.shift
+        from_classroom = student.classroom
+        from_grade = from_classroom.grade if from_classroom else None
+
+        if not from_campus or not from_shift:
+            return Response(
+                {'error': 'Student must have a current campus and shift for campus transfer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Detect from/to coordinators based on levels and campus
+        from coordinator.models import Coordinator  # local import to avoid cycles
+        from classes.models import ClassRoom
+
+        level = from_grade.level if from_grade else None
+        from_coord = None
+        if level:
+            coord_qs = Coordinator.objects.filter(
+                campus=from_campus,
+                is_currently_active=True,
+            )
+            coord_qs = coord_qs.filter(Q(level=level) | Q(assigned_levels=level)).distinct()
+            from_coord = coord_qs.first()
+
+        # For target coordinator, we try to infer from target grade (if any)
+        to_coord = None
+        if to_grade:
+            target_level = to_grade.level
+            coord_qs_to = Coordinator.objects.filter(
+                campus=to_campus,
+                is_currently_active=True,
+            )
+            coord_qs_to = coord_qs_to.filter(Q(level=target_level) | Q(assigned_levels=target_level)).distinct()
+            to_coord = coord_qs_to.first()
+
+        # Try to resolve principals for from/to campuses
+        from principals.models import Principal
+
+        from_principal_obj = Principal.objects.filter(campus=from_campus).first()
+        to_principal_obj = Principal.objects.filter(campus=to_campus).first()
+
+        from_principal_user = from_principal_obj.user if from_principal_obj else None
+        to_principal_user = to_principal_obj.user if to_principal_obj else None
+
+        campus_transfer = CampusTransfer.objects.create(
+            student=student,
+            from_campus=from_campus,
+            to_campus=to_campus,
+            from_shift=from_shift,
+            to_shift=to_shift,
+            from_classroom=from_classroom,
+            to_classroom=to_classroom,
+            from_grade=from_grade,
+            to_grade=to_grade,
+            from_grade_name=getattr(from_grade, 'name', None),
+            to_grade_name=getattr(to_grade, 'name', None),
+            from_section=getattr(from_classroom, 'section', None),
+            to_section=getattr(to_classroom, 'section', None) if to_classroom else None,
+            skip_grade=skip_grade,
+            initiated_by_teacher=teacher,
+            from_coordinator=from_coord,
+            to_coordinator=to_coord,
+            from_principal=from_principal_user,
+            to_principal=to_principal_user,
+            status='pending_from_coord',
+            reason=validated['reason'],
+            requested_date=validated['requested_date'],
+        )
+
+        # First approval step (teacher) in TransferApproval
+        TransferApproval.objects.create(
+            transfer_type='campus',
+            transfer_id=campus_transfer.id,
+            role='teacher',
+            approved_by=request.user,
+            status='approved',
+            comment=validated.get('reason', ''),
+            step_order=1,
+        )
+
+        # Notify from-campus coordinator
+        try:
+            if from_coord:
+                from django.contrib.auth import get_user_model
+
+                UserModel = get_user_model()
+
+                coord_user = getattr(from_coord, 'user', None)
+                if not coord_user and getattr(from_coord, 'employee_code', None):
+                    coord_user = UserModel.objects.filter(
+                        username=from_coord.employee_code
+                    ).first()
+                if not coord_user and getattr(from_coord, 'email', None):
+                    coord_user = UserModel.objects.filter(
+                        email__iexact=from_coord.email
+                    ).first()
+
+                if coord_user:
+                    student_name = student.name
+                    teacher_name = teacher.full_name
+                    from_campus_name = getattr(from_campus, 'campus_name', str(from_campus))
+                    to_campus_name = getattr(to_campus, 'campus_name', str(to_campus))
+
+                    # 1) Informational message
+                    verb1 = f"Class teacher {teacher_name} made a campus transfer request for {student_name}"
+                    target_text1 = f"From {from_campus_name} to {to_campus_name}"
+
+                    create_notification(
+                        recipient=coord_user,
+                        actor=request.user,
+                        verb=verb1,
+                        target_text=target_text1,
+                        data={
+                            "type": "campus_transfer.requested_info",
+                            "campus_transfer_id": campus_transfer.id,
+                            "student_id": student.id,
+                        },
+                    )
+
+                    # 2) Needs approval message
+                    verb2 = f"Request of campus transfer of {student_name} needs your approval"
+                    target_text2 = f"Please review campus transfer request from {from_campus_name} to {to_campus_name}"
+
+                    create_notification(
+                        recipient=coord_user,
+                        actor=request.user,
+                        verb=verb2,
+                        target_text=target_text2,
+                        data={
+                            "type": "campus_transfer.pending_from_coord",
+                            "campus_transfer_id": campus_transfer.id,
+                            "student_id": student.id,
+                        },
+                    )
+        except Exception:
+            # Do not break request creation on notification failure
+            pass
+
+        emit_transfer_event(
+            "campus_transfer.requested",
+            {
+                "campus_transfer_id": campus_transfer.id,
+                "student_id": student.id,
+                "from_campus_id": from_campus.id,
+                "to_campus_id": to_campus.id,
+                "teacher_id": teacher.id,
+                "from_coordinator_id": from_coord.id if from_coord else None,
+            },
+        )
+
+        return Response(CampusTransferSerializer(campus_transfer).data, status=status.HTTP_201_CREATED)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_campus_transfers(request):
+    """
+    List campus transfer requests visible to the current user.
+    - Teacher: own initiated transfers (outgoing)
+    - Coordinator: transfers where they are from/to coordinator (incoming)
+    - Principal: transfers where they are from/to principal (incoming/outgoing)
+    """
+    try:
+        user = request.user
+        teacher = _get_teacher_for_user(user)
+        coordinator = _get_coordinator_for_user(user)
+        is_principal_user = _is_principal(user) or user.is_superuser
+
+        queryset = CampusTransfer.objects.select_related(
+            'student',
+            'from_campus',
+            'to_campus',
+            'from_classroom',
+            'to_classroom',
+            'initiated_by_teacher',
+            'from_coordinator',
+            'to_coordinator',
+            'from_principal',
+            'to_principal',
+        )
+
+        direction = request.GET.get('direction', 'incoming')  # incoming | outgoing | all
+
+        if teacher:
+            # Teacher: only their initiated transfers
+            queryset = queryset.filter(initiated_by_teacher=teacher)
+            if direction == 'incoming':
+                # For teachers, all their transfers are "outgoing"
+                queryset = queryset.none()
+        elif coordinator:
+            # Coordinator: any transfer where they are from/to coordinator
+            if direction == 'incoming':
+                queryset = queryset.filter(Q(from_coordinator=coordinator) | Q(to_coordinator=coordinator))
+            elif direction == 'outgoing':
+                # Coordinators don't initiate campus transfers; for now, same as incoming
+                queryset = queryset.filter(Q(from_coordinator=coordinator) | Q(to_coordinator=coordinator))
+        elif is_principal_user:
+            # Principal: transfers where they are from/to principal
+            if direction == 'incoming':
+                queryset = queryset.filter(Q(to_principal=user))
+            elif direction == 'outgoing':
+                queryset = queryset.filter(Q(from_principal=user))
+            # 'all' will show both
+        else:
+            return Response(
+                {'error': 'You do not have permission to view campus transfers'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        status_filter = request.GET.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        serializer = CampusTransferSerializer(queryset.order_by('-created_at'), many=True)
+        return Response(serializer.data)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def approve_campus_transfer_from_coord(request, transfer_id):
+    """
+    From-campus coordinator approval step.
+    """
+    try:
+        user = request.user
+        coordinator = _get_coordinator_for_user(user)
+        if not coordinator:
+            return Response(
+                {'error': 'Only coordinators can approve campus transfers'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        campus_transfer = get_object_or_404(CampusTransfer, id=transfer_id)
+
+        if campus_transfer.status != 'pending_from_coord':
+            return Response(
+                {'error': 'This campus transfer is not waiting for from-campus coordinator approval'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if campus_transfer.from_coordinator and campus_transfer.from_coordinator != coordinator:
+            return Response(
+                {'error': 'This campus transfer is not assigned to you'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        campus_transfer.status = 'pending_from_principal'
+        campus_transfer.from_coordinator = coordinator
+        campus_transfer.save()
+
+        TransferApproval.objects.create(
+            transfer_type='campus',
+            transfer_id=campus_transfer.id,
+            role='coordinator_from',
+            approved_by=user,
+            status='approved',
+            comment=request.data.get('comment', ''),
+            step_order=2,
+        )
+
+        # Notify from-campus principal
+        try:
+            from django.contrib.auth import get_user_model
+            from principals.models import Principal
+
+            UserModel = get_user_model()
+
+            from_principal_user = campus_transfer.from_principal
+            if not from_principal_user:
+                principal_obj = Principal.objects.filter(campus=campus_transfer.from_campus).first()
+                if principal_obj and principal_obj.user:
+                    from_principal_user = principal_obj.user
+                    campus_transfer.from_principal = from_principal_user
+                    campus_transfer.save(update_fields=['from_principal'])
+
+            if from_principal_user:
+                student_name = campus_transfer.student.name
+                coord_name = coordinator.full_name
+                from_campus_name = getattr(campus_transfer.from_campus, 'campus_name', str(campus_transfer.from_campus))
+                to_campus_name = getattr(campus_transfer.to_campus, 'campus_name', str(campus_transfer.to_campus))
+
+                verb1 = f"Coordinator {coord_name} made a campus transfer request for {student_name}. Please review."
+                target_text1 = f"From {from_campus_name} to {to_campus_name}"
+
+                create_notification(
+                    recipient=from_principal_user,
+                    actor=user,
+                    verb=verb1,
+                    target_text=target_text1,
+                    data={
+                        "type": "campus_transfer.pending_from_principal_info",
+                        "campus_transfer_id": campus_transfer.id,
+                        "student_id": campus_transfer.student.id,
+                    },
+                )
+
+                verb2 = f"Request of campus transfer of {student_name} needs your approval"
+                target_text2 = f"Please review campus transfer from {from_campus_name} to {to_campus_name}"
+
+                create_notification(
+                    recipient=from_principal_user,
+                    actor=user,
+                    verb=verb2,
+                    target_text=target_text2,
+                    data={
+                        "type": "campus_transfer.pending_from_principal",
+                        "campus_transfer_id": campus_transfer.id,
+                        "student_id": campus_transfer.student.id,
+                    },
+                )
+        except Exception:
+            pass
+
+        emit_transfer_event(
+            "campus_transfer.from_coord_approved",
+            {
+                "campus_transfer_id": campus_transfer.id,
+                "student_id": campus_transfer.student.id,
+                "coordinator_id": coordinator.id,
+            },
+        )
+
+        return Response(
+            {
+                'message': 'Campus transfer updated after from-campus coordinator approval',
+                'campus_transfer': CampusTransferSerializer(campus_transfer).data,
+            }
+        )
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def approve_campus_transfer_from_principal(request, transfer_id):
+    """
+    From-campus principal approval step.
+    """
+    try:
+        user = request.user
+        if not _is_principal(user) and not user.is_superuser:
+            return Response(
+                {'error': 'Only principals can approve this step of campus transfers'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        campus_transfer = get_object_or_404(CampusTransfer, id=transfer_id)
+
+        if campus_transfer.status != 'pending_from_principal':
+            return Response(
+                {'error': 'This campus transfer is not waiting for from-campus principal approval'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        campus_transfer.status = 'pending_to_principal'
+        campus_transfer.from_principal = user
+        campus_transfer.save()
+
+        TransferApproval.objects.create(
+            transfer_type='campus',
+            transfer_id=campus_transfer.id,
+            role='principal',
+            approved_by=user,
+            status='approved',
+            comment=request.data.get('comment', ''),
+            step_order=3,
+        )
+
+        # Notify to-campus principal
+        try:
+            from principals.models import Principal
+
+            to_principal_user = campus_transfer.to_principal
+            if not to_principal_user:
+                principal_obj = Principal.objects.filter(campus=campus_transfer.to_campus).first()
+                if principal_obj and principal_obj.user:
+                    to_principal_user = principal_obj.user
+                    campus_transfer.to_principal = to_principal_user
+                    campus_transfer.save(update_fields=['to_principal'])
+
+            if to_principal_user:
+                student_name = campus_transfer.student.name
+                from_campus_name = getattr(campus_transfer.from_campus, 'campus_name', str(campus_transfer.from_campus))
+                to_campus_name = getattr(campus_transfer.to_campus, 'campus_name', str(campus_transfer.to_campus))
+
+                verb1 = f"Principal {user.get_full_name()} made a campus transfer request for {student_name}. Please review."
+                target_text1 = f"From {from_campus_name} to {to_campus_name}"
+
+                create_notification(
+                    recipient=to_principal_user,
+                    actor=user,
+                    verb=verb1,
+                    target_text=target_text1,
+                    data={
+                        "type": "campus_transfer.pending_to_principal_info",
+                        "campus_transfer_id": campus_transfer.id,
+                        "student_id": campus_transfer.student.id,
+                    },
+                )
+
+                verb2 = (
+                    f"Request of campus transfer of {student_name} from {from_campus_name} "
+                    f"to {to_campus_name} needs your approval"
+                )
+                target_text2 = (
+                    f"Campus transfer from {from_campus_name} to your campus for student {student_name}"
+                )
+
+                create_notification(
+                    recipient=to_principal_user,
+                    actor=user,
+                    verb=verb2,
+                    target_text=target_text2,
+                    data={
+                        "type": "campus_transfer.pending_to_principal",
+                        "campus_transfer_id": campus_transfer.id,
+                        "student_id": campus_transfer.student.id,
+                    },
+                )
+        except Exception:
+            pass
+
+        emit_transfer_event(
+            "campus_transfer.from_principal_approved",
+            {
+                "campus_transfer_id": campus_transfer.id,
+                "student_id": campus_transfer.student.id,
+                "principal_id": user.id,
+            },
+        )
+
+        return Response(
+            {
+                'message': 'Campus transfer updated after from-campus principal approval',
+                'campus_transfer': CampusTransferSerializer(campus_transfer).data,
+            }
+        )
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def approve_campus_transfer_to_principal(request, transfer_id):
+    """
+    To-campus principal approval step.
+    """
+    try:
+        user = request.user
+        if not _is_principal(user) and not user.is_superuser:
+            return Response(
+                {'error': 'Only principals can approve this step of campus transfers'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        campus_transfer = get_object_or_404(CampusTransfer, id=transfer_id)
+
+        if campus_transfer.status != 'pending_to_principal':
+            return Response(
+                {'error': 'This campus transfer is not waiting for to-campus principal approval'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        campus_transfer.status = 'pending_to_coord'
+        campus_transfer.to_principal = user
+        campus_transfer.save()
+
+        TransferApproval.objects.create(
+            transfer_type='campus',
+            transfer_id=campus_transfer.id,
+            role='principal',
+            approved_by=user,
+            status='approved',
+            comment=request.data.get('comment', ''),
+            step_order=4,
+        )
+
+        # Notify to-campus coordinator
+        try:
+            from coordinator.models import Coordinator
+            from django.contrib.auth import get_user_model
+
+            UserModel = get_user_model()
+
+            to_coord = campus_transfer.to_coordinator
+            if not to_coord and campus_transfer.to_grade:
+                level = campus_transfer.to_grade.level
+                coord_qs = Coordinator.objects.filter(
+                    campus=campus_transfer.to_campus,
+                    is_currently_active=True,
+                )
+                coord_qs = coord_qs.filter(Q(level=level) | Q(assigned_levels=level)).distinct()
+                to_coord = coord_qs.first()
+                if to_coord:
+                    campus_transfer.to_coordinator = to_coord
+                    campus_transfer.save(update_fields=['to_coordinator'])
+
+            if to_coord:
+                coord_user = getattr(to_coord, 'user', None)
+                if not coord_user and getattr(to_coord, 'employee_code', None):
+                    coord_user = UserModel.objects.filter(
+                        username=to_coord.employee_code
+                    ).first()
+                if not coord_user and getattr(to_coord, 'email', None):
+                    coord_user = UserModel.objects.filter(
+                        email__iexact=to_coord.email
+                    ).first()
+
+                if coord_user:
+                    student_name = campus_transfer.student.name
+                    student_id_disp = campus_transfer.student.student_id
+                    from_campus_name = getattr(campus_transfer.from_campus, 'campus_name', str(campus_transfer.from_campus))
+                    to_campus_name = getattr(campus_transfer.to_campus, 'campus_name', str(campus_transfer.to_campus))
+                    from_grade_label = campus_transfer.from_grade_name or ''
+                    from_section_label = campus_transfer.from_section or ''
+                    to_grade_label = campus_transfer.to_grade_name or from_grade_label
+                    to_section_label = campus_transfer.to_section or ''
+
+                    from_class_label = f"{from_grade_label} {from_section_label}".strip()
+                    to_class_label = f"{to_grade_label} {to_section_label}".strip()
+
+                    # 1) Detailed info message
+                    verb1 = (
+                        f"Principal of {to_campus_name} has made a campus transfer request for "
+                        f"{student_name} ({student_id_disp}) from {from_campus_name} to {to_campus_name} "
+                        f"from {from_class_label} to {to_class_label}. Please review."
+                    )
+                    target_text1 = (
+                        f"{student_name} ({student_id_disp}) from {from_class_label} → {to_class_label}"
+                    )
+
+                    create_notification(
+                        recipient=coord_user,
+                        actor=user,
+                        verb=verb1,
+                        target_text=target_text1,
+                        data={
+                            "type": "campus_transfer.pending_to_coord_info",
+                            "campus_transfer_id": campus_transfer.id,
+                            "student_id": campus_transfer.student.id,
+                        },
+                    )
+
+                    # 2) Needs approval message
+                    verb2 = (
+                        f"Request of campus transfer of {student_name} ({student_id_disp}) "
+                        f"from {from_campus_name} ({from_class_label}) "
+                        f"to {to_campus_name} ({to_class_label}) needs your approval"
+                    )
+                    target_text2 = target_text1
+
+                    create_notification(
+                        recipient=coord_user,
+                        actor=user,
+                        verb=verb2,
+                        target_text=target_text2,
+                        data={
+                            "type": "campus_transfer.pending_to_coord",
+                            "campus_transfer_id": campus_transfer.id,
+                            "student_id": campus_transfer.student.id,
+                        },
+                    )
+        except Exception:
+            pass
+
+        emit_transfer_event(
+            "campus_transfer.to_principal_approved",
+            {
+                "campus_transfer_id": campus_transfer.id,
+                "student_id": campus_transfer.student.id,
+                "principal_id": user.id,
+            },
+        )
+
+        return Response(
+            {
+                'message': 'Campus transfer updated after to-campus principal approval',
+                'campus_transfer': CampusTransferSerializer(campus_transfer).data,
+            }
+        )
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def confirm_campus_transfer(request, transfer_id):
+    """
+    Final confirmation by to-campus coordinator.
+    Requires confirm_text == 'confirm' in payload.
+    """
+    try:
+        user = request.user
+        coordinator = _get_coordinator_for_user(user)
+        if not coordinator:
+            return Response(
+                {'error': 'Only coordinators can confirm campus transfers'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        campus_transfer = get_object_or_404(CampusTransfer, id=transfer_id)
+
+        if campus_transfer.status != 'pending_to_coord':
+            return Response(
+                {'error': 'This campus transfer is not waiting for coordinator confirmation'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if campus_transfer.to_coordinator and campus_transfer.to_coordinator != coordinator:
+            return Response(
+                {'error': 'This campus transfer is not assigned to you'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        confirm_text = request.data.get('confirm_text', '').strip().lower()
+        if confirm_text != 'confirm':
+            return Response(
+                {'error': "To confirm transfer, you must type 'confirm' in the confirmation field."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        campus_transfer.to_coordinator = coordinator
+        campus_transfer.save(update_fields=['to_coordinator'])
+
+        # Apply transfer (ID change + classroom move)
+        result = apply_campus_transfer(campus_transfer, changed_by=user)
+
+        TransferApproval.objects.create(
+            transfer_type='campus',
+            transfer_id=campus_transfer.id,
+            role='coordinator_to',
+            approved_by=user,
+            status='approved',
+            comment=request.data.get('comment', ''),
+            step_order=5,
+        )
+
+        # Notify initiating teacher & from-campus principal about final approval
+        try:
+            from django.contrib.auth import get_user_model
+
+            UserModel = get_user_model()
+
+            student = campus_transfer.student
+            student_name = student.name
+            new_id = campus_transfer.letter_new_student_id or student.student_id
+            from_campus_name = getattr(campus_transfer.from_campus, 'campus_name', str(campus_transfer.from_campus))
+            to_campus_name = getattr(campus_transfer.to_campus, 'campus_name', str(campus_transfer.to_campus))
+
+            from_class_label = campus_transfer.letter_from_class_label or campus_transfer.from_grade_name
+            to_class_label = campus_transfer.letter_to_class_label or campus_transfer.to_grade_name
+
+            # Teacher who initiated request
+            if campus_transfer.initiated_by_teacher:
+                teacher = campus_transfer.initiated_by_teacher
+                teacher_user = getattr(teacher, 'user', None)
+                if not teacher_user and teacher.employee_code:
+                    teacher_user = UserModel.objects.filter(
+                        username=teacher.employee_code
+                    ).first()
+                if not teacher_user and teacher.email:
+                    teacher_user = UserModel.objects.filter(
+                        email__iexact=teacher.email
+                    ).first()
+
+                if teacher_user:
+                    verb = (
+                        f"Your campus transfer request for {student_name} has been fully approved "
+                        f"and applied. New ID: {new_id}."
+                    )
+                    target_text = (
+                        f"{student_name}: {from_campus_name} ({from_class_label}) → "
+                        f"{to_campus_name} ({to_class_label})"
+                    )
+                    create_notification(
+                        recipient=teacher_user,
+                        actor=user,
+                        verb=verb,
+                        target_text=target_text,
+                        data={
+                            "type": "campus_transfer.approved",
+                            "campus_transfer_id": campus_transfer.id,
+                            "student_id": student.id,
+                            "new_student_id": new_id,
+                        },
+                    )
+
+            # From-campus principal (view only)
+            if campus_transfer.from_principal:
+                verb = (
+                    f"Campus transfer for {student_name} from your campus to {to_campus_name} "
+                    f"has been confirmed. New ID: {new_id}."
+                )
+                target_text = (
+                    f"{student_name}: {from_campus_name} ({from_class_label}) → "
+                    f"{to_campus_name} ({to_class_label})"
+                )
+                create_notification(
+                    recipient=campus_transfer.from_principal,
+                    actor=user,
+                    verb=verb,
+                    target_text=target_text,
+                    data={
+                        "type": "campus_transfer.approved_view_only",
+                        "campus_transfer_id": campus_transfer.id,
+                        "student_id": student.id,
+                        "new_student_id": new_id,
+                    },
+                )
+        except Exception:
+            pass
+
+        emit_transfer_event(
+            "campus_transfer.confirmed",
+            {
+                "campus_transfer_id": campus_transfer.id,
+                "student_id": campus_transfer.student.id,
+                "coordinator_id": coordinator.id,
+                "new_student_id": campus_transfer.letter_new_student_id,
+            },
+        )
+
+        return Response(
+            {
+                'message': 'Campus transfer confirmed and applied successfully',
+                'campus_transfer': CampusTransferSerializer(campus_transfer).data,
+            }
+        )
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def decline_campus_transfer(request, transfer_id):
+    """
+    Decline a campus transfer at any pending step (coordinator/principal).
+    """
+    try:
+        user = request.user
+        coordinator = _get_coordinator_for_user(user)
+        is_principal_user = _is_principal(user) or user.is_superuser
+
+        if not coordinator and not is_principal_user:
+            return Response(
+                {'error': 'Only coordinators or principals can decline campus transfers'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        campus_transfer = get_object_or_404(CampusTransfer, id=transfer_id)
+
+        if campus_transfer.status not in [
+            'pending_from_coord',
+            'pending_from_principal',
+            'pending_to_principal',
+            'pending_to_coord',
+        ]:
+            return Response(
+                {'error': 'Only pending campus transfers can be declined'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = TransferApprovalSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data.get('reason', '')
+
+        campus_transfer.status = 'declined'
+        campus_transfer.decline_reason = reason
+        campus_transfer.save()
+
+        role = 'coordinator_from'
+        if coordinator and campus_transfer.status == 'pending_to_coord':
+            role = 'coordinator_to'
+        if is_principal_user:
+            role = 'principal'
+
+        TransferApproval.objects.create(
+            transfer_type='campus',
+            transfer_id=campus_transfer.id,
+            role=role,
+            approved_by=user,
+            status='declined',
+            comment=reason,
+            step_order=99,
+        )
+
+        emit_transfer_event(
+            "campus_transfer.declined",
+            {
+                "campus_transfer_id": campus_transfer.id,
+                "student_id": campus_transfer.student.id,
+                "by_user_id": user.id,
+            },
+        )
+
+        return Response(
+            {
+                'message': 'Campus transfer declined',
+                'campus_transfer': CampusTransferSerializer(campus_transfer).data,
+            }
+        )
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def cancel_campus_transfer(request, transfer_id):
+    """
+    Allow the initiating teacher to cancel their campus transfer before approvals.
+    """
+    try:
+        user = request.user
+        teacher = _get_teacher_for_user(user)
+
+        campus_transfer = get_object_or_404(CampusTransfer, id=transfer_id)
+
+        if not teacher or campus_transfer.initiated_by_teacher != teacher:
+            return Response(
+                {'error': 'Only the teacher who created the request can cancel it'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if campus_transfer.status not in ['pending_from_coord', 'pending_from_principal']:
+            return Response(
+                {'error': 'Only transfers that are early in the workflow can be cancelled'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        campus_transfer.status = 'cancelled'
+        campus_transfer.save()
+
+        emit_transfer_event(
+            "campus_transfer.cancelled",
+            {
+                "campus_transfer_id": campus_transfer.id,
+                "student_id": campus_transfer.student.id,
+                "teacher_id": teacher.id,
+            },
+        )
+
+        return Response(
+            {
+                'message': 'Campus transfer cancelled successfully',
+                'campus_transfer': CampusTransferSerializer(campus_transfer).data,
+            }
+        )
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_campus_transfer_letter(request, transfer_id):
+    """
+    Return structured data for the campus transfer approval letter.
+    Frontend will render/download the letter using this payload.
+    """
+    try:
+        campus_transfer = get_object_or_404(CampusTransfer, id=transfer_id)
+
+        # Basic access control: teacher who initiated or principals/coordinators involved
+        user = request.user
+        teacher = _get_teacher_for_user(user)
+        coordinator = _get_coordinator_for_user(user)
+        is_principal_user = _is_principal(user) or user.is_superuser
+
+        if not (
+            (teacher and campus_transfer.initiated_by_teacher == teacher)
+            or (coordinator and (campus_transfer.from_coordinator == coordinator or campus_transfer.to_coordinator == coordinator))
+            or (is_principal_user and (campus_transfer.from_principal == user or campus_transfer.to_principal == user))
+        ):
+            return Response({'error': 'You do not have access to this letter'}, status=status.HTTP_403_FORBIDDEN)
+
+        student = campus_transfer.student
+
+        payload = {
+            "student_name": student.name,
+            "student_old_id": campus_transfer.transfer_request.id_history.first().old_id
+            if campus_transfer.transfer_request and hasattr(campus_transfer.transfer_request, "id_changes")
+            else student.student_id,
+            "student_new_id": campus_transfer.letter_new_student_id or student.student_id,
+            "from_campus_name": campus_transfer.letter_from_campus_name or getattr(
+                campus_transfer.from_campus, 'campus_name', str(campus_transfer.from_campus)
+            ),
+            "to_campus_name": campus_transfer.letter_to_campus_name or getattr(
+                campus_transfer.to_campus, 'campus_name', str(campus_transfer.to_campus)
+            ),
+            "from_class_label": campus_transfer.letter_from_class_label,
+            "to_class_label": campus_transfer.letter_to_class_label,
+            "from_principal_name": campus_transfer.letter_from_principal_name,
+            "to_principal_name": campus_transfer.letter_to_principal_name,
+            "to_coordinator_name": campus_transfer.letter_to_coordinator_name,
+            "approved_at": campus_transfer.letter_generated_at or campus_transfer.updated_at,
+            "requested_date": campus_transfer.requested_date,
+            "reason": campus_transfer.reason,
+        }
+
+        return Response(payload)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 

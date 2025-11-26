@@ -588,3 +588,174 @@ class GradeSkipTransfer(models.Model):
         from_grade_display = self.from_grade_name or (self.from_grade.name if self.from_grade else 'Unknown')
         to_grade_display = self.to_grade_name or (self.to_grade.name if self.to_grade else 'Unknown')
         return f"Grade skip for {self.student.name} ({from_grade_display} → {to_grade_display})"
+
+
+class CampusTransfer(models.Model):
+    """
+    Teacher-initiated campus transfer workflow for students.
+    Handles:
+    - Cross-campus moves
+    - Optional shift change (morning/afternoon)
+    - Optional grade skip + new section on destination campus
+    The final ID change is performed via a linked TransferRequest.
+    """
+
+    STATUS_CHOICES = [
+        ('pending_from_coord', 'Pending From-Campus Coordinator'),
+        ('pending_from_principal', 'Pending From-Campus Principal'),
+        ('pending_to_principal', 'Pending To-Campus Principal'),
+        ('pending_to_coord', 'Pending To-Campus Coordinator'),
+        ('approved', 'Approved / Applied'),
+        ('declined', 'Declined'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    SHIFT_CHOICES = [
+        ('morning', 'Morning'),
+        ('afternoon', 'Afternoon'),
+    ]
+
+    student = models.ForeignKey(
+        'students.Student',
+        on_delete=models.CASCADE,
+        related_name='campus_transfers',
+    )
+
+    from_campus = models.ForeignKey(
+        'campus.Campus',
+        on_delete=models.CASCADE,
+        related_name='campus_transfers_from',
+    )
+    to_campus = models.ForeignKey(
+        'campus.Campus',
+        on_delete=models.CASCADE,
+        related_name='campus_transfers_to',
+    )
+
+    from_shift = models.CharField(max_length=20, choices=SHIFT_CHOICES)
+    to_shift = models.CharField(
+        max_length=20,
+        choices=SHIFT_CHOICES,
+        help_text='Destination shift on target campus.',
+    )
+
+    # Classroom / grade information (optional for pure campus+shift change)
+    from_classroom = models.ForeignKey(
+        'classes.ClassRoom',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='campus_transfers_from',
+    )
+    to_classroom = models.ForeignKey(
+        'classes.ClassRoom',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='campus_transfers_to',
+        help_text='Destination classroom after campus transfer (optional).',
+    )
+
+    from_grade = models.ForeignKey(
+        'classes.Grade',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='campus_transfers_from',
+    )
+    to_grade = models.ForeignKey(
+        'classes.Grade',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='campus_transfers_to',
+        help_text='Optional destination grade (used when skip_grade is enabled).',
+    )
+
+    # Cached labels for audit and letter generation
+    from_grade_name = models.CharField(max_length=50, null=True, blank=True)
+    to_grade_name = models.CharField(max_length=50, null=True, blank=True)
+    from_section = models.CharField(max_length=10, null=True, blank=True)
+    to_section = models.CharField(max_length=10, null=True, blank=True)
+
+    skip_grade = models.BooleanField(
+        default=False,
+        help_text='If true, this transfer includes a grade skip to to_grade.',
+    )
+
+    # Actors in the workflow
+    initiated_by_teacher = models.ForeignKey(
+        'teachers.Teacher',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='campus_transfers_initiated',
+    )
+    from_coordinator = models.ForeignKey(
+        'coordinator.Coordinator',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='campus_transfers_from_coord',
+    )
+    to_coordinator = models.ForeignKey(
+        'coordinator.Coordinator',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='campus_transfers_to_coord',
+    )
+    from_principal = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='campus_transfers_from_principal',
+    )
+    to_principal = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='campus_transfers_to_principal',
+    )
+
+    # Link to the underlying TransferRequest that applied the ID change
+    transfer_request = models.OneToOneField(
+        TransferRequest,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='campus_transfer',
+        help_text='Auto-created TransferRequest used to perform the ID update.',
+    )
+
+    status = models.CharField(max_length=40, choices=STATUS_CHOICES, default='pending_from_coord')
+    reason = models.TextField()
+    requested_date = models.DateField(help_text='Effective date requested for this campus transfer.')
+    decline_reason = models.TextField(blank=True)
+
+    # Letter / notification helper fields (denormalized for fast rendering)
+    letter_generated_at = models.DateTimeField(null=True, blank=True)
+    letter_new_student_id = models.CharField(max_length=50, null=True, blank=True)
+    letter_from_campus_name = models.CharField(max_length=255, null=True, blank=True)
+    letter_to_campus_name = models.CharField(max_length=255, null=True, blank=True)
+    letter_from_class_label = models.CharField(max_length=255, null=True, blank=True)
+    letter_to_class_label = models.CharField(max_length=255, null=True, blank=True)
+    letter_from_principal_name = models.CharField(max_length=255, null=True, blank=True)
+    letter_to_principal_name = models.CharField(max_length=255, null=True, blank=True)
+    letter_to_coordinator_name = models.CharField(max_length=255, null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['student']),
+            models.Index(fields=['from_campus', 'to_campus']),
+        ]
+
+    def __str__(self):
+        return f'Campus transfer for {self.student.name} ({self.from_campus} → {self.to_campus})'

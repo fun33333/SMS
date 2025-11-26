@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from campus.models import Campus
 from teachers.models import Teacher
 from coordinator.models import Coordinator
@@ -48,56 +48,71 @@ class IDGenerator:
         return f"{campus_code}-{shift_code}-{year_short}-{role_code}-{entity_id:04d}"
     
     @staticmethod
-    def get_next_employee_number(campus_id, shift, year, role):
-        """Get next available employee number for given campus, shift, year, role"""
-        try:
-            # Get all existing employee codes for this combination
-            existing_codes = []
-            
-            # Check teachers
-            teachers = Teacher.objects.filter(
-                current_campus_id=campus_id,
-                shift=shift,
-                employee_code__isnull=False
-            ).values_list('employee_code', flat=True)
-            existing_codes.extend(teachers)
-            
-            # Check coordinators (no shift field, use default 'morning')
-            coordinators = Coordinator.objects.filter(
-                campus_id=campus_id,
-                employee_code__isnull=False
-            ).values_list('employee_code', flat=True)
-            existing_codes.extend(coordinators)
-            
-            # Check principals
-            principals = Principal.objects.filter(
-                campus_id=campus_id,
-                shift=shift,
-                employee_code__isnull=False
-            ).values_list('employee_code', flat=True)
-            existing_codes.extend(principals)
-            
-            # Extract numbers from existing codes
-            numbers = []
-            for code in existing_codes:
-                if code and '-' in code:
-                    try:
-                        # Extract last part (number) from code like C01-M-25-P-0001
-                        number_part = code.split('-')[-1]
-                        if number_part.isdigit():
-                            numbers.append(int(number_part))
-                    except (ValueError, IndexError):
-                        continue
-            
-            # Return next available number
-            if not numbers:
-                return 1
-            
-            return max(numbers) + 1
-            
-        except Exception as e:
-            print(f"Error getting next employee number: {str(e)}")
-            return 1
+    def _extract_suffix_numbers(codes):
+        """
+        Helper: extract numeric suffix from codes like C01-M-25-P-0001 -> 1.
+        Returns a list of integers (may be empty).
+        """
+        numbers = []
+        for code in codes:
+            if code and "-" in code:
+                try:
+                    number_part = code.split("-")[-1]
+                    if number_part.isdigit():
+                        numbers.append(int(number_part))
+                except (ValueError, IndexError):
+                    continue
+        return numbers
+
+    @staticmethod
+    def get_next_employee_number(role):
+        """
+        Get next available employee number for a given ROLE (global, not per campus).
+
+        Requirements:
+        - Each role has its own continuous global series:
+          * All teachers:    ...T-0001, T-0002, T-0003, ...
+          * All coordinators:...C-0001, C-0002, ...
+          * All principals:  ...P-0001, P-0002, ...
+        - Existing data is respected: on first run we seed the counter from
+          the current max suffix for that role, then continue from there.
+        """
+        from services.models import GlobalCounter
+
+        role = (role or "").lower()
+        key = f"employee_{role}"  # e.g. employee_teacher, employee_principal
+
+        with transaction.atomic():
+            counter, _ = GlobalCounter.objects.select_for_update().get_or_create(
+                key=key,
+                defaults={"value": 0},
+            )
+
+            # If this counter is brand new (or still zero), seed it from existing data
+            if counter.value == 0:
+                if role == "teacher":
+                    existing_codes = Teacher.objects.filter(
+                        employee_code__isnull=False
+                    ).values_list("employee_code", flat=True)
+                elif role == "coordinator":
+                    existing_codes = Coordinator.objects.filter(
+                        employee_code__isnull=False
+                    ).values_list("employee_code", flat=True)
+                elif role == "principal":
+                    existing_codes = Principal.objects.filter(
+                        employee_code__isnull=False
+                    ).values_list("employee_code", flat=True)
+                else:
+                    existing_codes = []
+
+                numbers = IDGenerator._extract_suffix_numbers(existing_codes)
+                # Seed with current max so next number continues the series
+                counter.value = max(numbers) if numbers else 0
+
+            # Increment and return the new value
+            counter.value = counter.value + 1
+            counter.save(update_fields=["value"])
+            return counter.value
 
     @staticmethod
     def generate_unique_employee_code(campus, shift, year, role):
@@ -108,8 +123,8 @@ class IDGenerator:
             if not campus_id:
                 raise ValueError("Campus ID is required")
             
-            # Get next available number
-            next_number = IDGenerator.get_next_employee_number(campus_id, shift, year, role)
+            # Get next available number for this ROLE (global series)
+            next_number = IDGenerator.get_next_employee_number(role)
             
             # Generate code
             employee_code = IDGenerator.generate_employee_code(campus_id, shift, year, role, next_number)

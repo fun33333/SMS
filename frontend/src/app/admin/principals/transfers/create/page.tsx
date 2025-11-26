@@ -25,6 +25,7 @@ import {
   getAvailableSectionsForGradeSkip,
   createGradeSkipTransfer,
   AvailableGradeForSkip,
+  createCampusTransfer,
 } from '@/lib/api';
 import { getCurrentUserRole } from '@/lib/permissions';
 
@@ -115,6 +116,13 @@ export default function CreateTransferRequestPage() {
   const [selectedToGradeId, setSelectedToGradeId] = useState<string>('');
   const [selectedToGradeSkipClassroomId, setSelectedToGradeSkipClassroomId] = useState<string>('');
   const [gradeSkipLoading, setGradeSkipLoading] = useState(false);
+
+  // Campus transfer specific state (non-principal)
+  const [campusSkipGradeEnabled, setCampusSkipGradeEnabled] = useState(false);
+  const [campusAvailableSkipGrade, setCampusAvailableSkipGrade] = useState<AvailableGradeForSkip | null>(null);
+  const [campusAvailableSkipSections, setCampusAvailableSkipSections] = useState<AvailableClassroomOption[]>([]);
+  const [campusSelectedToGradeId, setCampusSelectedToGradeId] = useState<string>('');
+  const [campusSelectedToClassroomId, setCampusSelectedToClassroomId] = useState<string>('');
 
   // Transfer letter state
   const [showLetter, setShowLetter] = useState(false);
@@ -363,6 +371,42 @@ export default function CreateTransferRequestPage() {
       load();
     }
   }, [isPrincipal, selectedEntity, formData.transfer_type, selectedToGradeId, formData.to_shift]);
+
+  // Load campus transfer skip-grade options (non-principal)
+  useEffect(() => {
+    const loadCampusSkipOptions = async () => {
+      if (
+        !selectedEntity ||
+        isPrincipal ||
+        formData.transfer_type !== 'campus' ||
+        !campusSkipGradeEnabled ||
+        !('student_id' in selectedEntity)
+      ) {
+        setCampusAvailableSkipGrade(null);
+        setCampusAvailableSkipSections([]);
+        setCampusSelectedToGradeId('');
+        setCampusSelectedToClassroomId('');
+        return;
+      }
+
+      try {
+        const toCampusId = formData.to_campus ? parseInt(formData.to_campus, 10) : undefined;
+        if (!toCampusId) return;
+
+        // For now, reuse grade-skip available grade and sections APIs (same rules)
+        const gradeData = await getAvailableGradesForSkip(selectedEntity.id);
+        setCampusAvailableSkipGrade(gradeData);
+        setCampusSelectedToGradeId(gradeData.id.toString());
+
+        // Sections will be loaded lazily in UI via existing grade-skip API
+      } catch (error) {
+        console.error('Failed to load campus skip grade options', error);
+        setCampusAvailableSkipGrade(null);
+      }
+    };
+
+    loadCampusSkipOptions();
+  }, [isPrincipal, selectedEntity, formData.transfer_type, formData.to_campus, campusSkipGradeEnabled]);
 
   // Debug form data changes
   useEffect(() => {
@@ -688,13 +732,14 @@ export default function CreateTransferRequestPage() {
     try {
       setLoading(true);
 
-      // Non-principal: use new class/shift transfer APIs
+      // Non-principal: use new class/shift/campus transfer APIs
       if (!isPrincipal) {
-        const toClassroomIdNum = parseInt(selectedToClassroomId, 10);
+        const toClassroomIdNum = selectedToClassroomId ? parseInt(selectedToClassroomId, 10) : NaN;
 
-        const selectedDestinationOption = formData.transfer_type === 'class'
-          ? availableClassSections.find(opt => opt.id.toString() === selectedToClassroomId)
-          : availableShiftSections.find(opt => opt.id.toString() === selectedToClassroomId);
+        const selectedDestinationOption =
+          formData.transfer_type === 'class'
+            ? availableClassSections.find(opt => opt.id.toString() === selectedToClassroomId)
+            : availableShiftSections.find(opt => opt.id.toString() === selectedToClassroomId);
 
         if (formData.transfer_type === 'class') {
           await createClassTransfer({
@@ -721,14 +766,57 @@ export default function CreateTransferRequestPage() {
             requested_date: currentDate,
           });
           toast.success('Shift transfer request created successfully!');
+        } else if (formData.transfer_type === 'campus') {
+          // Campus transfer (teacher/coordinator workflow)
+          if (!formData.to_campus) {
+            toast.error('Please select destination campus for campus transfer');
+            setLoading(false);
+            return;
+          }
+
+          const anyEntity = selectedEntity as any;
+          const toCampusId = parseInt(formData.to_campus, 10);
+
+          // Map local shift code to API value
+          const toShift =
+            formData.to_shift === 'M'
+              ? 'morning'
+              : formData.to_shift === 'A'
+              ? 'afternoon'
+              : (anyEntity.shift || 'morning');
+
+          const payload: any = {
+            student: selectedEntity.id,
+            to_campus: toCampusId,
+            to_shift: toShift as 'morning' | 'afternoon',
+            reason: formData.reason,
+            requested_date: currentDate,
+          };
+
+          if (campusSkipGradeEnabled && campusSelectedToGradeId) {
+            payload.skip_grade = true;
+            payload.to_grade = parseInt(campusSelectedToGradeId, 10);
+            if (campusSelectedToClassroomId) {
+              payload.to_classroom = parseInt(campusSelectedToClassroomId, 10);
+            }
+          } else if (selectedToClassroomId) {
+            // Non-skip campus transfer with explicit section
+            payload.to_classroom = parseInt(selectedToClassroomId, 10);
+          }
+
+          await createCampusTransfer(payload);
+          toast.success('Campus transfer request created successfully!');
         }
 
-        // Prepare letter data
+        // Prepare letter data for local preview (class/shift; campus letter will use backend)
         const anyEntity = selectedEntity as any;
         const fromCampusId = anyEntity.current_campus || anyEntity.campus;
         const fromCampus = campuses.find(c => c.id === fromCampusId)?.campus_name || anyEntity.campus_name || 'Current Campus';
-        // For class/shift transfers, to campus is same as from campus
-        const toCampus = fromCampus;
+        const toCampus =
+          formData.transfer_type === 'campus'
+            ? campuses.find(c => c.id.toString() === formData.to_campus)?.campus_name ||
+              fromCampus
+            : fromCampus;
         const fromClass = `${anyEntity.current_grade || anyEntity.grade || ''} - ${anyEntity.section || ''}`.trim();
         const toClass = selectedDestinationOption ? `${selectedDestinationOption.grade_name} - ${selectedDestinationOption.section}` : '';
 

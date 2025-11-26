@@ -1280,7 +1280,7 @@ export default function CoordinatorPage() {
               )}
             </div>
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              <p className="text-xs text-gray-500 uppercase tracking-wide">Top Classes By Shudents</p>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Top Classes By Students</p>
               {filteredTopClasses.map((cls) => (
                 <div
                   key={cls.id}
