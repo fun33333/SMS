@@ -2439,14 +2439,61 @@ def get_delete_logs(request):
         elif hasattr(user, 'role') and user.role == 'principal':
             # Principal can see delete logs for their campus
             if user.campus:
-                # Filter by campus-related features or entities in their campus
+                # For student deletions, check if student belongs to principal's campus
+                # Get all student IDs in principal's campus (including soft-deleted)
+                campus_student_ids = Student.objects.with_deleted().filter(
+                    campus=user.campus
+                ).values_list('id', flat=True)
+                
+                # Filter delete logs: either feature is campus-related OR student_id is in campus
                 queryset = queryset.filter(
-                    Q(feature__in=['student', 'teacher', 'coordinator', 'classroom', 'grade', 'level']) |
+                    Q(feature__in=['teacher', 'coordinator', 'classroom', 'grade', 'level']) |
+                    Q(feature='student', entity_id__in=campus_student_ids) |
                     Q(changes__campus_id=user.campus.id) |
                     Q(changes__campus=user.campus.id)
                 )
+        elif hasattr(user, 'role') and user.role == 'coordinator':
+            # Coordinator can see delete logs for students in their managed classrooms
+            
+            try:
+                coordinator_obj = Coordinator.get_for_user(user)
+                if coordinator_obj and coordinator_obj.campus:
+                    # Determine which levels this coordinator manages
+                    managed_levels = []
+                    if coordinator_obj.shift == 'both' and coordinator_obj.assigned_levels.exists():
+                        managed_levels = list(coordinator_obj.assigned_levels.all())
+                    elif coordinator_obj.level:
+                        managed_levels = [coordinator_obj.level]
+                    
+                    if managed_levels:
+                        # Get all classrooms under coordinator's managed levels
+                        coordinator_classrooms = ClassRoom.objects.filter(
+                            grade__level__in=managed_levels,
+                            grade__level__campus=coordinator_obj.campus
+                        ).values_list('id', flat=True)
+                        
+                        # Get all student IDs in these classrooms (including soft-deleted)
+                        coordinator_student_ids = Student.objects.with_deleted().filter(
+                            classroom__in=coordinator_classrooms
+                        ).values_list('id', flat=True)
+                        
+                        # Filter delete logs: show student deletions for students in coordinator's classrooms
+                        # Also show other relevant features (teacher, classroom, etc.) if they relate to coordinator's scope
+                        queryset = queryset.filter(
+                            Q(feature='student', entity_id__in=coordinator_student_ids) |
+                            Q(feature__in=['teacher', 'classroom', 'grade', 'level'])  # Coordinator can see these too
+                )
         else:
-            # Other users see only their own delete logs
+                        # No managed levels, show only their own delete logs
+                        queryset = queryset.filter(user=user)
+                else:
+                    # No coordinator profile found, show only their own delete logs
+                    queryset = queryset.filter(user=user)
+            except Exception:
+                # If coordinator resolution fails, show only their own delete logs
+                queryset = queryset.filter(user=user)
+        else:
+            # Other users (teachers, etc.) see only their own delete logs
             queryset = queryset.filter(user=user)
         
         # Limit results

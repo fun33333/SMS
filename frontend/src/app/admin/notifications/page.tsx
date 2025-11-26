@@ -131,6 +131,11 @@ export default function NotificationsPage() {
 
   // Calculate unread delete logs count
   const deleteLogsUnreadCount = useMemo(() => {
+    // If section is open, count should be 0 (all logs are seen)
+    if (isDeleteLogsOpen) {
+      return 0
+    }
+    
     if (!Array.isArray(deleteLogs) || deleteLogs.length === 0) return 0
     
     // If no last seen timestamp, all logs are unread
@@ -144,11 +149,12 @@ export default function NotificationsPage() {
       const logDate = new Date(log.timestamp)
       return logDate > lastSeenDate
     }).length
-  }, [deleteLogs, deleteLogsLastSeen])
+  }, [deleteLogs, deleteLogsLastSeen, isDeleteLogsOpen])
 
   // Mark delete logs as seen when section is opened
   useEffect(() => {
     if (isDeleteLogsOpen && deleteLogs.length > 0) {
+      // Update last seen timestamp immediately when section opens
       const now = new Date().toISOString()
       setDeleteLogsLastSeen(now)
       if (typeof window !== 'undefined') {
