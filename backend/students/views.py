@@ -1,5 +1,5 @@
 # views.py
-from rest_framework import viewsets
+from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.pagination import PageNumberPagination
@@ -128,8 +128,17 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     def get_object(self):
         """Override to handle individual student retrieval with proper permissions"""
-        # Get the object first
-        obj = super().get_object()
+        # For destroy action, we need to get the object even if it's soft deleted
+        # So we use with_deleted() to bypass the manager's default filter
+        if self.action == 'destroy':
+            # Get object using with_deleted() to allow deleting already soft-deleted items if needed
+            lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+            lookup_value = self.kwargs[lookup_url_kwarg]
+            filter_kwargs = {self.lookup_field: lookup_value}
+            obj = Student.objects.with_deleted().get(**filter_kwargs)
+        else:
+            # For other actions, use normal queryset (excludes deleted)
+            obj = super().get_object()
         
         # Apply role-based access control for individual objects
         user = self.request.user
@@ -212,11 +221,57 @@ class StudentViewSet(viewsets.ModelViewSet):
         # Save again to trigger signals with actor
         instance.save()
     
+    def destroy(self, request, *args, **kwargs):
+        """Override destroy to ensure soft delete is used - NEVER calls default delete"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"[DESTROY] destroy() method called for DELETE request")
+        
+        # Get the instance
+        instance = self.get_object()
+        student_id = instance.id
+        student_name = instance.name
+        
+        logger.info(f"[DESTROY] Got student instance: ID={student_id}, Name={student_name}, is_deleted={instance.is_deleted}")
+        
+        # Check if already deleted
+        if instance.is_deleted:
+            logger.warning(f"[DESTROY] Student {student_id} is already soft deleted")
+            from rest_framework.exceptions import NotFound
+            raise NotFound("Student is already deleted.")
+        
+        # IMPORTANT: Call perform_destroy which does soft delete
+        # DO NOT call super().destroy() as it would do hard delete
+        logger.info(f"[DESTROY] Calling perform_destroy() for soft delete")
+        self.perform_destroy(instance)
+        
+        # Verify the student still exists in database (soft deleted, not hard deleted)
+        try:
+            from .models import Student
+            # Use with_deleted() to check if student exists (even if soft deleted)
+            still_exists = Student.objects.with_deleted().filter(pk=student_id).exists()
+            if not still_exists:
+                logger.error(f"[DESTROY] CRITICAL: Student {student_id} was HARD DELETED! This should not happen!")
+                raise Exception(f"CRITICAL ERROR: Student {student_id} was permanently deleted instead of soft deleted!")
+            else:
+                # Check if it's soft deleted
+                student_check = Student.objects.with_deleted().get(pk=student_id)
+                if student_check.is_deleted:
+                    logger.info(f"[DESTROY] SUCCESS: Student {student_id} is soft deleted (is_deleted=True)")
+                else:
+                    logger.error(f"[DESTROY] ERROR: Student {student_id} exists but is_deleted is False!")
+        except Student.DoesNotExist:
+            logger.error(f"[DESTROY] CRITICAL: Student {student_id} does not exist in database - was HARD DELETED!")
+            raise Exception(f"CRITICAL ERROR: Student {student_id} was permanently deleted!")
+        
+        logger.info(f"[DESTROY] destroy() completed successfully")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    
     def perform_destroy(self, instance):
         """Soft delete student and create audit log"""
-        instance._actor = self.request.user
-        
-        # Store student info before deletion for audit log
+        # IMPORTANT: Do NOT call super().perform_destroy() as it would do hard delete
+        # Store student info BEFORE soft delete (in case instance gets modified)
         student_id = instance.id
         student_name = instance.name
         student_campus = instance.campus
@@ -226,8 +281,34 @@ class StudentViewSet(viewsets.ModelViewSet):
         user_name = user.get_full_name() if hasattr(user, 'get_full_name') else (user.username or 'Unknown')
         user_role = user.get_role_display() if hasattr(user, 'get_role_display') else (user.role or 'User')
         
+        # Set actor for potential signal use (though soft_delete uses update() which bypasses signals)
+        instance._actor = user
+        
+        # Log before soft delete
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[SOFT_DELETE] Starting soft delete for student ID: {student_id}, Name: {student_name}")
+        logger.info(f"[SOFT_DELETE] Student is_deleted before: {instance.is_deleted}")
+        
         # Soft delete the student (instead of hard delete)
-        instance.soft_delete()
+        # This uses update() to directly modify database, does NOT call .delete()
+        # This ensures no post_delete signal is triggered
+        try:
+            instance.soft_delete()
+            logger.info(f"[SOFT_DELETE] soft_delete() method called successfully")
+            
+            # Verify soft delete worked
+            instance.refresh_from_db()
+            logger.info(f"[SOFT_DELETE] Student is_deleted after refresh: {instance.is_deleted}")
+            
+            if not instance.is_deleted:
+                logger.error(f"[SOFT_DELETE] CRITICAL ERROR: Soft delete failed! Student {student_id} is_deleted is still False!")
+                raise Exception(f"Soft delete failed for student {student_id} - is_deleted is still False after soft_delete() call")
+            
+            logger.info(f"[SOFT_DELETE] Soft delete successful for student {student_id}")
+        except Exception as e:
+            logger.error(f"[SOFT_DELETE] ERROR during soft_delete(): {str(e)}")
+            raise
         
         # Create audit log after soft deletion
         try:

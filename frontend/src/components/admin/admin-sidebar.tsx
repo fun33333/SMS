@@ -74,7 +74,13 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
   }, [sidebarOpen, isMobile, isTablet]);
 
   const pathname = usePathname()
+  const [mounted, setMounted] = useState(false)
   const previousPathRef = useRef<string | null>(null);
+  
+  // Fix hydration mismatch - only calculate isActive after mount
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     const previousPath = previousPathRef.current;
@@ -494,20 +500,18 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
                 // 1. Exact match always works
                 // 2. For items with subItems, check if pathname starts with href + "/"
                 // 3. For items without subItems (like Dashboard), only exact match
-                const isExactMatch = pathname === item.href
+                // Only calculate isActive after mount to prevent hydration mismatch
+                const isExactMatch = mounted && pathname === item.href
                 const hasSubItems = item.subItems.length > 0
-                const isSubRoute = hasSubItems && pathname.startsWith(item.href + "/")
+                const isSubRoute = mounted && hasSubItems && pathname.startsWith(item.href + "/")
                 const isActive = isExactMatch || isSubRoute
 
                 return (
                   <div key={item.key}>
                     <Link href={item.href} onClick={autoCloseSidebar}>
                       <button
-                        className={`w-full flex ${sidebarOpen ? "items-center gap-3 px-4 py-3" : "justify-center items-center p-0"} rounded-xl font-semibold shadow-lg transition-all duration-500 ${isActive ? "bg-[#6096ba] text-[#e7ecef] shadow-xl" : "text-[#274c77] hover:bg-[#a3cef1]"}`}
-                        style={{
-                          backdropFilter: "blur(4px)",
-                          border: isActive ? "2px solid #6096ba" : "1.5px solid #8b8c89",
-                        }}
+                        className={`w-full flex ${sidebarOpen ? "items-center gap-3 px-4 py-3" : "justify-center items-center p-0"} rounded-xl font-semibold shadow-lg transition-all duration-500 backdrop-blur-sm ${isActive ? "bg-[#6096ba] text-[#e7ecef] shadow-xl border-2 border-[#6096ba]" : "text-[#274c77] hover:bg-[#a3cef1] border border-[#8b8c89]"}`}
+                        suppressHydrationWarning
                       >
                         <span className={`${sidebarOpen ? "flex items-center justify-center" : "flex items-center justify-center w-12 h-12"} transition-all duration-500`}>
                           <item.icon

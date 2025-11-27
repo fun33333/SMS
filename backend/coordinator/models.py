@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 from campus.models import Campus
 from classes.models import Level
 
@@ -16,7 +17,25 @@ SHIFT_CHOICES = [
     ('all', 'All Shifts'),
 ]
 
+class CoordinatorManager(models.Manager):
+    """Custom manager to exclude soft deleted coordinators by default"""
+    
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+    
+    def with_deleted(self):
+        """Return all coordinators including soft deleted ones"""
+        return super().get_queryset()
+    
+    def only_deleted(self):
+        """Return only soft deleted coordinators"""
+        return super().get_queryset().filter(is_deleted=True)
+
+
 class Coordinator(models.Model):
+    # Custom manager
+    objects = CoordinatorManager()
+    
     # Personal Information
     full_name = models.CharField(max_length=150)
     dob = models.DateField()
@@ -65,6 +84,10 @@ class Coordinator(models.Model):
     employee_code = models.CharField(max_length=20, unique=True, editable=False, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    # Soft Delete Fields
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
     
     def save(self, *args, **kwargs):
         # Auto-generate employee_code if not provided
@@ -190,6 +213,84 @@ class Coordinator(models.Model):
             pass
 
         return None
+    
+    def soft_delete(self):
+        """Soft delete the coordinator - uses update() to bypass signals"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if not self.pk:
+            raise ValueError("Cannot soft delete coordinator without primary key")
+        
+        logger.info(f"[SOFT_DELETE] soft_delete() called for coordinator PK: {self.pk}, Name: {self.full_name}")
+        
+        # Use update() to directly update database without triggering signals
+        # This ensures no post_delete or other signals interfere
+        # IMPORTANT: Use with_deleted() to bypass custom manager's filter
+        updated_count = Coordinator.objects.with_deleted().filter(pk=self.pk).update(
+            is_deleted=True,
+            deleted_at=timezone.now(),
+            is_currently_active=False
+        )
+        
+        logger.info(f"[SOFT_DELETE] Database update() returned updated_count: {updated_count}")
+        
+        if updated_count == 0:
+            logger.error(f"[SOFT_DELETE] CRITICAL: update() returned 0 - no rows were updated! Coordinator PK: {self.pk}")
+            raise Exception(f"Soft delete failed - no rows updated for coordinator PK: {self.pk}")
+        
+        # Refresh instance from database
+        self.refresh_from_db()
+        logger.info(f"[SOFT_DELETE] After refresh_from_db(), is_deleted: {self.is_deleted}")
+    
+    def restore(self):
+        """Restore a soft deleted coordinator"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if not self.pk:
+            raise ValueError("Cannot restore coordinator without primary key")
+        
+        logger.info(f"[RESTORE] restore() called for coordinator PK: {self.pk}, Name: {self.full_name}")
+        
+        # Use update() to bypass signals
+        updated_count = Coordinator.objects.with_deleted().filter(pk=self.pk).update(
+            is_deleted=False,
+            deleted_at=None
+        )
+        
+        if updated_count == 0:
+            logger.error(f"[RESTORE] CRITICAL: update() returned 0 - no rows were updated! Coordinator PK: {self.pk}")
+            raise Exception(f"Restore failed - no rows updated for coordinator PK: {self.pk}")
+        
+        self.refresh_from_db()
+        logger.info(f"[RESTORE] After refresh_from_db(), is_deleted: {self.is_deleted}")
+    
+    def delete(self, using=None, keep_parents=False):
+        """
+        Override delete() to prevent accidental hard deletes.
+        Always use soft_delete() instead.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"[OVERRIDE_DELETE] delete() called for coordinator PK: {self.pk}, Name: {self.full_name}, is_deleted: {self.is_deleted}")
+        
+        if not self.is_deleted:
+            logger.info(f"[OVERRIDE_DELETE] Calling soft_delete() instead of hard delete")
+            self.soft_delete()
+        else:
+            raise ValueError(
+                "Cannot hard delete coordinator. Use hard_delete() method explicitly if you really want to permanently delete."
+            )
+    
+    def hard_delete(self):
+        """Permanently delete the coordinator from database"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.warning(f"[HARD_DELETE] hard_delete() called for coordinator PK: {self.pk}, Name: {self.full_name}")
+        super().delete()
 
     def __str__(self):
         return f"{self.full_name} ({self.employee_code})"
