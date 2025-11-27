@@ -1941,6 +1941,18 @@ export async function coordinatorApproveAttendance(attendanceId: number, comment
   }
 }
 
+export async function coordinatorBulkApproveAttendance(attendanceIds: number[], comment?: string) {
+  try {
+    return await apiPost(`/api/attendance/coordinator-bulk-approve/`, { 
+      attendance_ids: attendanceIds,
+      comment: comment || ''
+    });
+  } catch (error) {
+    console.error('Failed to bulk approve attendance:', error);
+    throw error;
+  }
+}
+
 export async function reopenAttendance(attendanceId: number, reason: string) {
   try {
     return await apiPost(`/api/attendance/reopen/${attendanceId}/`, { reason });

@@ -1604,6 +1604,132 @@ def coordinator_approve_attendance(request, attendance_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def coordinator_bulk_approve_attendance(request):
+    """Coordinator bulk approves multiple attendances at once"""
+    try:
+        attendance_ids = request.data.get('attendance_ids', [])
+        comment = request.data.get('comment', '')
+        
+        if not attendance_ids or not isinstance(attendance_ids, list):
+            return Response({'error': 'attendance_ids must be a non-empty list'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Verify coordinator has access
+        from coordinator.models import Coordinator
+        coordinator = Coordinator.get_for_user(request.user)
+        if not coordinator:
+            return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        approved_count = 0
+        failed_count = 0
+        errors = []
+        
+        with transaction.atomic():
+            for attendance_id in attendance_ids:
+                try:
+                    attendance = get_object_or_404(Attendance, id=attendance_id, is_deleted=False)
+                    
+                    # Check if attendance can be approved
+                    if attendance.status not in ['draft', 'submitted', 'under_review']:
+                        failed_count += 1
+                        errors.append(f"Attendance {attendance_id}: Cannot approve (status: {attendance.status})")
+                        continue
+                    
+                    # Check membership (support assigned_levels for 'both' shifts)
+                    allowed = False
+                    if coordinator.shift == 'both':
+                        if coordinator.assigned_levels.exists():
+                            if attendance.classroom.grade.level in coordinator.assigned_levels.all():
+                                allowed = True
+                        elif coordinator.level:
+                            if coordinator.level == attendance.classroom.grade.level:
+                                allowed = True
+                    else:
+                        if coordinator.level == attendance.classroom.grade.level:
+                            allowed = True
+                    
+                    if not allowed:
+                        failed_count += 1
+                        errors.append(f"Attendance {attendance_id}: Access denied")
+                        continue
+                    
+                    # Approve attendance
+                    attendance.status = 'approved'
+                    attendance.is_final = True
+                    attendance.finalized_at = timezone.now()
+                    attendance.finalized_by = request.user
+                    attendance.add_edit_history(request.user, 'coordinator_approve', f'Bulk approved by coordinator{": " + comment if comment else ""}')
+                    attendance.save()
+                    
+                    # Create audit log
+                    from .models import AuditLog
+                    AuditLog.objects.create(
+                        feature='attendance',
+                        action='coordinator_approve',
+                        entity_type='Attendance',
+                        entity_id=attendance.id,
+                        user=request.user,
+                        ip_address=request.META.get('REMOTE_ADDR'),
+                        changes={'status': 'approved', 'bulk_approval': True}
+                    )
+                    
+                    # Send notification to teacher
+                    try:
+                        teacher_user = None
+                        teacher = None
+                        
+                        if attendance.marked_by:
+                            teacher_user = attendance.marked_by
+                            try:
+                                teacher = Teacher.objects.get(user=teacher_user)
+                            except Teacher.DoesNotExist:
+                                try:
+                                    teacher = Teacher.objects.get(employee_code=teacher_user.username)
+                                except Teacher.DoesNotExist:
+                                    pass
+                        elif attendance.classroom and attendance.classroom.class_teacher:
+                            teacher = attendance.classroom.class_teacher
+                            if teacher and teacher.user:
+                                teacher_user = teacher.user
+                        
+                        if teacher_user:
+                            coordinator_name = coordinator.full_name if coordinator else request.user.get_full_name() or request.user.username
+                            classroom_name = str(attendance.classroom)
+                            verb = "Your attendance has been approved"
+                            target_text = f"by {coordinator_name} for {classroom_name} on {attendance.date.strftime('%B %d, %Y')}."
+                            
+                            from notifications.services import create_notification
+                            create_notification(
+                                recipient=teacher_user,
+                                actor=request.user,
+                                verb=verb,
+                                target_text=target_text,
+                                data={"attendance_id": attendance.id, "classroom_id": attendance.classroom.id}
+                            )
+                    except Exception as e:
+                        # Don't fail bulk approval if notification fails
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Failed to send notification for attendance {attendance_id}: {str(e)}")
+                    
+                    approved_count += 1
+                    
+                except Exception as e:
+                    failed_count += 1
+                    errors.append(f"Attendance {attendance_id}: {str(e)}")
+        
+        return Response({
+            'approved_count': approved_count,
+            'failed_count': failed_count,
+            'total': len(attendance_ids),
+            'errors': errors[:10]  # Limit errors to first 10
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def reopen_attendance(request, attendance_id):
     """Coordinator reopens finalized attendance with reason"""
     try:

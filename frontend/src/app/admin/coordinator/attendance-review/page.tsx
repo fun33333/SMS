@@ -7,7 +7,7 @@ import { Calendar, RefreshCw, AlertCircle, Users } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { getCurrentUserProfile, getCoordinatorClasses, getAttendanceForDate, editAttendance, getStoredUserProfile, ApiError, getHolidays } from "@/lib/api"
+import { getCurrentUserProfile, getCoordinatorClasses, getAttendanceForDate, editAttendance, getStoredUserProfile, ApiError, getHolidays, coordinatorBulkApproveAttendance } from "@/lib/api"
 import { useRouter } from "next/navigation"
 import CoordinatorHolidayManagement from "@/components/attendance/coordinator-holiday-management"
 
@@ -92,6 +92,8 @@ export default function AttendanceReviewPage() {
   const [holidays, setHolidays] = useState<any[]>([]);
   const [allUpcomingHolidays, setAllUpcomingHolidays] = useState<any[]>([]);
   const [selectedHoliday, setSelectedHoliday] = useState<any | null>(null);
+  const [selectedClassrooms, setSelectedClassrooms] = useState<Set<number>>(new Set());
+  const [bulkApproving, setBulkApproving] = useState(false);
   const ALLOWED_APPROVE_STATUSES = ['draft', 'submitted', 'under_review'];
   const currentAttendanceStatus = (attendanceData && attendanceData.length > 0) ? (attendanceData[0].status || 'not_marked') : 'not_marked';
   const dialogHasCounts = (attendanceData && attendanceData.length > 0)
@@ -326,7 +328,8 @@ export default function AttendanceReviewPage() {
               display_status: d.display_status || null,
               marked_by: d.marked_by || d.marked_by_name || 'Not Marked',
               attendance_percentage: d.attendance_percentage ?? d.present_pct ?? 0,
-              is_holiday: d.is_holiday || false
+              is_holiday: d.is_holiday || false,
+              attendance_id: d.id || null
             };
           } else {
             console.log(`   - No attendance data found for ${classroom.name}, using default values`);
@@ -655,6 +658,111 @@ export default function AttendanceReviewPage() {
     setSelectedHoliday(null);
   };
 
+  // Toggle classroom selection for bulk approval
+  const toggleClassroomSelection = (classroomId: number, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent opening dialog when clicking checkbox
+    setSelectedClassrooms(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(classroomId)) {
+        newSet.delete(classroomId);
+      } else {
+        newSet.add(classroomId);
+      }
+      return newSet;
+    });
+  };
+
+  // Select/Deselect all classrooms
+  const toggleSelectAll = () => {
+    const approvableClassrooms = classroomAttendanceSummary
+      .filter((summary) => {
+        const st = summary.status;
+        if (st === 'approved' || st === 'Approved' || summary.is_holiday) return false;
+        const hasCounts = (summary.present_count || 0) + (summary.absent_count || 0) + (summary.leave_count || 0) > 0;
+        return hasCounts || ALLOWED_APPROVE_STATUSES.includes(String(st));
+      })
+      .map(s => s.classroom_id);
+    
+    if (selectedClassrooms.size === approvableClassrooms.length) {
+      setSelectedClassrooms(new Set());
+    } else {
+      setSelectedClassrooms(new Set(approvableClassrooms));
+    }
+  };
+
+  // Bulk approve selected attendances
+  const bulkApproveAttendance = async () => {
+    if (selectedClassrooms.size === 0) {
+      alert('Please select at least one classroom to approve.');
+      return;
+    }
+
+    // Get attendance IDs for selected classrooms
+    const attendanceIds: number[] = [];
+    const selectedSummaries = classroomAttendanceSummary.filter(s => selectedClassrooms.has(s.classroom_id));
+    
+    // Fetch attendance IDs for all selected classrooms
+    const fetchPromises = selectedSummaries.map(async (summary) => {
+      // Skip if already approved or holiday
+      const st = summary.status;
+      if (st === 'approved' || st === 'Approved' || summary.is_holiday) return null;
+      
+      // Get attendance ID from summary or fetch it
+      if (summary.attendance_id) {
+        return summary.attendance_id;
+      } else {
+        // If attendance_id not in summary, we need to fetch it
+        try {
+          const attendance = await getAttendanceForDate(summary.classroom_id, selectedDate);
+          if (attendance && (attendance as any).id) {
+            return (attendance as any).id;
+          }
+        } catch (error) {
+          console.error(`Failed to get attendance for classroom ${summary.classroom_id}:`, error);
+        }
+      }
+      return null;
+    });
+    
+    const fetchedIds = await Promise.all(fetchPromises);
+    attendanceIds.push(...fetchedIds.filter((id): id is number => id !== null));
+
+    if (attendanceIds.length === 0) {
+      alert('No approvable attendance found for selected classrooms.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to approve ${attendanceIds.length} attendance record(s)?`)) {
+      return;
+    }
+
+    try {
+      setBulkApproving(true);
+      const result = await coordinatorBulkApproveAttendance(attendanceIds, approvalComment) as {
+        approved_count: number;
+        failed_count: number;
+        total: number;
+        errors?: string[];
+      };
+      
+      const message = `Successfully approved ${result.approved_count} attendance record(s).${result.failed_count > 0 ? ` ${result.failed_count} failed.` : ''}`;
+      alert(message);
+      
+      // Clear selections and refresh summary
+      setSelectedClassrooms(new Set());
+      await fetchAttendanceSummary(selectedDate);
+    } catch (error) {
+      console.error('Error bulk approving attendance:', error);
+      if (error instanceof ApiError) {
+        alert(error.message || 'Failed to bulk approve attendance.');
+      } else {
+        alert('Failed to bulk approve attendance.');
+      }
+    } finally {
+      setBulkApproving(false);
+    }
+  };
+
   // Approve attendance as coordinator
   const approveAttendance = async () => {
     try {
@@ -928,6 +1036,37 @@ export default function AttendanceReviewPage() {
 
         {/* Action Buttons Right Side */}
         <div className="flex w-full flex-wrap items-center justify-end gap-2 self-end sm:w-auto sm:self-center">
+          {/* Select All / Bulk Approve Buttons */}
+          {classroomAttendanceSummary.filter(s => {
+            const st = s.status;
+            if (st === 'approved' || st === 'Approved' || s.is_holiday) return false;
+            const hasCounts = (s.present_count || 0) + (s.absent_count || 0) + (s.leave_count || 0) > 0;
+            return hasCounts || ALLOWED_APPROVE_STATUSES.includes(String(st));
+          }).length > 0 && (
+            <>
+              <Button
+                onClick={toggleSelectAll}
+                className="flex w-full items-center bg-blue-600 text-white hover:bg-blue-700 sm:w-auto"
+                variant="default"
+              >
+                {selectedClassrooms.size === classroomAttendanceSummary.filter(s => {
+                  const st = s.status;
+                  if (st === 'approved' || st === 'Approved' || s.is_holiday) return false;
+                  const hasCounts = (s.present_count || 0) + (s.absent_count || 0) + (s.leave_count || 0) > 0;
+                  return hasCounts || ALLOWED_APPROVE_STATUSES.includes(String(st));
+                }).length ? 'Deselect All' : 'Select All'}
+              </Button>
+              <Button
+                onClick={bulkApproveAttendance}
+                disabled={bulkApproving || selectedClassrooms.size === 0}
+                className="flex w-full items-center bg-green-600 text-white hover:bg-green-700 sm:w-auto"
+                variant="default"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${bulkApproving ? 'animate-spin' : ''}`} />
+                {bulkApproving ? 'Approving...' : `Approve All Selected (${selectedClassrooms.size})`}
+              </Button>
+            </>
+          )}
           {/* Upcoming Holidays Badge */}
           {allUpcomingHolidays.length > 0 && (() => {
             // Sort holidays by date
@@ -1161,6 +1300,9 @@ export default function AttendanceReviewPage() {
                 st === 'draft' ? 'bg-gray-100 text-gray-800 border-gray-300' :
                 (hasCounts ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-800 border-red-300');
 
+              const canApprove = !summary.is_holiday && (hasCounts || ALLOWED_APPROVE_STATUSES.includes(String(st)));
+              const isSelected = selectedClassrooms.has(summary.classroom_id);
+
               return (
               <div
                 key={summary.classroom_id}
@@ -1173,10 +1315,23 @@ export default function AttendanceReviewPage() {
                     openClassroomDialog(summary.classroom_id, summary.classroom_name);
                   }
                 }}
-                className="bg-gray-50 rounded-lg p-6 border border-gray-200 hover:shadow-md transition ease-in-out duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#6096ba]"
+                className={`bg-gray-50 rounded-lg p-6 border-2 transition ease-in-out duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#6096ba] ${
+                  isSelected ? 'border-green-500 bg-green-50 shadow-md' : 'border-gray-200 hover:shadow-md'
+                }`}
               >
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-gray-900 text-base">{summary.classroom_name}</h3>
+                  <div className="flex items-center gap-2 flex-1">
+                    {canApprove && (
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {}}
+                        onClick={(e) => toggleClassroomSelection(summary.classroom_id, e)}
+                        className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 cursor-pointer"
+                      />
+                    )}
+                    <h3 className="font-semibold text-gray-900 text-base">{summary.classroom_name}</h3>
+                  </div>
                   <Badge
                     variant="outline"
                     className={badgeClass}
