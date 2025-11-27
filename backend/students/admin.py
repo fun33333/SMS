@@ -21,6 +21,14 @@ class StudentAdmin(admin.ModelAdmin):
     list_filter = ("campus", "classroom", "is_deleted")
     search_fields = ("name", "student_code", "gr_no")
     readonly_fields = ("student_code", "student_id", "gr_no", "created_at", "updated_at", "deleted_at")
+    
+    def get_queryset(self, request):
+        """Override to show soft-deleted students in admin"""
+        qs = Student.objects.with_deleted().all()
+        ordering = self.get_ordering(request)
+        if ordering:
+            qs = qs.order_by(*ordering)
+        return qs
     exclude = (
         "old_gr_number",          # removed per new requirements
         "transfer_reason",        # removed from UI flow
@@ -124,6 +132,59 @@ class StudentAdmin(admin.ModelAdmin):
         self.message_user(request, message, level='SUCCESS')
     
     restore_students.short_description = "♻️ Restore Selected Students"
+
+    # --- Override Delete to Use Soft Delete ---
+    def delete_model(self, request, obj):
+        """Override to use soft delete instead of hard delete"""
+        obj._actor = request.user
+        obj.soft_delete()
+        
+        # Create audit log
+        try:
+            from attendance.models import AuditLog
+            AuditLog.objects.create(
+                feature='student',
+                action='delete',
+                entity_type='Student',
+                entity_id=obj.id,
+                user=request.user,
+                ip_address=request.META.get('REMOTE_ADDR'),
+                changes={'name': obj.name, 'student_id': obj.id, 'campus_id': obj.campus.id if obj.campus else None},
+                reason=f'Student {obj.name} deleted by admin user {request.user.get_full_name() or request.user.username}'
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to create audit log for student deletion: {str(e)}")
+    
+    def delete_queryset(self, request, queryset):
+        """Override bulk delete to use soft delete"""
+        count = 0
+        for obj in queryset:
+            obj._actor = request.user
+            if not obj.is_deleted:
+                obj.soft_delete()
+                count += 1
+                
+                # Create audit log for each deletion
+                try:
+                    from attendance.models import AuditLog
+                    AuditLog.objects.create(
+                        feature='student',
+                        action='delete',
+                        entity_type='Student',
+                        entity_id=obj.id,
+                        user=request.user,
+                        ip_address=request.META.get('REMOTE_ADDR'),
+                        changes={'name': obj.name, 'student_id': obj.id, 'campus_id': obj.campus.id if obj.campus else None},
+                        reason=f'Student {obj.name} deleted by admin user {request.user.get_full_name() or request.user.username}'
+                    )
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Failed to create audit log for student deletion: {str(e)}")
+        
+        self.message_user(request, f"✅ {count} student(s) soft deleted successfully.", level='SUCCESS')
 
     # --- Permissions ---
     def has_delete_permission(self, request, obj=None):

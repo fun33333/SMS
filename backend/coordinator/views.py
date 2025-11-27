@@ -61,10 +61,111 @@ class CoordinatorViewSet(viewsets.ModelViewSet):
         # Save again to trigger signals with actor
         instance.save()
     
+    def destroy(self, request, *args, **kwargs):
+        """Override destroy to ensure soft delete is used - NEVER calls default delete"""
+        logger.info(f"[DESTROY] destroy() method called for DELETE request")
+        
+        # Get the instance
+        instance = self.get_object()
+        coordinator_id = instance.id
+        coordinator_name = instance.full_name
+        
+        logger.info(f"[DESTROY] Got coordinator instance: ID={coordinator_id}, Name={coordinator_name}, is_deleted={instance.is_deleted}")
+        
+        # Check if already deleted
+        if instance.is_deleted:
+            logger.warning(f"[DESTROY] Coordinator {coordinator_id} is already soft deleted")
+            from rest_framework.exceptions import NotFound
+            raise NotFound("Coordinator is already deleted.")
+        
+        # IMPORTANT: Call perform_destroy which does soft delete
+        # DO NOT call super().destroy() as it would do hard delete
+        logger.info(f"[DESTROY] Calling perform_destroy() for soft delete")
+        self.perform_destroy(instance)
+        
+        # Verify the coordinator still exists in database (soft deleted, not hard deleted)
+        try:
+            from .models import Coordinator
+            # Use with_deleted() to check if coordinator exists (even if soft deleted)
+            still_exists = Coordinator.objects.with_deleted().filter(pk=coordinator_id).exists()
+            if not still_exists:
+                logger.error(f"[DESTROY] CRITICAL: Coordinator {coordinator_id} was HARD DELETED! This should not happen!")
+                raise Exception(f"CRITICAL ERROR: Coordinator {coordinator_id} was permanently deleted instead of soft deleted!")
+            else:
+                # Check if it's soft deleted
+                coordinator_check = Coordinator.objects.with_deleted().get(pk=coordinator_id)
+                if coordinator_check.is_deleted:
+                    logger.info(f"[DESTROY] SUCCESS: Coordinator {coordinator_id} is soft deleted (is_deleted=True)")
+                else:
+                    logger.error(f"[DESTROY] ERROR: Coordinator {coordinator_id} exists but is_deleted is False!")
+        except Coordinator.DoesNotExist:
+            logger.error(f"[DESTROY] CRITICAL: Coordinator {coordinator_id} does not exist in database - was HARD DELETED!")
+            raise Exception(f"CRITICAL ERROR: Coordinator {coordinator_id} was permanently deleted!")
+        
+        logger.info(f"[DESTROY] destroy() completed successfully")
+        from rest_framework import status
+        from rest_framework.response import Response
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    
     def perform_destroy(self, instance):
-        """Set actor before deleting coordinator"""
+        """Soft delete coordinator and create audit log"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         instance._actor = self.request.user
-        super().perform_destroy(instance)
+        
+        # Store coordinator info before deletion for audit log
+        coordinator_id = instance.id
+        coordinator_name = instance.full_name
+        coordinator_campus = instance.campus
+        
+        # Get user name for audit log
+        user = self.request.user
+        user_name = user.get_full_name() if hasattr(user, 'get_full_name') else (user.username or 'Unknown')
+        user_role = user.get_role_display() if hasattr(user, 'get_role_display') else (user.role or 'User')
+        
+        # Log before soft delete
+        logger.info(f"[SOFT_DELETE] Starting soft delete for coordinator ID: {coordinator_id}, Name: {coordinator_name}")
+        logger.info(f"[SOFT_DELETE] Coordinator is_deleted before: {instance.is_deleted}")
+        
+        # Soft delete the coordinator (instead of hard delete)
+        # This uses update() to directly modify database, does NOT call .delete()
+        # This ensures no post_delete signal is triggered
+        try:
+            instance.soft_delete()
+            logger.info(f"[SOFT_DELETE] soft_delete() method called successfully")
+            
+            # Verify soft delete worked
+            instance.refresh_from_db()
+            logger.info(f"[SOFT_DELETE] Coordinator is_deleted after refresh: {instance.is_deleted}")
+            
+            if not instance.is_deleted:
+                logger.error(f"[SOFT_DELETE] CRITICAL ERROR: Soft delete failed! Coordinator {coordinator_id} is_deleted is still False!")
+                raise Exception(f"Soft delete failed for coordinator {coordinator_id} - is_deleted is still False after soft_delete() call")
+            
+            logger.info(f"[SOFT_DELETE] Soft delete successful for coordinator {coordinator_id}")
+        except Exception as e:
+            logger.error(f"[SOFT_DELETE] ERROR during soft_delete(): {str(e)}")
+            raise
+        
+        # Create audit log after soft deletion
+        try:
+            from attendance.models import AuditLog
+            AuditLog.objects.create(
+                feature='coordinator',
+                action='delete',
+                entity_type='Coordinator',
+                entity_id=coordinator_id,
+                user=user,
+                ip_address=self.request.META.get('REMOTE_ADDR'),
+                changes={'name': coordinator_name, 'coordinator_id': coordinator_id, 'campus_id': coordinator_campus.id if coordinator_campus else None},
+                reason=f'Coordinator {coordinator_name} deleted by {user_role} {user_name}'
+            )
+        except Exception as e:
+            # Log error but don't fail the deletion
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to create audit log for coordinator deletion: {str(e)}")
     
     def create(self, request, *args, **kwargs):
         """Override create method to add debug logging"""

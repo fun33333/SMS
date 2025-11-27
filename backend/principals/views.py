@@ -26,7 +26,8 @@ class PrincipalViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Override to optimize queries and handle filtering"""
-        queryset = Principal.objects.select_related('campus', 'user').all()
+        # Use with_deleted() to get all records, then filter by is_deleted=False
+        queryset = Principal.objects.with_deleted().filter(is_deleted=False).select_related('campus', 'user')
         
         # Role-based filtering - only super admin can access all principals
         user = self.request.user
@@ -116,6 +117,42 @@ class PrincipalViewSet(viewsets.ModelViewSet):
         if principal.user and principal.email:
             principal.user.email = principal.email
             principal.user.save()
+    
+    def perform_destroy(self, instance):
+        """Soft delete principal and create audit log"""
+        instance._actor = self.request.user
+        
+        # Store principal info before deletion for audit log
+        principal_id = instance.id
+        principal_name = instance.full_name
+        principal_campus = instance.campus
+        
+        # Get user name for audit log
+        user = self.request.user
+        user_name = user.get_full_name() if hasattr(user, 'get_full_name') else (user.username or 'Unknown')
+        user_role = user.get_role_display() if hasattr(user, 'get_role_display') else (user.role or 'User')
+        
+        # Soft delete the principal (instead of hard delete)
+        instance.soft_delete()
+        
+        # Create audit log after soft deletion
+        try:
+            from attendance.models import AuditLog
+            AuditLog.objects.create(
+                feature='principal',
+                action='delete',
+                entity_type='Principal',
+                entity_id=principal_id,
+                user=user,
+                ip_address=self.request.META.get('REMOTE_ADDR'),
+                changes={'name': principal_name, 'principal_id': principal_id, 'campus_id': principal_campus.id if principal_campus else None},
+                reason=f'Principal {principal_name} deleted by {user_role} {user_name}'
+            )
+        except Exception as e:
+            # Log error but don't fail the deletion
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to create audit log for principal deletion: {str(e)}")
     
     @decorators.action(detail=False, methods=['get'])
     def stats(self, request):

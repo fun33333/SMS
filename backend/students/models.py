@@ -255,12 +255,31 @@ class Student(models.Model):
         return f"{self.name} ({self.student_code or self.student_id or self.gr_no or 'No ID'})"
     
     def soft_delete(self):
-        """Soft delete the student"""
-        self.is_deleted = True
-        self.deleted_at = timezone.now()
-        self.terminated_on = timezone.now()
-        self.termination_reason = "Deleted from system"
-        self.save()
+        """Soft delete the student - uses update() to bypass signals"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if not self.pk:
+            raise ValueError("Cannot soft delete student without primary key")
+        
+        logger.info(f"[SOFT_DELETE] soft_delete() called for student PK: {self.pk}, Name: {self.name}")
+        
+        updated_count = Student.objects.with_deleted().filter(pk=self.pk).update(
+            is_deleted=True,
+            deleted_at=timezone.now(),
+            terminated_on=timezone.now(),
+            termination_reason="Deleted from system"
+        )
+        
+        logger.info(f"[SOFT_DELETE] Database update() returned updated_count: {updated_count}")
+        
+        if updated_count == 0:
+            logger.error(f"[SOFT_DELETE] CRITICAL: update() returned 0 - no rows were updated! Student PK: {self.pk}")
+            raise Exception(f"Soft delete failed - no rows updated for student PK: {self.pk}")
+        
+        # Refresh instance from database
+        self.refresh_from_db()
+        logger.info(f"[SOFT_DELETE] After refresh_from_db(), is_deleted: {self.is_deleted}")
     
     def restore(self):
         """Restore a soft deleted student"""
@@ -270,8 +289,22 @@ class Student(models.Model):
         self.termination_reason = None
         self.save()
     
+    def delete(self, using=None, keep_parents=False):
+        """
+        Override delete() to prevent accidental hard deletes.
+        Always use soft_delete() instead.
+        """
+        # If someone accidentally calls .delete(), use soft delete instead
+        if not self.is_deleted:
+            self.soft_delete()
+        else:
+            # If already soft deleted and someone wants to hard delete, they must explicitly call hard_delete()
+            raise ValueError(
+                "Cannot hard delete student. Use hard_delete() method explicitly if you really want to permanently delete."
+            )
+    
     def hard_delete(self):
-        """Permanently delete the student from database"""
+        """Permanently delete the student from database - use with caution!"""
         super().delete()
     
     def _auto_assign_classroom(self):

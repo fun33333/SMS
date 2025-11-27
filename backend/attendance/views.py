@@ -1604,6 +1604,132 @@ def coordinator_approve_attendance(request, attendance_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def coordinator_bulk_approve_attendance(request):
+    """Coordinator bulk approves multiple attendances at once"""
+    try:
+        attendance_ids = request.data.get('attendance_ids', [])
+        comment = request.data.get('comment', '')
+        
+        if not attendance_ids or not isinstance(attendance_ids, list):
+            return Response({'error': 'attendance_ids must be a non-empty list'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Verify coordinator has access
+        from coordinator.models import Coordinator
+        coordinator = Coordinator.get_for_user(request.user)
+        if not coordinator:
+            return Response({'error': 'Coordinator profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        approved_count = 0
+        failed_count = 0
+        errors = []
+        
+        with transaction.atomic():
+            for attendance_id in attendance_ids:
+                try:
+                    attendance = get_object_or_404(Attendance, id=attendance_id, is_deleted=False)
+                    
+                    # Check if attendance can be approved
+                    if attendance.status not in ['draft', 'submitted', 'under_review']:
+                        failed_count += 1
+                        errors.append(f"Attendance {attendance_id}: Cannot approve (status: {attendance.status})")
+                        continue
+                    
+                    # Check membership (support assigned_levels for 'both' shifts)
+                    allowed = False
+                    if coordinator.shift == 'both':
+                        if coordinator.assigned_levels.exists():
+                            if attendance.classroom.grade.level in coordinator.assigned_levels.all():
+                                allowed = True
+                        elif coordinator.level:
+                            if coordinator.level == attendance.classroom.grade.level:
+                                allowed = True
+                    else:
+                        if coordinator.level == attendance.classroom.grade.level:
+                            allowed = True
+                    
+                    if not allowed:
+                        failed_count += 1
+                        errors.append(f"Attendance {attendance_id}: Access denied")
+                        continue
+                    
+                    # Approve attendance
+                    attendance.status = 'approved'
+                    attendance.is_final = True
+                    attendance.finalized_at = timezone.now()
+                    attendance.finalized_by = request.user
+                    attendance.add_edit_history(request.user, 'coordinator_approve', f'Bulk approved by coordinator{": " + comment if comment else ""}')
+                    attendance.save()
+                    
+                    # Create audit log
+                    from .models import AuditLog
+                    AuditLog.objects.create(
+                        feature='attendance',
+                        action='coordinator_approve',
+                        entity_type='Attendance',
+                        entity_id=attendance.id,
+                        user=request.user,
+                        ip_address=request.META.get('REMOTE_ADDR'),
+                        changes={'status': 'approved', 'bulk_approval': True}
+                    )
+                    
+                    # Send notification to teacher
+                    try:
+                        teacher_user = None
+                        teacher = None
+                        
+                        if attendance.marked_by:
+                            teacher_user = attendance.marked_by
+                            try:
+                                teacher = Teacher.objects.get(user=teacher_user)
+                            except Teacher.DoesNotExist:
+                                try:
+                                    teacher = Teacher.objects.get(employee_code=teacher_user.username)
+                                except Teacher.DoesNotExist:
+                                    pass
+                        elif attendance.classroom and attendance.classroom.class_teacher:
+                            teacher = attendance.classroom.class_teacher
+                            if teacher and teacher.user:
+                                teacher_user = teacher.user
+                        
+                        if teacher_user:
+                            coordinator_name = coordinator.full_name if coordinator else request.user.get_full_name() or request.user.username
+                            classroom_name = str(attendance.classroom)
+                            verb = "Your attendance has been approved"
+                            target_text = f"by {coordinator_name} for {classroom_name} on {attendance.date.strftime('%B %d, %Y')}."
+                            
+                            from notifications.services import create_notification
+                            create_notification(
+                                recipient=teacher_user,
+                                actor=request.user,
+                                verb=verb,
+                                target_text=target_text,
+                                data={"attendance_id": attendance.id, "classroom_id": attendance.classroom.id}
+                            )
+                    except Exception as e:
+                        # Don't fail bulk approval if notification fails
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Failed to send notification for attendance {attendance_id}: {str(e)}")
+                    
+                    approved_count += 1
+                    
+                except Exception as e:
+                    failed_count += 1
+                    errors.append(f"Attendance {attendance_id}: {str(e)}")
+        
+        return Response({
+            'approved_count': approved_count,
+            'failed_count': failed_count,
+            'total': len(attendance_ids),
+            'errors': errors[:10]  # Limit errors to first 10
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def reopen_attendance(request, attendance_id):
     """Coordinator reopens finalized attendance with reason"""
     try:
@@ -2475,40 +2601,39 @@ def get_delete_logs(request):
                 )
         elif hasattr(user, 'role') and user.role == 'coordinator':
             # Coordinator can see delete logs for students in their managed classrooms
-            
             try:
                 coordinator_obj = Coordinator.get_for_user(user)
                 if coordinator_obj and coordinator_obj.campus:
                     # Determine which levels this coordinator manages
                     managed_levels = []
-                    if coordinator_obj.shift == 'both' and coordinator_obj.assigned_levels.exists():
+                    if coordinator_obj.shift == 'both' and hasattr(coordinator_obj, 'assigned_levels') and coordinator_obj.assigned_levels.exists():
                         managed_levels = list(coordinator_obj.assigned_levels.all())
                     elif coordinator_obj.level:
                         managed_levels = [coordinator_obj.level]
-                    
+
                     if managed_levels:
                         # Get all classrooms under coordinator's managed levels
                         coordinator_classrooms = ClassRoom.objects.filter(
                             grade__level__in=managed_levels,
                             grade__level__campus=coordinator_obj.campus
                         ).values_list('id', flat=True)
-                        
+
                         # Get all student IDs in these classrooms (including soft-deleted)
                         coordinator_student_ids = Student.objects.with_deleted().filter(
                             classroom__in=coordinator_classrooms
                         ).values_list('id', flat=True)
-                        
+
                         # Filter delete logs: show student deletions for students in coordinator's classrooms
                         # Also show other relevant features (teacher, classroom, etc.) if they relate to coordinator's scope
                         queryset = queryset.filter(
                             Q(feature='student', entity_id__in=coordinator_student_ids) |
-                            Q(feature__in=['teacher', 'classroom', 'grade', 'level'])  # Coordinator can see these too
-                )
-        else:
+                            Q(feature__in=['teacher', 'classroom', 'grade', 'level'])
+                        )
+                    else:
                         # No managed levels, show only their own delete logs
                         queryset = queryset.filter(user=user)
                 else:
-                    # No coordinator profile found, show only their own delete logs
+                    # No coordinator profile found or no campus, show only their own delete logs
                     queryset = queryset.filter(user=user)
             except Exception:
                 # If coordinator resolution fails, show only their own delete logs

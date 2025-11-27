@@ -16,12 +16,14 @@ class CoordinatorAdmin(admin.ModelAdmin):
         "campus",
         "assigned_teachers_count",
         "is_currently_active",  
+        "is_deleted",
         "created_at",
     )
-    list_filter = ("level", "campus", "is_currently_active", "gender") 
+    list_filter = ("level", "campus", "is_currently_active", "gender", "is_deleted") 
     search_fields = ("full_name", "email", "contact_number", "cnic")  
     ordering = ("-created_at",)
-    autocomplete_fields = ("campus",)  
+    autocomplete_fields = ("campus",)
+    readonly_fields = ("employee_code", "created_at", "updated_at", "deleted_at")  
     
     def display_levels(self, obj):
         """Display assigned levels based on whether coordinator has multiple levels"""
@@ -39,8 +41,12 @@ class CoordinatorAdmin(admin.ModelAdmin):
     assigned_teachers_count.admin_order_field = "level"
     
     def get_queryset(self, request):
-        """Optimize queryset with select_related and prefetch_related"""
-        return super().get_queryset(request).select_related('level', 'campus').prefetch_related('assigned_levels')
+        """Override to show soft-deleted coordinators in admin"""
+        qs = Coordinator.objects.with_deleted().select_related('level', 'campus').prefetch_related('assigned_levels')
+        ordering = self.get_ordering(request)
+        if ordering:
+            qs = qs.order_by(*ordering)
+        return qs
     
     def change_view(self, request, object_id, form_url='', extra_context=None):
         """Add assigned teachers to context"""
@@ -88,3 +94,26 @@ class CoordinatorAdmin(admin.ModelAdmin):
         if email and Coordinator.objects.filter(email=email).exclude(pk=self.pk).exists():
             raise ValidationError("A coordinator with this email already exists.")
         return email
+    
+    # --- Override Delete to Use Soft Delete ---
+    def delete_model(self, request, obj):
+        """Override to use soft delete instead of hard delete for single object deletion"""
+        obj._actor = request.user
+        obj.soft_delete()
+        self.message_user(request, f"✅ Coordinator {obj.full_name} soft deleted successfully.", level='SUCCESS')
+    
+    def delete_queryset(self, request, queryset):
+        """Override to use soft delete instead of hard delete for bulk deletion"""
+        count = 0
+        already_deleted = 0
+        for obj in queryset:
+            if not obj.is_deleted:
+                obj._actor = request.user
+                obj.soft_delete()
+                count += 1
+            else:
+                already_deleted += 1
+        message = f"✅ {count} coordinator(s) soft deleted successfully."
+        if already_deleted > 0:
+            message += f" ({already_deleted} were already deleted)"
+        self.message_user(request, message, level='SUCCESS')

@@ -14,13 +14,22 @@ class TeacherAdmin(admin.ModelAdmin):
         "get_coordinator_info",
         "shift",
         "employee_code",
+        "is_deleted",
     )
-    list_filter = ("is_class_teacher", "shift", "current_campus", "assigned_classroom", "assigned_coordinators")
+    list_filter = ("is_class_teacher", "shift", "current_campus", "assigned_classroom", "assigned_coordinators", "is_deleted")
     search_fields = ("full_name", "email", "contact_number", "employee_code", "assigned_coordinators__full_name")
     ordering = ("-date_created",)
     
     # FIX: Exclude non-editable fields
-    readonly_fields = ("employee_code", "teacher_id", "assigned_coordinator", "date_created", "date_updated")
+    readonly_fields = ("employee_code", "teacher_id", "assigned_coordinator", "date_created", "date_updated", "deleted_at")
+    
+    def get_queryset(self, request):
+        """Override to show soft-deleted teachers in admin"""
+        qs = Teacher.objects.with_deleted().all()
+        ordering = self.get_ordering(request)
+        if ordering:
+            qs = qs.order_by(*ordering)
+        return qs
         
     # teachers/admin.py me ye fieldsets use karo
     fieldsets = (
@@ -103,3 +112,26 @@ class TeacherAdmin(admin.ModelAdmin):
                 )
         
         return cleaned_data
+    
+    # --- Override Delete to Use Soft Delete ---
+    def delete_model(self, request, obj):
+        """Override to use soft delete instead of hard delete for single object deletion"""
+        obj._actor = request.user
+        obj.soft_delete()
+        self.message_user(request, f"✅ Teacher {obj.full_name} soft deleted successfully.", level='SUCCESS')
+    
+    def delete_queryset(self, request, queryset):
+        """Override to use soft delete instead of hard delete for bulk deletion"""
+        count = 0
+        already_deleted = 0
+        for obj in queryset:
+            if not obj.is_deleted:
+                obj._actor = request.user
+                obj.soft_delete()
+                count += 1
+            else:
+                already_deleted += 1
+        message = f"✅ {count} teacher(s) soft deleted successfully."
+        if already_deleted > 0:
+            message += f" ({already_deleted} were already deleted)"
+        self.message_user(request, message, level='SUCCESS')

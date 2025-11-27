@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 from campus.models import Campus
 from users.models import User
 
@@ -34,7 +35,25 @@ class TeacherRole(models.Model):
         return self.name
 
 
+class TeacherManager(models.Manager):
+    """Custom manager to exclude soft deleted teachers by default"""
+    
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+    
+    def with_deleted(self):
+        """Return all teachers including soft deleted ones"""
+        return super().get_queryset()
+    
+    def only_deleted(self):
+        """Return only soft deleted teachers"""
+        return super().get_queryset().filter(is_deleted=True)
+
+
 class Teacher(models.Model):
+    # Custom manager
+    objects = TeacherManager()
+    
     # User Account
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='teacher_profile')
     
@@ -130,6 +149,10 @@ class Teacher(models.Model):
     save_status = models.CharField(max_length=10, choices=SAVE_STATUS_CHOICES, default="draft")
     date_created = models.DateTimeField(auto_now_add=True)
     date_updated = models.DateTimeField(auto_now=True)
+    
+    # Soft Delete Fields
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
     
     # Class Teacher Information - FIXED
     is_class_teacher = models.BooleanField(default=False, help_text="Is this teacher a class teacher?")
@@ -339,6 +362,84 @@ class Teacher(models.Model):
             
         except Exception as e:
             print(f"Error: {str(e)}")
+    
+    def soft_delete(self):
+        """Soft delete the teacher - uses update() to bypass signals"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if not self.pk:
+            raise ValueError("Cannot soft delete teacher without primary key")
+        
+        logger.info(f"[SOFT_DELETE] soft_delete() called for teacher PK: {self.pk}, Name: {self.full_name}")
+        
+        # Use update() to directly update database without triggering signals
+        # This ensures no post_delete or other signals interfere
+        # IMPORTANT: Use with_deleted() to bypass custom manager's filter
+        updated_count = Teacher.objects.with_deleted().filter(pk=self.pk).update(
+            is_deleted=True,
+            deleted_at=timezone.now(),
+            is_currently_active=False
+        )
+        
+        logger.info(f"[SOFT_DELETE] Database update() returned updated_count: {updated_count}")
+        
+        if updated_count == 0:
+            logger.error(f"[SOFT_DELETE] CRITICAL: update() returned 0 - no rows were updated! Teacher PK: {self.pk}")
+            raise Exception(f"Soft delete failed - no rows updated for teacher PK: {self.pk}")
+        
+        # Refresh instance from database
+        self.refresh_from_db()
+        logger.info(f"[SOFT_DELETE] After refresh_from_db(), is_deleted: {self.is_deleted}")
+    
+    def restore(self):
+        """Restore a soft deleted teacher"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if not self.pk:
+            raise ValueError("Cannot restore teacher without primary key")
+        
+        logger.info(f"[RESTORE] restore() called for teacher PK: {self.pk}, Name: {self.full_name}")
+        
+        # Use update() to bypass signals
+        updated_count = Teacher.objects.with_deleted().filter(pk=self.pk).update(
+            is_deleted=False,
+            deleted_at=None
+        )
+        
+        if updated_count == 0:
+            logger.error(f"[RESTORE] CRITICAL: update() returned 0 - no rows were updated! Teacher PK: {self.pk}")
+            raise Exception(f"Restore failed - no rows updated for teacher PK: {self.pk}")
+        
+        self.refresh_from_db()
+        logger.info(f"[RESTORE] After refresh_from_db(), is_deleted: {self.is_deleted}")
+    
+    def delete(self, using=None, keep_parents=False):
+        """
+        Override delete() to prevent accidental hard deletes.
+        Always use soft_delete() instead.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"[OVERRIDE_DELETE] delete() called for teacher PK: {self.pk}, Name: {self.full_name}, is_deleted: {self.is_deleted}")
+        
+        if not self.is_deleted:
+            logger.info(f"[OVERRIDE_DELETE] Calling soft_delete() instead of hard delete")
+            self.soft_delete()
+        else:
+            raise ValueError(
+                "Cannot hard delete teacher. Use hard_delete() method explicitly if you really want to permanently delete."
+            )
+    
+    def hard_delete(self):
+        """Permanently delete the teacher from database"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.warning(f"[HARD_DELETE] hard_delete() called for teacher PK: {self.pk}, Name: {self.full_name}")
+        super().delete()
 
     def __str__(self):
         return f"{self.full_name} ({self.employee_code or 'No Code'})"

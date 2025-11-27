@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from campus.models import Campus
 
 User = get_user_model()
@@ -18,7 +19,25 @@ SHIFT_CHOICES = [
     ("all", "All Shifts"),
 ]
 
+
+class PrincipalManager(models.Manager):
+    """Custom manager to exclude soft deleted principals by default"""
+    
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+    
+    def with_deleted(self):
+        """Return all principals including soft deleted ones"""
+        return super().get_queryset()
+    
+    def only_deleted(self):
+        """Return only soft deleted principals"""
+        return super().get_queryset().filter(is_deleted=True)
+
+
 class Principal(models.Model):
+    # Custom manager
+    objects = PrincipalManager()
     # User relationship
     user = models.OneToOneField(User, on_delete=models.SET_NULL, related_name='principal_profile', null=True, blank=True)
     
@@ -52,6 +71,10 @@ class Principal(models.Model):
     employee_code = models.CharField(max_length=20, unique=True, editable=False, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    # Soft Delete Fields
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
     
     def save(self, *args, **kwargs):
         # Force regenerate employee code if we're updating and campus/shift/joining_date changed
@@ -89,6 +112,23 @@ class Principal(models.Model):
         """Return display text for shift"""
         shift_dict = dict(SHIFT_CHOICES)
         return shift_dict.get(self.shift, self.shift)
+    
+    def soft_delete(self):
+        """Soft delete the principal"""
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.is_currently_active = False
+        self.save()
+    
+    def restore(self):
+        """Restore a soft deleted principal"""
+        self.is_deleted = False
+        self.deleted_at = None
+        self.save()
+    
+    def hard_delete(self):
+        """Permanently delete the principal from database"""
+        super().delete()
     
     def __str__(self):
         return f"{self.full_name} ({self.employee_code})"
