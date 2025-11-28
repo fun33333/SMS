@@ -280,7 +280,6 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
         href: "/admin/principals/transfers",
         subItems: [
           { title: "Transfer Management", href: "/admin/principals/transfers" },
-          { title: "Create Transfer", href: "/admin/principals/transfers/create" },
         ],
       },
       {
@@ -353,84 +352,84 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
     ]
     : [
       // Default/Principal: Full access
-      {
-        key: "dashboard",
-        title: "Dashboard",
-        icon: LayoutDashboard,
-        href: "/admin",
-        subItems: [],
-      },
-      {
-        key: "students",
-        title: "Students",
-        icon: Users,
-        href: "/admin/students/list",
-        subItems: [
-          // Principal: Only show add student and student list
-          ...(userRole === "principal" ? [
-            { title: "Add Student", href: "/admin/students/add" },
-            { title: "Student List", href: "/admin/students/student-list" },
-          ] : [
-            { title: "Add Student", href: "/admin/students/add" },
-            { title: "Student List", href: "/admin/students/student-list" },
-            // { title: "Transfer Module", href: "/admin/students/transfer-modal" },
-            // { title: "Leaving Certificate", href: "/admin/students/leaving-certificate" },
-            { title: "Termination Certificate", href: "/admin/students/termination-certificate" },
-          ]),
-        ],
-      },
-      {
-        key: "teachers",
-        title: "Teachers",
-        icon: GraduationCap,
-        href: "/admin/teachers",
-        subItems: [
-          // Principal: Only show teacher list and add teacher
-          ...(userRole === "principal" ? [
-            { title: "Teacher List", href: "/admin/teachers/list" },
-            { title: "Add Teacher", href: "/admin/teachers/add" },
-          ] : [
-            { title: "Teacher List", href: "/admin/teachers/list" },
-            { title: "Add Teacher", href: "/admin/teachers/add" },
-            { title: "Request / Complain", href: "/admin/teachers/request" },
-            { title: "Time Table", href: "/admin/teachers/timetable" },
-            { title: "Attendance", href: "/admin/teachers/attendance" },
-            { title: "Class Statistics", href: "/admin/teachers/stats" },
-          ]),
-        ],
-      },
-      {
-        key: "campus",
-        title: "Campus",
-        icon: Building2,
-        href: "/admin/campus",
-        subItems: [
-          { title: "Add Campus", href: "/admin/campus/add" },
-          { title: "Campus List", href: "/admin/campus/list" },
-        ],
-      },
-      {
-        key: "coordinator",
-        title: "Coordinator",
-        icon: LayoutDashboard,
-        href: "/admin/coordinator",
-        subItems: [
-          ...(userRole === "principal" ? [
-            { title: "Coordinator List", href: "/admin/coordinator/list" },
-          ] : [
-            { title: "Teacher List", href: "/admin/coordinator/teacher-list" },
-          ]),
-          { title: "Add Coordinator", href: "/admin/coordinator/add" },
-          { title: "Attendance Review", href: "/admin/coordinator/attendance-review" },
-          { title: "Request & Complain", href: "/admin/coordinator/request-complain" },
-          { title: "Result Approval", href: "/admin/coordinator/result-approval" },
-          ...(userRole !== "principal" ? [
-            { title: "Class Assign", href: "/admin/coordinator/class-assign" },
-            { title: "Subject Assign", href: "/admin/coordinator/subject-assign" },
-            { title: "Time Table", href: "/admin/coordinator/time-table" },
-          ] : []),
-        ],
-      },
+      // {
+      //   key: "dashboard",
+      //   title: "Dashboard",
+      //   icon: LayoutDashboard,
+      //   href: "/admin",
+      //   subItems: [],
+      // },
+      // {
+      //   key: "students",
+      //   title: "Students",
+      //   icon: Users,
+      //   href: "/admin/students/list",
+      //   subItems: [
+      //     // Principal: Only show add student and student list
+      //     ...(userRole === "principal" ? [
+      //       { title: "Add Student", href: "/admin/students/add" },
+      //       { title: "Student List", href: "/admin/students/student-list" },
+      //     ] : [
+      //       { title: "Add Student", href: "/admin/students/add" },
+      //       { title: "Student List", href: "/admin/students/student-list" },
+      //       // { title: "Transfer Module", href: "/admin/students/transfer-modal" },
+      //       // { title: "Leaving Certificate", href: "/admin/students/leaving-certificate" },
+      //       { title: "Termination Certificate", href: "/admin/students/termination-certificate" },
+      //     ]),
+      //   ],
+      // },
+      // {
+      //   key: "teachers",
+      //   title: "Teachers",
+      //   icon: GraduationCap,
+      //   href: "/admin/teachers",
+      //   subItems: [
+      //     // Principal: Only show teacher list and add teacher
+      //     ...(userRole === "principal" ? [
+      //       { title: "Teacher List", href: "/admin/teachers/list" },
+      //       { title: "Add Teacher", href: "/admin/teachers/add" },
+      //     ] : [
+      //       { title: "Teacher List", href: "/admin/teachers/list" },
+      //       { title: "Add Teacher", href: "/admin/teachers/add" },
+      //       { title: "Request / Complain", href: "/admin/teachers/request" },
+      //       { title: "Time Table", href: "/admin/teachers/timetable" },
+      //       { title: "Attendance", href: "/admin/teachers/attendance" },
+      //       { title: "Class Statistics", href: "/admin/teachers/stats" },
+      //     ]),
+      //   ],
+      // },
+      // {
+      //   key: "campus",
+      //   title: "Campus",
+      //   icon: Building2,
+      //   href: "/admin/campus",
+      //   subItems: [
+      //     { title: "Add Campus", href: "/admin/campus/add" },
+      //     { title: "Campus List", href: "/admin/campus/list" },
+      //   ],
+      // },
+      // {
+      //   key: "coordinator",
+      //   title: "Coordinator",
+      //   icon: LayoutDashboard,
+      //   href: "/admin/coordinator",
+      //   subItems: [
+      //     ...(userRole === "principal" ? [
+      //       { title: "Coordinator List", href: "/admin/coordinator/list" },
+      //     ] : [
+      //       { title: "Teacher List", href: "/admin/coordinator/teacher-list" },
+      //     ]),
+      //     { title: "Add Coordinator", href: "/admin/coordinator/add" },
+      //     { title: "Attendance Review", href: "/admin/coordinator/attendance-review" },
+      //     { title: "Request & Complain", href: "/admin/coordinator/request-complain" },
+      //     { title: "Result Approval", href: "/admin/coordinator/result-approval" },
+      //     ...(userRole !== "principal" ? [
+      //       { title: "Class Assign", href: "/admin/coordinator/class-assign" },
+      //       { title: "Subject Assign", href: "/admin/coordinator/subject-assign" },
+      //       { title: "Time Table", href: "/admin/coordinator/time-table" },
+      //     ] : []),
+      //   ],
+      // },
     ];
 
   return (

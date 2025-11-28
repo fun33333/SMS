@@ -666,6 +666,8 @@ class CampusTransferSerializer(serializers.ModelSerializer):
     student_id = serializers.CharField(source='student.student_id', read_only=True)
     from_campus_name = serializers.CharField(source='from_campus.campus_name', read_only=True)
     to_campus_name = serializers.CharField(source='to_campus.campus_name', read_only=True)
+    from_classroom_display = serializers.SerializerMethodField()
+    to_classroom_display = serializers.SerializerMethodField()
     initiated_by_teacher_name = serializers.CharField(
         source='initiated_by_teacher.full_name',
         read_only=True,
@@ -687,6 +689,16 @@ class CampusTransferSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    def get_from_classroom_display(self, obj):
+        if obj.from_classroom:
+            return f"{obj.from_classroom.grade.name} ({obj.from_classroom.section})"
+        return None
+
+    def get_to_classroom_display(self, obj):
+        if obj.to_classroom:
+            return f"{obj.to_classroom.grade.name} ({obj.to_classroom.section})"
+        return None
+
     class Meta:
         model = CampusTransfer
         fields = [
@@ -701,7 +713,9 @@ class CampusTransferSerializer(serializers.ModelSerializer):
             'from_shift',
             'to_shift',
             'from_classroom',
+            'from_classroom_display',
             'to_classroom',
+            'to_classroom_display',
             'from_grade',
             'to_grade',
             'from_grade_name',
@@ -733,6 +747,7 @@ class CampusTransferSerializer(serializers.ModelSerializer):
             'letter_from_principal_name',
             'letter_to_principal_name',
             'letter_to_coordinator_name',
+            'letter_generated_at',
             'created_at',
             'updated_at',
         ]

@@ -20,9 +20,12 @@ import {
   createShiftTransfer,
   getAvailableClassSections,
   getAvailableShiftSections,
+  getAvailableCampusTransferSections,
   AvailableClassroomOption,
   getAvailableGradesForSkip,
+  getAvailableGradesForCampusSkip,
   getAvailableSectionsForGradeSkip,
+  getAvailableSectionsForCampusSkip,
   createGradeSkipTransfer,
   AvailableGradeForSkip,
   createCampusTransfer,
@@ -34,6 +37,7 @@ interface Campus {
   campus_name: string;
   code?: string;
   campus_code?: string;
+  shift_available?: string; // 'morning', 'afternoon', or 'both'
 }
 
 interface Student {
@@ -123,6 +127,8 @@ export default function CreateTransferRequestPage() {
   const [campusAvailableSkipSections, setCampusAvailableSkipSections] = useState<AvailableClassroomOption[]>([]);
   const [campusSelectedToGradeId, setCampusSelectedToGradeId] = useState<string>('');
   const [campusSelectedToClassroomId, setCampusSelectedToClassroomId] = useState<string>('');
+  // Campus transfer same-grade sections (when skip grade is OFF)
+  const [campusSameGradeSections, setCampusSameGradeSections] = useState<AvailableClassroomOption[]>([]);
 
   // Transfer letter state
   const [showLetter, setShowLetter] = useState(false);
@@ -179,6 +185,16 @@ export default function CreateTransferRequestPage() {
       }
     }
   }, [isPrincipal, selectedEntity, formData.transfer_type, formData.to_shift]);
+
+  // Load ID preview for campus transfers (non-principal, different campus)
+  useEffect(() => {
+    if (!isPrincipal && selectedEntity && formData.transfer_type === 'campus' && formData.to_campus && formData.to_shift) {
+      const timer = setTimeout(() => {
+        loadIDPreview();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isPrincipal, selectedEntity, formData.transfer_type, formData.to_campus, formData.to_shift]);
 
   // Load ID preview for grade skip transfers when shift changes
   useEffect(() => {
@@ -372,6 +388,47 @@ export default function CreateTransferRequestPage() {
     }
   }, [isPrincipal, selectedEntity, formData.transfer_type, selectedToGradeId, formData.to_shift]);
 
+  // Load campus transfer same-grade sections (when skip grade is OFF)
+  useEffect(() => {
+    const loadCampusSameGradeSections = async () => {
+      if (
+        !selectedEntity ||
+        isPrincipal ||
+        formData.transfer_type !== 'campus' ||
+        campusSkipGradeEnabled ||
+        !('student_id' in selectedEntity) ||
+        !formData.to_campus ||
+        !formData.to_shift
+      ) {
+        setCampusSameGradeSections([]);
+        setCampusSelectedToClassroomId('');
+        return;
+      }
+
+      try {
+        // Ensure shift is 'M' or 'A' (not 'B')
+        const shift = formData.to_shift === 'B' ? 'M' : formData.to_shift;
+        console.log('Loading campus same-grade sections:', {
+          studentId: selectedEntity.id,
+          toCampus: formData.to_campus,
+          toShift: shift,
+        });
+        const sections = await getAvailableCampusTransferSections(
+          selectedEntity.id,
+          parseInt(formData.to_campus, 10),
+          shift
+        );
+        console.log('Campus same-grade sections loaded:', sections);
+        setCampusSameGradeSections(sections);
+      } catch (error) {
+        console.error('Failed to load campus same-grade sections', error);
+        setCampusSameGradeSections([]);
+      }
+    };
+
+    loadCampusSameGradeSections();
+  }, [isPrincipal, selectedEntity, formData.transfer_type, formData.to_campus, formData.to_shift, campusSkipGradeEnabled]);
+
   // Load campus transfer skip-grade options (non-principal)
   useEffect(() => {
     const loadCampusSkipOptions = async () => {
@@ -393,20 +450,31 @@ export default function CreateTransferRequestPage() {
         const toCampusId = formData.to_campus ? parseInt(formData.to_campus, 10) : undefined;
         if (!toCampusId) return;
 
-        // For now, reuse grade-skip available grade and sections APIs (same rules)
-        const gradeData = await getAvailableGradesForSkip(selectedEntity.id);
+        // Load available skip grade from destination campus
+        const gradeData = await getAvailableGradesForCampusSkip(selectedEntity.id, toCampusId);
         setCampusAvailableSkipGrade(gradeData);
         setCampusSelectedToGradeId(gradeData.id.toString());
 
-        // Sections will be loaded lazily in UI via existing grade-skip API
+        // Load sections for the skip grade at destination campus
+        if (gradeData && formData.to_shift) {
+          const shift = formData.to_shift === 'B' ? 'M' : formData.to_shift;
+          const sections = await getAvailableSectionsForCampusSkip(
+            selectedEntity.id,
+            gradeData.id,
+            toCampusId,
+            shift
+          );
+          setCampusAvailableSkipSections(sections);
+        }
       } catch (error) {
         console.error('Failed to load campus skip grade options', error);
         setCampusAvailableSkipGrade(null);
+        setCampusAvailableSkipSections([]);
       }
     };
 
     loadCampusSkipOptions();
-  }, [isPrincipal, selectedEntity, formData.transfer_type, formData.to_campus, campusSkipGradeEnabled]);
+  }, [isPrincipal, selectedEntity, formData.transfer_type, formData.to_campus, formData.to_shift, campusSkipGradeEnabled]);
 
   // Debug form data changes
   useEffect(() => {
@@ -715,13 +783,6 @@ export default function CreateTransferRequestPage() {
       return;
     }
 
-    // Placeholder: Campus Transfer will be configured later
-    if (!isPrincipal && formData.transfer_type === 'campus') {
-      toast.info('Campus Transfer will be configured later. For now, please use Section or Shift + Section.');
-      setLoading(false);
-      return;
-    }
-
     // Set requested_date to current date automatically
     const currentDate = new Date().toISOString().split('T')[0];
 
@@ -782,7 +843,7 @@ export default function CreateTransferRequestPage() {
               : (anyEntity.shift || 'morning');
 
           const payload: any = {
-            student: selectedEntity.id,
+            student: parseInt(selectedEntity.id.toString(), 10),
             to_campus: toCampusId,
             to_shift: toShift as 'morning' | 'afternoon',
             reason: formData.reason,
@@ -795,24 +856,30 @@ export default function CreateTransferRequestPage() {
             if (campusSelectedToClassroomId) {
               payload.to_classroom = parseInt(campusSelectedToClassroomId, 10);
             }
-          } else if (selectedToClassroomId) {
+          } else if (campusSelectedToClassroomId) {
             // Non-skip campus transfer with explicit section
-            payload.to_classroom = parseInt(selectedToClassroomId, 10);
+            payload.skip_grade = false;
+            payload.to_classroom = parseInt(campusSelectedToClassroomId, 10);
+            // Extract grade from selected classroom
+            const selectedClassroom = campusSameGradeSections.find(
+              c => c.id.toString() === campusSelectedToClassroomId
+            );
+            if (selectedClassroom) {
+              payload.to_grade = selectedClassroom.grade_id;
+            }
           }
 
           await createCampusTransfer(payload);
           toast.success('Campus transfer request created successfully!');
+          router.push('/admin/principals/transfers');
+          return;
         }
 
-        // Prepare letter data for local preview (class/shift; campus letter will use backend)
+        // Prepare letter data for local preview (class/shift only; campus uses backend letter)
         const anyEntity = selectedEntity as any;
         const fromCampusId = anyEntity.current_campus || anyEntity.campus;
         const fromCampus = campuses.find(c => c.id === fromCampusId)?.campus_name || anyEntity.campus_name || 'Current Campus';
-        const toCampus =
-          formData.transfer_type === 'campus'
-            ? campuses.find(c => c.id.toString() === formData.to_campus)?.campus_name ||
-              fromCampus
-            : fromCampus;
+        const toCampus = fromCampus; // Class/shift transfers are same campus
         const fromClass = `${anyEntity.current_grade || anyEntity.grade || ''} - ${anyEntity.section || ''}`.trim();
         const toClass = selectedDestinationOption ? `${selectedDestinationOption.grade_name} - ${selectedDestinationOption.section}` : '';
 
@@ -1497,7 +1564,39 @@ export default function CreateTransferRequestPage() {
                               rawShift === 'M' || shiftStr === 'morning'
                                 ? 'M'
                                 : 'A';
-                            const value = formData.to_shift || normalizedShift;
+                            
+                            // Get destination campus's available shifts
+                            const destinationCampus = campuses.find(c => c.id.toString() === formData.to_campus);
+                            const campusShiftAvailable = destinationCampus?.shift_available?.toLowerCase() || 'both';
+                            
+                            // Determine which shifts to show
+                            const showMorning = campusShiftAvailable === 'morning' || campusShiftAvailable === 'both';
+                            const showAfternoon = campusShiftAvailable === 'afternoon' || campusShiftAvailable === 'both';
+                            
+                            // Auto-select if only one option and update formData
+                            const value = (() => {
+                              if (showMorning && !showAfternoon) {
+                                // Auto-select Morning if it's the only option
+                                if (formData.to_shift !== 'M') {
+                                  setTimeout(() => setFormData(prev => ({ ...prev, to_shift: 'M' })), 0);
+                                }
+                                return 'M';
+                              }
+                              if (!showMorning && showAfternoon) {
+                                // Auto-select Afternoon if it's the only option
+                                if (formData.to_shift !== 'A') {
+                                  setTimeout(() => setFormData(prev => ({ ...prev, to_shift: 'A' })), 0);
+                                }
+                                return 'A';
+                              }
+                              // Default to current shift or formData value
+                              const defaultValue = formData.to_shift || normalizedShift;
+                              if (!formData.to_shift) {
+                                setTimeout(() => setFormData(prev => ({ ...prev, to_shift: defaultValue })), 0);
+                              }
+                              return defaultValue;
+                            })();
+                            
                             return (
                               <Select
                                 value={value}
@@ -1509,17 +1608,173 @@ export default function CreateTransferRequestPage() {
                                   <SelectValue placeholder="Select destination shift" className="text-xs sm:text-sm" />
                                 </SelectTrigger>
                                 <SelectContent className="max-h-[300px] sm:max-h-[400px] overflow-y-auto">
-                                  <SelectItem value="M" className="text-xs sm:text-sm md:text-base">
-                                    Morning
-                                  </SelectItem>
-                                  <SelectItem value="A" className="text-xs sm:text-sm md:text-base">
-                                    Afternoon
-                                  </SelectItem>
+                                  {!showMorning && !showAfternoon ? (
+                                    <SelectItem value="no-shift" disabled className="text-xs sm:text-sm">
+                                      No shifts available at destination campus
+                                    </SelectItem>
+                                  ) : (
+                                    <>
+                                      {showMorning && (
+                                        <SelectItem value="M" className="text-xs sm:text-sm md:text-base">
+                                          Morning
+                                        </SelectItem>
+                                      )}
+                                      {showAfternoon && (
+                                        <SelectItem value="A" className="text-xs sm:text-sm md:text-base">
+                                          Afternoon
+                                        </SelectItem>
+                                      )}
+                                    </>
+                                  )}
                                 </SelectContent>
                               </Select>
                             );
                           })()}
                         </div>
+
+                        {/* Same-grade sections (when skip grade is OFF) */}
+                        {!campusSkipGradeEnabled && formData.to_campus && formData.to_shift && (
+                          <div className="bg-white p-2.5 sm:p-3 rounded-lg space-y-1.5 sm:space-y-2" style={{ border: '1px solid #a3cef1' }}>
+                            <Label className="text-xs sm:text-sm font-medium" style={{ color: '#274c77' }}>
+                              Destination Class / Section (Same Grade)
+                            </Label>
+                            <Select
+                              value={campusSelectedToClassroomId}
+                              onValueChange={value => setCampusSelectedToClassroomId(value)}
+                            >
+                              <SelectTrigger className="w-full py-2 sm:py-2.5 md:py-3 text-xs sm:text-sm md:text-base rounded-lg transition-all duration-200 mt-1 sm:mt-1.5 min-h-[40px] sm:min-h-[44px]" style={{ border: '2px solid #a3cef1' }}>
+                                <SelectValue placeholder="Select destination class / section" className="text-xs sm:text-sm" />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-[300px] sm:max-h-[400px] overflow-y-auto">
+                                {campusSameGradeSections.length === 0 ? (
+                                  <SelectItem value="no-options" disabled className="text-xs sm:text-sm">
+                                    No suitable classes available in the same grade
+                                  </SelectItem>
+                                ) : (
+                                  campusSameGradeSections.map(option => (
+                                    <SelectItem key={option.id} value={option.id.toString()} className="text-xs sm:text-sm md:text-base break-words">
+                                      {option.label}
+                                    </SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+
+                            {campusSameGradeSections.length === 0 && (
+                              <div className="mt-2 p-3 sm:p-4 rounded-lg flex flex-col items-center justify-center text-center min-h-[100px] sm:min-h-[120px]" style={{ backgroundColor: '#fff3cd', border: '2px solid #ffc107' }}>
+                                <div className="mb-2 sm:mb-3">
+                                  <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: '#ffc107' }}>
+                                    <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5" style={{ color: '#856404' }} />
+                                  </div>
+                                </div>
+                                <h3 className="text-xs sm:text-sm font-bold mb-1.5 px-2" style={{ color: '#856404' }}>
+                                  No Available Classes/Sections
+                                </h3>
+                                <p className="text-[11px] sm:text-xs leading-relaxed max-w-md px-2 break-words" style={{ color: '#856404' }}>
+                                  No suitable classes are available for transfer in the same grade at the destination campus. 
+                                  You can enable "Skip Grade" option below to transfer to the next grade.
+                                </p>
+                              </div>
+                            )}
+
+                            {campusSelectedToClassroomId && (() => {
+                              const selectedSection = campusSameGradeSections.find(
+                                opt => opt.id.toString() === campusSelectedToClassroomId
+                              );
+                              if (!selectedSection) return null;
+
+                              return (
+                                <div className="mt-3 rounded-lg p-2.5 sm:p-3 text-xs space-y-1" style={{ backgroundColor: '#f2f6fa', border: '1px solid #d7e3ef', color: '#274c77' }}>
+                                  <div className="font-semibold flex items-center gap-2">
+                                    <ArrowRightLeft className="h-3 w-3" />
+                                    Transfer Summary
+                                  </div>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-2">
+                                    <div className="space-y-1.5">
+                                      <p className="font-medium text-xs sm:text-sm">From</p>
+                                      <p className="text-xs font-semibold text-gray-900 break-words">
+                                        {(() => {
+                                          const anyEntity = selectedEntity as any;
+                                          const grade = anyEntity.current_grade || anyEntity.grade || anyEntity.grade_name || '-';
+                                          const section = anyEntity.section || anyEntity.class_section || anyEntity.classroom_section || '-';
+                                          const shiftLabel = anyEntity.shift === 'M' ? 'Morning' : anyEntity.shift === 'A' ? 'Afternoon' : anyEntity.shift || '-';
+                                          return `${grade} (${section}) • ${shiftLabel}`;
+                                        })()}
+                                      </p>
+                                      <div className="text-[10px] sm:text-[11px] text-gray-700 space-y-0.5">
+                                        <div>
+                                          <span className="text-[10px] sm:text-[11px] font-medium text-gray-500">Campus</span>
+                                          <div className="text-[10px] sm:text-[11px] font-semibold text-gray-900 break-words">
+                                            {(() => {
+                                              const anyEntity = selectedEntity as any;
+                                              return anyEntity.campus_name || 'Current Campus';
+                                            })()}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <p className="font-medium text-xs sm:text-sm">To</p>
+                                      <p className="text-xs font-semibold text-gray-900 break-words">
+                                        {selectedSection.grade_name} ({selectedSection.section}) • {selectedSection.shift}
+                                      </p>
+                                      <div className="text-[10px] sm:text-[11px] text-gray-700 space-y-0.5">
+                                        <div>
+                                          <span className="text-[10px] sm:text-[11px] font-medium text-gray-500">Campus</span>
+                                          <div className="text-[10px] sm:text-[11px] font-semibold text-gray-900 break-words">
+                                            {(() => {
+                                              const destinationCampus = campuses.find(c => c.id.toString() === formData.to_campus);
+                                              return destinationCampus?.campus_name || 'Destination Campus';
+                                            })()}
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <span className="text-[10px] sm:text-[11px] font-medium text-gray-500">Class Teacher</span>
+                                          <div className="text-[10px] sm:text-[11px] font-semibold text-gray-900 break-words">
+                                            {selectedSection.class_teacher_name || 'Not Available'}
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <span className="text-[10px] sm:text-[11px] font-medium text-gray-500">Coordinator</span>
+                                          <div className="text-[10px] sm:text-[11px] font-semibold text-gray-900 break-words">
+                                            {selectedSection.coordinator_name || 'Not Available'}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+
+                        {/* ID Preview for Campus Transfer */}
+                        {idPreview && formData.to_campus && formData.to_shift && (
+                          <div className="bg-white p-2.5 sm:p-3 rounded-lg space-y-2" style={{ border: '1px solid #a3cef1' }}>
+                            <Label className="text-xs sm:text-sm font-medium flex items-center gap-2" style={{ color: '#274c77' }}>
+                              <Info className="h-4 w-4" />
+                              New Student ID Preview
+                            </Label>
+                            <div className="py-2 px-3 rounded-lg bg-blue-50 border border-blue-200">
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-gray-600">Current ID:</span>
+                                  <span className="text-xs font-mono font-semibold text-gray-900">{idPreview.old_id}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-blue-600 font-medium">New ID:</span>
+                                  <span className="text-xs font-mono font-bold text-blue-700">{idPreview.new_id}</span>
+                                </div>
+                              </div>
+                              <div className="mt-2 pt-2 border-t border-blue-200">
+                                <p className="text-[10px] text-blue-600">
+                                  ℹ️ Student ID will change from <strong>{idPreview.changes.campus_code}</strong> campus to destination campus after approval
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                         {/* Skip grade toggle */}
                         <div className="bg-white p-2.5 sm:p-3 rounded-lg flex items-center justify-between gap-3" style={{ border: '1px solid #a3cef1' }}>

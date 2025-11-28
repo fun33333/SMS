@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Plus,
@@ -90,6 +91,7 @@ export default function TransferManagementPage() {
   // Current user IDs for filtering
   const [currentTeacherId, setCurrentTeacherId] = useState<number | null>(null);
   const [currentCoordinatorId, setCurrentCoordinatorId] = useState<number | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   // UI State
   const [selectedRequest, setSelectedRequest] = useState<TransferRequest | null>(null);
@@ -107,6 +109,8 @@ export default function TransferManagementPage() {
   const [selectedCampusTransfer, setSelectedCampusTransfer] = useState<CampusTransfer | null>(null);
   const [campusLetter, setCampusLetter] = useState<CampusTransferLetterPayload | null>(null);
   const [showCampusLetter, setShowCampusLetter] = useState(false);
+  const [showCampusConfirmDialog, setShowCampusConfirmDialog] = useState(false);
+  const [campusConfirmText, setCampusConfirmText] = useState('');
 
 
   // Load current user profile to get IDs
@@ -115,6 +119,10 @@ export default function TransferManagementPage() {
       try {
         const profile = await getCurrentUserProfile() as any;
         if (profile) {
+          // Set user ID for all roles
+          if (profile.id) {
+            setCurrentUserId(profile.id);
+          }
           if (profile.teacher_id) {
             setCurrentTeacherId(profile.teacher_id);
           }
@@ -131,44 +139,24 @@ export default function TransferManagementPage() {
 
   // Load data on mount based on role
   useEffect(() => {
-    if (isPrincipal) {
-      loadPrincipalTransferRequests();
-    } else {
+    // All users now use the same unified view with 4 tabs
       loadTeacherCoordinatorTransfers();
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPrincipal, isTeacher, isCoordinator]);
-
-  const loadPrincipalTransferRequests = async () => {
-    try {
-      setLoading(true);
-      const [outgoing, incoming] = await Promise.all([
-        getTransferRequests({ direction: 'outgoing' }),
-        getTransferRequests({ direction: 'incoming' }),
-      ]);
-      setOutgoingRequests(outgoing as TransferRequest[]);
-      setIncomingRequests(incoming as TransferRequest[]);
-    } catch (error) {
-      console.error('Error loading transfer requests:', error);
-      toast.error('Failed to load transfer requests');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const loadTeacherCoordinatorTransfers = async () => {
     try {
       setLoading(true);
-      const [classes, shifts, gradeSkips, campus] = await Promise.all([
+      const [classes, shifts, gradeSkips, campusAll] = await Promise.all([
         getClassTransfers(),
         getShiftTransfers(),
         getGradeSkipTransfers(),
-        getCampusTransfers(),
+        getCampusTransfers({ direction: 'all' }),
       ]);
       setClassTransfers(classes as ClassTransfer[]);
       setShiftTransfers(shifts as ShiftTransfer[]);
       setGradeSkipTransfers(gradeSkips as GradeSkipTransfer[]);
-      setCampusTransfers(campus as CampusTransfer[]);
+      setCampusTransfers(campusAll as CampusTransfer[]);
     } catch (error) {
       console.error('Error loading transfers:', error);
       toast.error('Failed to load transfer data');
@@ -183,7 +171,7 @@ export default function TransferManagementPage() {
       setActionLoading(requestId);
       await approveTransfer(requestId);
       toast.success('Transfer approved successfully');
-      await loadPrincipalTransferRequests();
+      await loadTeacherCoordinatorTransfers();
     } catch (error: any) {
       console.error('Error approving transfer:', error);
       toast.error(error.message || 'Failed to approve transfer');
@@ -205,7 +193,7 @@ export default function TransferManagementPage() {
       setShowDeclineDialog(false);
       setDeclineReason('');
       setSelectedRequest(null);
-      await loadPrincipalTransferRequests();
+      await loadTeacherCoordinatorTransfers();
     } catch (error: any) {
       console.error('Error declining transfer:', error);
       toast.error(error.message || 'Failed to decline transfer');
@@ -219,7 +207,7 @@ export default function TransferManagementPage() {
       setActionLoading(requestId);
       await cancelTransfer(requestId);
       toast.success('Transfer cancelled successfully');
-      await loadPrincipalTransferRequests();
+      await loadTeacherCoordinatorTransfers();
     } catch (error: any) {
       console.error('Error cancelling transfer:', error);
       toast.error(error.message || 'Failed to cancel transfer');
@@ -447,8 +435,7 @@ export default function TransferManagementPage() {
               <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                 <div className="hidden sm:block">{getStatusBadge(transfer.status)}</div>
                 <ChevronDown
-                  className={`h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400 transition-transform ${
-                    isExpanded ? 'rotate-180' : ''
+                  className={`h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''
                   }`}
                 />
               </div>
@@ -601,8 +588,7 @@ export default function TransferManagementPage() {
               <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                 <div className="hidden sm:block">{getStatusBadge(transfer.status)}</div>
                 <ChevronDown
-                  className={`h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400 transition-transform ${
-                    isExpanded ? 'rotate-180' : ''
+                  className={`h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''
                   }`}
                 />
               </div>
@@ -779,8 +765,7 @@ export default function TransferManagementPage() {
               <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                 <div className="hidden sm:block">{getStatusBadge(transfer.status)}</div>
                 <ChevronDown
-                  className={`h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400 transition-transform ${
-                    isExpanded ? 'rotate-180' : ''
+                  className={`h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''
                   }`}
                 />
               </div>
@@ -925,7 +910,6 @@ export default function TransferManagementPage() {
   };
 
   // Teacher / Coordinator view: only class + shift transfers
-  if (!isPrincipal) {
     if (loading) {
       return (
         <div className="min-h-[60vh] bg-gray-50 p-6 pb-8">
@@ -1037,9 +1021,46 @@ export default function TransferManagementPage() {
         : (t.status !== 'pending_own_coord' && t.status !== 'pending_other_coord')
     );
 
-    // Campus transfers (for teacher/coordinator views, treat all as incoming/outgoing based on direction)
-    const campusIncoming = campusTransfers; // Coordinators will already be filtered server-side
-    const campusOutgoing = campusTransfers; // Teachers see their own created ones
+    // Campus transfers - filter by direction
+    console.log('🔍 Campus Transfers Filtering:', {
+      totalTransfers: campusTransfers.length,
+      currentCoordinatorId,
+      currentTeacherId,
+      allTransfers: campusTransfers.map(t => ({
+        id: t.id,
+        from_coordinator: t.from_coordinator,
+        to_coordinator: t.to_coordinator,
+        initiated_by_teacher: t.initiated_by_teacher,
+        status: t.status
+      }))
+    });
+
+    const campusIncoming = campusTransfers.filter(t => {
+      // Incoming: where current user is receiving/approving
+      if (isPrincipal && currentUserId) {
+        // Principal: show transfers where they need to approve (from_principal or to_principal)
+        // For incoming, show transfers where this principal needs to act
+        const match = t.from_principal === currentUserId || t.to_principal === currentUserId;
+        console.log(`Principal Transfer ${t.id}: from_principal=${t.from_principal}, to_principal=${t.to_principal}, currentUser=${currentUserId}, match=${match}`);
+        return match;
+      } else if (currentCoordinatorId) {
+        const match = t.from_coordinator === currentCoordinatorId || t.to_coordinator === currentCoordinatorId;
+        console.log(`Coordinator Transfer ${t.id}: from_coord=${t.from_coordinator}, to_coord=${t.to_coordinator}, current=${currentCoordinatorId}, match=${match}`);
+        return match;
+      }
+      return false;
+    });
+    
+    const campusOutgoing = campusTransfers.filter(t => {
+      // Outgoing: where current user initiated
+      if (isPrincipal && currentUserId) {
+        // For principal, outgoing means from their campus
+        return t.from_principal === currentUserId;
+      } else if (currentTeacherId) {
+        return t.initiated_by_teacher === currentTeacherId;
+      }
+      return false;
+    });
 
     const filteredCampusTransfers = (campusDirectionFilter === 'incoming' ? campusIncoming : campusOutgoing).filter(
       t =>
@@ -1070,6 +1091,7 @@ export default function TransferManagementPage() {
       t => t.status === 'approved' || t.status === 'declined' || t.status === 'cancelled',
     ).length;
 
+    // All users view (4 tabs: Class, Shift, Grade Skip, Campus)
     return (
       <div className="bg-gray-50 p-2 sm:p-4 md:p-6 pb-4 sm:pb-6 md:pb-8">
         <div className="max-w-6xl mx-auto">
@@ -1093,18 +1115,20 @@ export default function TransferManagementPage() {
                 </p>
               </div>
             </div>
+            {!isPrincipal && (
             <Button
               onClick={() => router.push('/admin/principals/transfers/create')}
-              className="flex items-center gap-2 w-full sm:w-auto"
+                className="flex items-center gap-2 w-full sm:w-auto"
             >
               <Plus className="h-4 w-4" />
-              <span className="sm:hidden">Create</span>
-              <span className="hidden sm:inline">Create Transfer Request</span>
+                <span className="sm:hidden">Create</span>
+                <span className="hidden sm:inline">Create Transfer Request</span>
             </Button>
+            )}
           </div>
 
           <Tabs defaultValue="class" className="space-y-4 sm:space-y-6">
-            <TabsList className="grid w-full grid-cols-3 h-auto">
+            <TabsList className="grid w-full grid-cols-4 h-auto">
               <TabsTrigger value="class" className="text-xs sm:text-sm md:text-base py-2 sm:py-2.5">
                 <span className="hidden sm:inline">Class Transfers</span>
                 <span className="sm:hidden">Class</span>
@@ -1117,8 +1141,9 @@ export default function TransferManagementPage() {
                 <span className="hidden sm:inline">Grade Skip</span>
                 <span className="sm:hidden">Skip</span>
               </TabsTrigger>
-              <TabsTrigger value="campus">
-                Campus Transfers
+              <TabsTrigger value="campus" className="text-xs sm:text-sm md:text-base py-2 sm:py-2.5">
+                <span className="hidden sm:inline">Campus Transfers</span>
+                <span className="sm:hidden">Campus</span>
               </TabsTrigger>
             </TabsList>
 
@@ -1131,8 +1156,7 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setClassDirectionFilter('incoming')}
-                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${
-                        classDirectionFilter === 'incoming'
+                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${classDirectionFilter === 'incoming'
                           ? 'bg-white shadow-sm text-blue-600 font-medium'
                           : 'text-gray-500'
                       }`}
@@ -1142,8 +1166,7 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setClassDirectionFilter('outgoing')}
-                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${
-                        classDirectionFilter === 'outgoing'
+                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${classDirectionFilter === 'outgoing'
                           ? 'bg-white shadow-sm text-blue-600 font-medium'
                           : 'text-gray-500'
                       }`}
@@ -1156,8 +1179,7 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setClassStatusFilter('pending')}
-                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${
-                        classStatusFilter === 'pending'
+                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${classStatusFilter === 'pending'
                           ? 'bg-white shadow-sm text-blue-600'
                           : 'text-gray-500'
                       }`}
@@ -1167,8 +1189,7 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setClassStatusFilter('history')}
-                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${
-                        classStatusFilter === 'history'
+                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${classStatusFilter === 'history'
                           ? 'bg-white shadow-sm text-blue-600'
                           : 'text-gray-500'
                       }`}
@@ -1216,8 +1237,7 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setShiftDirectionFilter('incoming')}
-                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${
-                        shiftDirectionFilter === 'incoming'
+                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${shiftDirectionFilter === 'incoming'
                           ? 'bg-white shadow-sm text-blue-600 font-medium'
                           : 'text-gray-500'
                       }`}
@@ -1227,8 +1247,7 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setShiftDirectionFilter('outgoing')}
-                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${
-                        shiftDirectionFilter === 'outgoing'
+                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${shiftDirectionFilter === 'outgoing'
                           ? 'bg-white shadow-sm text-blue-600 font-medium'
                           : 'text-gray-500'
                       }`}
@@ -1241,8 +1260,7 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setShiftStatusFilter('pending')}
-                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${
-                        shiftStatusFilter === 'pending'
+                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${shiftStatusFilter === 'pending'
                           ? 'bg-white shadow-sm text-blue-600'
                           : 'text-gray-500'
                       }`}
@@ -1252,8 +1270,7 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setShiftStatusFilter('history')}
-                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${
-                        shiftStatusFilter === 'history'
+                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${shiftStatusFilter === 'history'
                           ? 'bg-white shadow-sm text-blue-600'
                           : 'text-gray-500'
                       }`}
@@ -1301,8 +1318,7 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setGradeSkipDirectionFilter('incoming')}
-                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${
-                        gradeSkipDirectionFilter === 'incoming'
+                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${gradeSkipDirectionFilter === 'incoming'
                           ? 'bg-purple-600 text-white font-semibold'
                           : 'text-gray-600 hover:text-gray-900'
                       }`}
@@ -1312,8 +1328,7 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setGradeSkipDirectionFilter('outgoing')}
-                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${
-                        gradeSkipDirectionFilter === 'outgoing'
+                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${gradeSkipDirectionFilter === 'outgoing'
                           ? 'bg-purple-600 text-white font-semibold'
                           : 'text-gray-600 hover:text-gray-900'
                       }`}
@@ -1326,8 +1341,7 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setGradeSkipStatusFilter('pending')}
-                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${
-                        gradeSkipStatusFilter === 'pending'
+                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${gradeSkipStatusFilter === 'pending'
                           ? 'bg-purple-600 text-white font-semibold'
                           : 'text-gray-600 hover:text-gray-900'
                       }`}
@@ -1337,8 +1351,7 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setGradeSkipStatusFilter('history')}
-                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${
-                        gradeSkipStatusFilter === 'history'
+                      className={`px-2 sm:px-3 py-1 rounded-full transition text-[10px] sm:text-xs ${gradeSkipStatusFilter === 'history'
                           ? 'bg-purple-600 text-white font-semibold'
                           : 'text-gray-600 hover:text-gray-900'
                       }`}
@@ -1386,59 +1399,55 @@ export default function TransferManagementPage() {
                     <button
                       type="button"
                       onClick={() => setCampusDirectionFilter('incoming')}
-                      className={`px-3 py-1 rounded-full transition ${
-                        campusDirectionFilter === 'incoming'
+                      className={`px-3 py-1 rounded-full transition ${campusDirectionFilter === 'incoming'
                           ? 'bg-white shadow-sm text-blue-600 font-medium'
                           : 'text-gray-500'
-                      }`}
+                        }`}
                     >
                       Incoming
                     </button>
                     <button
                       type="button"
                       onClick={() => setCampusDirectionFilter('outgoing')}
-                      className={`px-3 py-1 rounded-full transition ${
-                        campusDirectionFilter === 'outgoing'
+                      className={`px-3 py-1 rounded-full transition ${campusDirectionFilter === 'outgoing'
                           ? 'bg-white shadow-sm text-blue-600 font-medium'
                           : 'text-gray-500'
-                      }`}
+                        }`}
                     >
                       Outgoing
                     </button>
-                  </div>
+                </div>
                   {/* Pending/History Tabs */}
                   <div className="inline-flex rounded-full bg-gray-100 p-1 text-xs">
                     <button
                       type="button"
                       onClick={() => setCampusStatusFilter('pending')}
-                      className={`px-3 py-1 rounded-full transition ${
-                        campusStatusFilter === 'pending'
+                      className={`px-3 py-1 rounded-full transition ${campusStatusFilter === 'pending'
                           ? 'bg-white shadow-sm text-blue-600'
                           : 'text-gray-500'
-                      }`}
+                        }`}
                     >
                       Pending ({pendingCampusCount})
                     </button>
                     <button
                       type="button"
                       onClick={() => setCampusStatusFilter('history')}
-                      className={`px-3 py-1 rounded-full transition ${
-                        campusStatusFilter === 'history'
+                      className={`px-3 py-1 rounded-full transition ${campusStatusFilter === 'history'
                           ? 'bg-white shadow-sm text-blue-600'
                           : 'text-gray-500'
-                      }`}
+                        }`}
                     >
                       History ({historyCampusCount})
                     </button>
-                  </div>
                 </div>
               </div>
+        </div>
               {filteredCampusTransfers.length === 0 ? (
                 <Card className="border-dashed border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
                   <CardContent className="py-10 px-6 text-center flex flex-col items-center justify-center gap-3">
                     <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center mb-1">
                       <Building className="h-6 w-6 text-blue-500" />
-                    </div>
+      </div>
                     <p className="text-base font-semibold text-gray-800">
                       {campusStatusFilter === 'pending'
                         ? `No pending ${campusDirectionFilter} campus transfers`
@@ -1479,72 +1488,385 @@ export default function TransferManagementPage() {
                                 <p className="text-xs text-gray-500 truncate">
                                   {transfer.student_id}
                                 </p>
-                              </div>
-                            </div>
+              </div>
+            </div>
                             <div className="flex items-center gap-2 shrink-0">
                               <div className="hidden sm:block">{getStatusBadge(transfer.status)}</div>
                               <ChevronDown
-                                className={`h-4 w-4 text-gray-400 transition-transform ${
-                                  expandedCampusId === transfer.id ? 'rotate-180' : ''
-                                }`}
+                                className={`h-4 w-4 text-gray-400 transition-transform ${expandedCampusId === transfer.id ? 'rotate-180' : ''
+                                  }`}
                               />
-                            </div>
+          </div>
                           </button>
-                        </div>
+            </div>
+
+                        {/* Expanded Details */}
+                        <div
+                          className={`overflow-hidden transition-all duration-300 ease-in-out ${expandedCampusId === transfer.id
+                              ? 'max-h-[2000px] opacity-100'
+                              : 'max-h-0 opacity-0'
+                            }`}
+                        >
+                          <div className="mt-4 pt-4 border-t border-gray-200 space-y-4">
+                            {/* Transfer Details */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-3">
+                                <h4 className="text-xs font-semibold text-gray-700 uppercase">From</h4>
+                                <div className="space-y-2">
+            <div>
+                                    <Label className="text-xs text-gray-500">Campus</Label>
+                                    <p className="text-sm font-medium">{transfer.from_campus_name}</p>
+            </div>
+                  <div>
+                                    <Label className="text-xs text-gray-500">Grade / Section</Label>
+                                    <p className="text-sm font-medium">
+                                      {transfer.from_grade_name} {transfer.from_section ? `(${transfer.from_section})` : ''}
+                    </p>
+                  </div>
+                  <div>
+                                    <Label className="text-xs text-gray-500">Shift</Label>
+                                    <p className="text-sm font-medium capitalize">{transfer.from_shift}</p>
+                    </div>
+                  </div>
+                </div>
+                
+                              <div className="space-y-3">
+                                <h4 className="text-xs font-semibold text-gray-700 uppercase">To</h4>
+                                <div className="space-y-2">
+                <div>
+                                    <Label className="text-xs text-gray-500">Campus</Label>
+                                    <p className="text-sm font-medium">{transfer.to_campus_name}</p>
+                </div>
+                  <div>
+                                    <Label className="text-xs text-gray-500">Grade / Section</Label>
+                                    <p className="text-sm font-medium">
+                                      {transfer.to_grade_name} {transfer.to_section ? `(${transfer.to_section})` : ''}
+                                      {transfer.skip_grade && (
+                                        <Badge variant="outline" className="ml-2 text-xs">Grade Skip</Badge>
+                                      )}
+                    </p>
+                  </div>
+                  <div>
+                                    <Label className="text-xs text-gray-500">Shift</Label>
+                                    <p className="text-sm font-medium capitalize">{transfer.to_shift || transfer.from_shift}</p>
+                                  </div>
+                                </div>
+                  </div>
+                </div>
+                
+                            {/* Reason */}
+                <div>
+                              <Label className="text-xs text-gray-500">Reason</Label>
+                              <p className="text-sm mt-1">{transfer.reason}</p>
+                </div>
+                
+                            {/* Requested Date */}
+                            <div className="flex items-center gap-2 text-xs text-gray-600">
+                              <Calendar className="h-3 w-3" />
+                              <span>Requested: {new Date(transfer.requested_date).toLocaleDateString()}</span>
+                  </div>
+
+                            {/* Actions */}
+                            <div className="flex gap-2 pt-2">
+                              {/* Teacher: Can only cancel if pending_from_coord */}
+                              {isTeacher && transfer.status === 'pending_from_coord' && (
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={async () => {
+                                    if (!confirm('Are you sure you want to cancel this campus transfer request?')) return;
+                                    try {
+                                      setActionLoading(transfer.id);
+                                      await cancelCampusTransfer(transfer.id);
+                                      toast.success('Campus transfer cancelled successfully');
+                                      await loadTeacherCoordinatorTransfers();
+                                    } catch (error: any) {
+                                      console.error('Error cancelling campus transfer:', error);
+                                      toast.error(error.message || 'Failed to cancel campus transfer');
+                                    } finally {
+                                      setActionLoading(null);
+                                    }
+                                  }}
+                                  disabled={actionLoading === transfer.id}
+                                  className="text-xs sm:text-sm"
+                                >
+                                  {actionLoading === transfer.id ? 'Cancelling...' : 'Cancel Request'}
+                                </Button>
+                              )}
+
+                              {/* Coordinator: Approve/Decline based on status */}
+                              {isCoordinator && (
+                                <>
+                                  {transfer.status === 'pending_from_coord' && (
+                                    <>
+                                      <Button
+                                        variant="default"
+                                        size="sm"
+                                        onClick={async () => {
+                                          try {
+                                            setActionLoading(transfer.id);
+                                            await approveCampusTransferFromCoord(transfer.id);
+                                            toast.success('Campus transfer approved and forwarded to from-campus principal');
+                                            await loadTeacherCoordinatorTransfers();
+                                          } catch (error: any) {
+                                            console.error('Error approving campus transfer:', error);
+                                            toast.error(error.message || 'Failed to approve campus transfer');
+                                          } finally {
+                                            setActionLoading(null);
+                                          }
+                                        }}
+                                        disabled={actionLoading === transfer.id}
+                                        className="bg-green-600 hover:bg-green-700 text-xs sm:text-sm"
+                                      >
+                                        {actionLoading === transfer.id ? 'Approving...' : 'Approve'}
+                                      </Button>
+                                      <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        onClick={() => {
+                                          setSelectedCampusTransfer(transfer);
+                                          setDeclineReason('');
+                                          setShowDeclineDialog(true);
+                                        }}
+                                        disabled={actionLoading === transfer.id}
+                                        className="text-xs sm:text-sm"
+                                      >
+                                        Decline
+                                      </Button>
+                                    </>
+                                  )}
+
+                                  {transfer.status === 'pending_to_coord' && (
+                                    <>
+                                      <Button
+                                        variant="default"
+                                        size="sm"
+                                        onClick={() => {
+                                          setSelectedCampusTransfer(transfer);
+                                          setShowCampusConfirmDialog(true);
+                                          setCampusConfirmText('');
+                                        }}
+                                        disabled={actionLoading === transfer.id}
+                                        className="bg-green-600 hover:bg-green-700 text-xs sm:text-sm"
+                                      >
+                                        {actionLoading === transfer.id ? 'Confirming...' : 'Confirm Transfer'}
+                                      </Button>
+                                      <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        onClick={() => {
+                                          setSelectedCampusTransfer(transfer);
+                                          setDeclineReason('');
+                                          setShowDeclineDialog(true);
+                                        }}
+                                        disabled={actionLoading === transfer.id}
+                                        className="text-xs sm:text-sm"
+                                      >
+                                        Decline
+                                      </Button>
+                                    </>
+                                  )}
+                                </>
+                              )}
+
+                              {/* Principal: Approve/Decline based on status */}
+                              {isPrincipal && (
+                                <>
+                                  {transfer.status === 'pending_from_principal' && (
+                                    <>
+                                      <Button
+                                        variant="default"
+                                        size="sm"
+                                        onClick={async () => {
+                                          try {
+                                            setActionLoading(transfer.id);
+                                            await approveCampusTransferFromPrincipal(transfer.id);
+                                            toast.success('Campus transfer approved and forwarded to destination campus principal');
+                                            await loadTeacherCoordinatorTransfers();
+                                          } catch (error: any) {
+                                            console.error('Error approving campus transfer:', error);
+                                            toast.error(error.message || 'Failed to approve campus transfer');
+                                          } finally {
+                                            setActionLoading(null);
+                                          }
+                                        }}
+                                        disabled={actionLoading === transfer.id}
+                                        className="bg-green-600 hover:bg-green-700 text-xs sm:text-sm"
+                                      >
+                                        {actionLoading === transfer.id ? 'Approving...' : 'Approve'}
+                                      </Button>
+                                      <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        onClick={() => {
+                                          setSelectedCampusTransfer(transfer);
+                                          setDeclineReason('');
+                                          setShowDeclineDialog(true);
+                                        }}
+                                        disabled={actionLoading === transfer.id}
+                                        className="text-xs sm:text-sm"
+                                      >
+                                        Decline
+                                      </Button>
+                                    </>
+                                  )}
+
+                                  {transfer.status === 'pending_to_principal' && (
+                                    <>
+                                      <Button
+                                        variant="default"
+                                        size="sm"
+                                        onClick={async () => {
+                                          try {
+                                            setActionLoading(transfer.id);
+                                            await approveCampusTransferToPrincipal(transfer.id);
+                                            toast.success('Campus transfer approved and forwarded to destination coordinator');
+                                            await loadTeacherCoordinatorTransfers();
+                                          } catch (error: any) {
+                                            console.error('Error approving campus transfer:', error);
+                                            toast.error(error.message || 'Failed to approve campus transfer');
+                                          } finally {
+                                            setActionLoading(null);
+                                          }
+                                        }}
+                                        disabled={actionLoading === transfer.id}
+                                        className="bg-green-600 hover:bg-green-700 text-xs sm:text-sm"
+                                      >
+                                        {actionLoading === transfer.id ? 'Approving...' : 'Approve'}
+                                      </Button>
+                                      <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        onClick={() => {
+                                          setSelectedCampusTransfer(transfer);
+                                          setDeclineReason('');
+                                          setShowDeclineDialog(true);
+                                        }}
+                                        disabled={actionLoading === transfer.id}
+                                        className="text-xs sm:text-sm"
+                                      >
+                                        Decline
+                                      </Button>
+                                    </>
+                                  )}
+                                </>
+                              )}
+
+                              {/* View Letter Button - For approved transfers */}
+                              {transfer.status === 'approved' && (
+                                <>
+                                  {/* Teacher who initiated: Can view letter */}
+                                  {isTeacher && currentTeacherId === transfer.initiated_by_teacher && (
+                                    <Button
+                                      variant="default"
+                                      size="sm"
+                                      onClick={async () => {
+                                        try {
+                                          setActionLoading(transfer.id);
+                                          const letter = await getCampusTransferLetter(transfer.id);
+                                          setCampusLetter(letter);
+                                          setSelectedCampusTransfer(transfer);
+                                          setShowCampusLetter(true);
+                                        } catch (error: any) {
+                                          console.error('Error fetching letter:', error);
+                                          toast.error(error.message || 'Failed to fetch transfer letter');
+                                        } finally {
+                                          setActionLoading(null);
+                                        }
+                                      }}
+                                      disabled={actionLoading === transfer.id}
+                                      className="bg-blue-600 hover:bg-blue-700 text-xs sm:text-sm"
+                                    >
+                                      <Eye className="h-4 w-4 mr-1" />
+                                      {actionLoading === transfer.id ? 'Loading...' : 'View Letter'}
+                                    </Button>
+                                  )}
+
+                                  {/* Others: View only */}
+                                  {((isPrincipal && currentUserId === transfer.from_principal) || 
+                                    (isTeacher && currentTeacherId !== transfer.initiated_by_teacher)) && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={async () => {
+                                        try {
+                                          setActionLoading(transfer.id);
+                                          const letter = await getCampusTransferLetter(transfer.id);
+                                          setCampusLetter(letter);
+                                          setShowCampusLetter(true);
+                                        } catch (error: any) {
+                                          console.error('Error fetching letter:', error);
+                                          toast.error(error.message || 'Failed to fetch transfer letter');
+                                        } finally {
+                                          setActionLoading(null);
+                                        }
+                                      }}
+                                      disabled={actionLoading === transfer.id}
+                                      className="text-xs sm:text-sm"
+                                    >
+                                      <Eye className="h-4 w-4 mr-1" />
+                                      {actionLoading === transfer.id ? 'Loading...' : 'View Letter'}
+                                    </Button>
+                                  )}
+                                </>
+                              )}
+                  </div>
+                  </div>
+                </div>
                       </CardContent>
                     </Card>
                   ))}
-                </div>
-              )}
+                  </div>
+                )}
             </TabsContent>
           </Tabs>
 
           {/* Shared Decline Dialog for class/shift/grade skip transfers (coordinator) */}
-          <Dialog open={showDeclineDialog} onOpenChange={setShowDeclineDialog}>
+        <Dialog open={showDeclineDialog} onOpenChange={setShowDeclineDialog}>
             <DialogContent className="w-[95vw] sm:w-full sm:max-w-lg">
-              <DialogHeader>
+            <DialogHeader>
                 <DialogTitle className="flex items-center gap-2 text-red-600 text-base sm:text-lg">
                   <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5" />
-                  Decline Transfer Request
-                </DialogTitle>
-              </DialogHeader>
+                Decline Transfer Request
+              </DialogTitle>
+            </DialogHeader>
               <div className="space-y-3 sm:space-y-4">
-                <Alert>
+              <Alert>
                   <AlertCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   <AlertDescription className="text-xs sm:text-sm">
                     Are you sure you want to decline this transfer request? This action
                     cannot be undone.
-                  </AlertDescription>
-                </Alert>
-
-                <div>
+                </AlertDescription>
+              </Alert>
+              
+              <div>
                   <Label htmlFor="decline_reason" className="text-xs sm:text-sm">Reason for declining *</Label>
-                  <Textarea
-                    id="decline_reason"
-                    placeholder="Please provide a reason for declining this transfer..."
-                    value={declineReason}
+                <Textarea
+                  id="decline_reason"
+                  placeholder="Please provide a reason for declining this transfer..."
+                  value={declineReason}
                     onChange={e => setDeclineReason(e.target.value)}
-                    rows={3}
+                  rows={3}
                     className="mt-1 text-xs sm:text-sm"
-                  />
-                </div>
-
+                />
+              </div>
+              
                 <div className="flex flex-col sm:flex-row justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setShowDeclineDialog(false);
-                      setDeclineReason('');
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowDeclineDialog(false);
+                    setDeclineReason('');
                       setSelectedClassTransfer(null);
                       setSelectedShiftTransfer(null);
                       setSelectedGradeSkipTransfer(null);
-                    }}
+                  }}
                     className="w-full sm:w-auto text-xs sm:text-sm"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="destructive"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
                     onClick={async () => {
                       if (!declineReason.trim()) {
                         toast.error('Please provide a reason for declining');
@@ -1566,6 +1888,11 @@ export default function TransferManagementPage() {
                           await declineGradeSkip(selectedGradeSkipTransfer.id, declineReason);
                           toast.success('Grade skip transfer declined');
                           setSelectedGradeSkipTransfer(null);
+                        } else if (selectedCampusTransfer) {
+                          setActionLoading(selectedCampusTransfer.id);
+                          await declineCampusTransfer(selectedCampusTransfer.id, declineReason);
+                          toast.success('Campus transfer declined');
+                          setSelectedCampusTransfer(null);
                         }
                         setShowDeclineDialog(false);
                         setDeclineReason('');
@@ -1581,270 +1908,341 @@ export default function TransferManagementPage() {
                     className="w-full sm:w-auto text-xs sm:text-sm"
                   >
                     {actionLoading ? 'Declining...' : 'Decline Transfer'}
-                  </Button>
-                </div>
+                </Button>
               </div>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
-    );
-  }
+            </div>
+          </DialogContent>
+        </Dialog>
 
-  // Principal view (original)
-  if (loading) {
-    return (
-      <div className="bg-gray-50 p-2 sm:p-4 md:p-6">
-        <div className="max-w-6xl mx-auto space-y-4 sm:space-y-6 animate-pulse">
-          {/* Header skeleton */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="h-9 w-24 rounded-full bg-gray-200" />
-              <div className="space-y-2">
-                <div className="h-5 w-48 bg-gray-200 rounded" />
-                <div className="h-4 w-64 bg-gray-100 rounded" />
-              </div>
-            </div>
-            <div className="h-9 w-32 bg-blue-100/60 rounded-full" />
-          </div>
-
-          {/* Tabs + cards skeleton */}
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-4 space-y-5">
-            <div className="flex gap-2 mb-2">
-              <div className="h-9 flex-1 bg-gray-100 rounded-full" />
-              <div className="h-9 flex-1 bg-gray-50 rounded-full" />
-            </div>
-            <div className="grid md:grid-cols-2 gap-4">
-              {[1, 2].map((i) => (
-                <div key={i} className="rounded-2xl border border-gray-100 bg-gray-50 p-4 space-y-3">
-                  <div className="h-4 w-40 bg-gray-200 rounded" />
-                  <div className="h-3 w-32 bg-gray-100 rounded" />
-                  <div className="h-3 w-48 bg-gray-100 rounded" />
-                  <div className="h-8 w-24 bg-gray-200 rounded-full mt-2" />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-gray-50 p-2 sm:p-4 md:p-6">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 w-full sm:w-auto">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.back()}
-              className="flex items-center gap-2 w-full sm:w-auto"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span className="sm:hidden">Go Back</span>
-              <span className="hidden sm:inline">Back</span>
-            </Button>
-            <div className="flex-1 sm:flex-none">
-              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900">Transfer Management</h1>
-              <p className="text-xs sm:text-sm md:text-base text-gray-600">Manage student and teacher transfers</p>
-            </div>
-          </div>
-          <Button
-            onClick={() => router.push('/admin/principals/transfers/create')}
-            className="flex items-center gap-2 w-full sm:w-auto"
-          >
-            <Plus className="h-4 w-4" />
-            <span className="sm:hidden">Create</span>
-            <span className="hidden sm:inline">Create Transfer</span>
-          </Button>
-        </div>
-        
-        {/* Tabs */}
-        <Tabs defaultValue="outgoing" className="space-y-4 sm:space-y-6">
-          <TabsList className="grid w-full grid-cols-2 h-auto">
-            <TabsTrigger value="outgoing" className="text-xs sm:text-sm md:text-base py-2 sm:py-2.5">
-              <span className="hidden sm:inline">Outgoing Requests</span>
-              <span className="sm:hidden">Outgoing</span>
-              <span className="ml-1">({outgoingRequests.length})</span>
-            </TabsTrigger>
-            <TabsTrigger value="incoming" className="text-xs sm:text-sm md:text-base py-2 sm:py-2.5">
-              <span className="hidden sm:inline">Incoming Requests</span>
-              <span className="sm:hidden">Incoming</span>
-              <span className="ml-1">({incomingRequests.length})</span>
-            </TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="outgoing" className="space-y-3 sm:space-y-4">
-            {outgoingRequests.length === 0 ? (
-              <Card>
-                <CardContent className="p-6 sm:p-8 text-center">
-                  <div className="text-gray-500">
-                    <FileText className="h-10 w-10 sm:h-12 sm:w-12 mx-auto mb-3 sm:mb-4" />
-                    <p className="text-sm sm:text-base md:text-lg font-medium">No outgoing requests</p>
-                    <p className="text-xs sm:text-sm px-2">You haven't created any transfer requests yet.</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid gap-3 sm:gap-4">
-                {outgoingRequests.map(request => renderRequestCard(request, true))}
-              </div>
-            )}
-          </TabsContent>
-          
-          <TabsContent value="incoming" className="space-y-3 sm:space-y-4">
-            {incomingRequests.length === 0 ? (
-              <Card>
-                <CardContent className="p-6 sm:p-8 text-center">
-                  <div className="text-gray-500">
-                    <FileText className="h-10 w-10 sm:h-12 sm:w-12 mx-auto mb-3 sm:mb-4" />
-                    <p className="text-sm sm:text-base md:text-lg font-medium">No incoming requests</p>
-                    <p className="text-xs sm:text-sm px-2">No transfer requests have been sent to you yet.</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid gap-3 sm:gap-4">
-                {incomingRequests.map(request => renderRequestCard(request, false))}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-        
-        {/* Request Details Dialog */}
-        <Dialog open={showDetails} onOpenChange={setShowDetails}>
-          <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        {/* Campus Transfer Confirmation Dialog - GitHub Style */}
+        <Dialog open={showCampusConfirmDialog} onOpenChange={setShowCampusConfirmDialog}>
+          <DialogContent className="sm:max-w-[600px]">
             <DialogHeader>
-              <DialogTitle className="text-lg sm:text-xl">Transfer Request Details</DialogTitle>
+              <DialogTitle className="flex items-center gap-2 text-xl">
+                <AlertCircle className="h-6 w-6 text-red-600" />
+                Confirm Campus Transfer
+              </DialogTitle>
             </DialogHeader>
-            {selectedRequest && (
-              <div className="space-y-3 sm:space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div>
-                    <Label className="text-sm font-medium text-gray-500">Type</Label>
-                    <p className="text-sm">
-                      {selectedRequest.request_type === 'student' ? 'Student Transfer' : 'Teacher Transfer'}
-                    </p>
+            
+            {selectedCampusTransfer && (
+              <div className="space-y-6">
+                {/* Warning Alert */}
+                <Alert className="border-red-200 bg-red-50">
+                  <AlertCircle className="h-4 w-4 text-red-600" />
+                  <AlertDescription className="text-red-800">
+                    <strong>This action cannot be undone.</strong> This will permanently transfer the student to the new campus and update their student ID.
+                  </AlertDescription>
+                </Alert>
+
+                {/* Transfer Details */}
+                <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <div className="flex items-start gap-2">
+                    <User className="h-4 w-4 text-gray-500 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Student</p>
+                      <p className="text-sm text-gray-900">{selectedCampusTransfer.student_name}</p>
+                    </div>
                   </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-500">Status</Label>
-                    <div className="mt-1">
-                      {getStatusBadge(selectedRequest.status)}
+                  
+                  <div className="flex items-start gap-2">
+                    <Building className="h-4 w-4 text-gray-500 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">From</p>
+                      <p className="text-sm text-gray-900">
+                        {selectedCampusTransfer.from_campus_name} - {selectedCampusTransfer.from_grade_name} ({selectedCampusTransfer.from_section})
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-start gap-2">
+                    <ArrowRightLeft className="h-4 w-4 text-gray-500 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">To</p>
+                      <p className="text-sm text-gray-900">
+                        {selectedCampusTransfer.to_campus_name} - {selectedCampusTransfer.to_grade_name} ({selectedCampusTransfer.to_section})
+                      </p>
                     </div>
                   </div>
                 </div>
-                
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Entity</Label>
-                  <p className="text-sm font-medium">{selectedRequest.entity_name}</p>
-                  <p className="text-xs text-gray-600">{selectedRequest.current_id}</p>
+
+                {/* Confirmation Input */}
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-text" className="text-sm font-medium">
+                    To confirm this campus transfer, please type <span className="font-mono font-bold text-red-600">confirm</span> below:
+                  </Label>
+                  <Input
+                    id="confirm-text"
+                    value={campusConfirmText}
+                    onChange={(e) => setCampusConfirmText(e.target.value)}
+                    placeholder="Type 'confirm' to proceed"
+                    className="font-mono"
+                    autoComplete="off"
+                  />
                 </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div>
-                    <Label className="text-xs sm:text-sm font-medium text-gray-500">From</Label>
-                    <p className="text-xs sm:text-sm break-words">
-                      {selectedRequest.from_campus_name} ({selectedRequest.from_shift === 'M' ? 'Morning' : selectedRequest.from_shift === 'A' ? 'Afternoon' : 'Both'})
-                    </p>
-                  </div>
-                  <div>
-                    <Label className="text-xs sm:text-sm font-medium text-gray-500">To</Label>
-                    <p className="text-xs sm:text-sm break-words">
-                      {selectedRequest.to_campus_name} ({selectedRequest.to_shift === 'M' ? 'Morning' : selectedRequest.to_shift === 'A' ? 'Afternoon' : 'Both'})
-                    </p>
-                  </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 justify-end pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowCampusConfirmDialog(false);
+                      setCampusConfirmText('');
+                      setSelectedCampusTransfer(null);
+                    }}
+                    disabled={actionLoading !== null}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={async () => {
+                      if (campusConfirmText.toLowerCase() !== 'confirm') {
+                        toast.error('Please type "confirm" to proceed');
+                        return;
+                      }
+
+                      try {
+                        setActionLoading(selectedCampusTransfer.id);
+                        await confirmCampusTransfer(selectedCampusTransfer.id, campusConfirmText);
+                        toast.success('Campus transfer confirmed and applied successfully!');
+                        setShowCampusConfirmDialog(false);
+                        setCampusConfirmText('');
+                        setSelectedCampusTransfer(null);
+                        await loadTeacherCoordinatorTransfers();
+                      } catch (error: any) {
+                        console.error('Error confirming campus transfer:', error);
+                        toast.error(error.message || 'Failed to confirm campus transfer');
+                      } finally {
+                        setActionLoading(null);
+                      }
+                    }}
+                    disabled={actionLoading !== null || campusConfirmText.toLowerCase() !== 'confirm'}
+                    className="bg-red-600 hover:bg-red-700"
+                  >
+                    {actionLoading === selectedCampusTransfer.id ? 'Confirming...' : 'Confirm Transfer'}
+                  </Button>
                 </div>
-                
-                <div>
-                  <Label className="text-xs sm:text-sm font-medium text-gray-500">Reason</Label>
-                  <p className="text-xs sm:text-sm break-words">{selectedRequest.reason}</p>
-                </div>
-                
-                {selectedRequest.notes && (
-                  <div>
-                    <Label className="text-xs sm:text-sm font-medium text-gray-500">Notes</Label>
-                    <p className="text-xs sm:text-sm break-words">{selectedRequest.notes}</p>
-                  </div>
-                )}
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div>
-                    <Label className="text-xs sm:text-sm font-medium text-gray-500">Requested Date</Label>
-                    <p className="text-xs sm:text-sm">{new Date(selectedRequest.requested_date).toLocaleDateString()}</p>
-                  </div>
-                  <div>
-                    <Label className="text-xs sm:text-sm font-medium text-gray-500">Created</Label>
-                    <p className="text-xs sm:text-sm">{new Date(selectedRequest.created_at).toLocaleString()}</p>
-                  </div>
-                </div>
-                
-                {selectedRequest.decline_reason && (
-                  <div>
-                    <Label className="text-sm font-medium text-gray-500">Decline Reason</Label>
-                    <p className="text-sm text-red-600">{selectedRequest.decline_reason}</p>
-                  </div>
-                )}
               </div>
             )}
           </DialogContent>
         </Dialog>
-        
-        {/* Decline Dialog */}
-        <Dialog open={showDeclineDialog} onOpenChange={setShowDeclineDialog}>
-          <DialogContent className="w-[95vw] sm:w-full sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-red-600 text-base sm:text-lg">
-                <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5" />
-                Decline Transfer Request
-              </DialogTitle>
+
+
+        {/* Campus Transfer Letter Dialog - Professional Template */}
+        <Dialog open={showCampusLetter} onOpenChange={setShowCampusLetter}>
+          <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto bg-white">
+            <DialogHeader className="sr-only">
+              <DialogTitle>Campus Transfer Letter</DialogTitle>
             </DialogHeader>
-            <div className="space-y-3 sm:space-y-4">
-              <Alert>
-                <AlertCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                <AlertDescription className="text-xs sm:text-sm">
-                  Are you sure you want to decline this transfer request? This action cannot be undone.
-                </AlertDescription>
-              </Alert>
-              
-              <div>
-                <Label htmlFor="decline_reason" className="text-xs sm:text-sm">Reason for declining *</Label>
-                <Textarea
-                  id="decline_reason"
-                  placeholder="Please provide a reason for declining this transfer..."
-                  value={declineReason}
-                  onChange={(e) => setDeclineReason(e.target.value)}
-                  rows={3}
-                  className="mt-1 text-xs sm:text-sm"
-                />
+            {campusLetter && (
+              <div className="relative space-y-0 print:p-8" id="transfer-letter">
+                {/* Watermark */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-5">
+                  <div className="transform -rotate-45">
+                    <p className="text-6xl font-bold text-gray-900 whitespace-nowrap">
+                  Idara Al-Khair (IAK-SMS)
+                    </p>
+                    <p className="text-4xl font-semibold text-gray-900 text-center mt-2">
+                      Powered By AIT 
+                    </p>
+                  </div>
+                </div>
+                {/* Letter Header - Sky Blue Theme with Logo */}
+                <div className="bg-gradient-to-r from-sky-600 to-blue-600 text-white p-8 print:bg-sky-600 print:text-white">
+                  {/* Diagonal Pattern Header */}
+                  <div className="relative">
+                    <div className="absolute top-0 left-0 w-full h-full opacity-10">
+                      <div className="grid grid-cols-12 gap-1 h-full">
+                        {[...Array(60)].map((_, i) => (
+                          <div key={i} className="bg-white transform rotate-45"></div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="relative flex items-center justify-between gap-6">
+                      {/* Logo */}
+                      <div className="shrink-0">
+                        <div className="w-20 h-20 bg-white rounded-full p-2 shadow-lg">
+                          <img 
+                            src="/logo.png" 
+                            alt="Idara Al-Khair Logo" 
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* School Info */}
+                      <div className="flex-1">
+                        <h1 className="text-2xl font-bold mb-1">Idara Al-Khair</h1>
+                        <p className="text-xs text-sky-100">Welfare Society</p>
+                        <p className="text-xs text-sky-200 mt-1">info@idaraalkhair.com</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Letter Title */}
+                <div className="bg-white px-8 pt-4 pb-3 border-b-2 border-sky-200">
+                  <h2 className="text-xl font-bold text-center bg-gradient-to-r from-sky-600 to-blue-600 bg-clip-text text-transparent">
+                    Approval of Transfer Letter
+                  </h2>
+                </div>
+
+                {/* Letter Body - Professional Format */}
+                <div className="px-8 py-4 space-y-4 text-gray-800 text-sm leading-relaxed">
+                  {/* Date and Reference */}
+                  <div className="flex justify-between text-xs border-b pb-3">
+                    <div>
+                      <p className="font-semibold">Date:</p>
+                      <p>{new Date(campusLetter.approved_at).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric' 
+                      })}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold">Student ID:</p>
+                      <p className="font-mono">{campusLetter.student_old_id}</p>
+                    </div>
+                  </div>
+
+                  {/* Student Details Box */}
+                  <div className="bg-sky-50 border-l-4 border-sky-600 p-3">
+                    <p className="font-semibold text-xs text-sky-700 mb-2">STUDENT DETAILS</p>
+                    <div className="space-y-1 text-xs">
+                      <p><span className="font-semibold">Student Name:</span> {campusLetter.student_name}</p>
+                      <p><span className="font-semibold">Previous ID:</span> <span className="font-mono">{campusLetter.student_old_id}</span></p>
+                      <p><span className="font-semibold">New ID:</span> <span className="font-mono text-green-700 font-bold">{campusLetter.student_new_id}</span></p>
+                      <p><span className="font-semibold">Date of Transfer:</span> {new Date(campusLetter.requested_date).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric' 
+                      })}</p>
+                    </div>
+                  </div>
+
+                  {/* Letter Content - Formal Paragraph */}
+                  <div className="space-y-3 text-justify text-sm">
+                    <p className="leading-relaxed">
+                      Dear Sir/Madam,
+                    </p>
+                    
+                    <p className="leading-relaxed">
+                      This letter serves as an official confirmation of the completion of the campus transfer request for the above-mentioned student. After careful review and approval by the relevant authorities, we are pleased to inform you that the transfer has been successfully processed and approved.
+                    </p>
+
+                    <p className="leading-relaxed">
+                      The student is currently enrolled in <strong>{campusLetter.from_class_label}</strong> at <strong>{campusLetter.from_campus_name}</strong>. Following the approval of transfer, the student will now be enrolled in <strong>{campusLetter.to_class_label}</strong> at <strong>{campusLetter.to_campus_name}</strong>.
+                    </p>
+
+                    <p className="leading-relaxed">
+                      <span className="font-semibold">Reason for Transfer:</span> {campusLetter.reason}
+                    </p>
+
+                    <p className="leading-relaxed">
+                      The student has been assigned a new student ID <strong className="font-mono bg-yellow-100 px-2 py-0.5 rounded">{campusLetter.student_new_id}</strong> which will be used for all future academic records and documentation. The previous student ID <span className="font-mono">{campusLetter.student_old_id}</span> will no longer be valid.
+                    </p>
+                  </div>
+
+                  {/* Approval Authorities */}
+                  <div className="bg-sky-50 border border-sky-200 p-3">
+                    <p className="font-semibold text-xs text-sky-700 mb-2">APPROVED BY:</p>
+                    <div className="space-y-2 text-xs">
+                      {campusLetter.from_principal_name && (
+                        <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                          <span className="text-gray-700">From-Campus Principal:</span>
+                          <span className="font-semibold">{campusLetter.from_principal_name}</span>
+                        </div>
+                      )}
+                      {campusLetter.to_principal_name && (
+                        <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                          <span className="text-gray-700">To-Campus Principal:</span>
+                          <span className="font-semibold">{campusLetter.to_principal_name}</span>
+                        </div>
+                      )}
+                      {campusLetter.to_coordinator_name && (
+                        <div className="flex justify-between items-center py-2">
+                          <span className="text-gray-700">To-Campus Coordinator:</span>
+                          <span className="font-semibold">{campusLetter.to_coordinator_name}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Closing Statement */}
+                  <div className="space-y-3 text-sm">
+                    <p className="leading-relaxed">
+                      This transfer has been processed in accordance with the school's transfer policy. Please ensure that all future correspondence and academic records reference the new student ID.
+                    </p>
+
+                    <p className="leading-relaxed">
+                      Should you have any questions or require further clarification, please do not hesitate to contact the administration office.
+                    </p>
+
+                    <p className="leading-relaxed mt-6">
+                      Best Regards,
+                    </p>
+
+                    {/* Signature and Stamp Section */}
+                    <div className="flex justify-between items-start mt-8">
+                      {/* Left - Signature */}
+                      <div className="flex-1">
+                        <div className="border-b-2 border-gray-300 pb-1 mb-2 h-16 max-w-xs"></div>
+                        <p className="font-bold text-base">Signature Of Head Of Academy</p>
+                      </div>
+
+                      {/* Right - Stamp */}
+                      <div className="flex flex-col items-end">
+                        <div className="border-2 border-dashed border-gray-400 rounded-lg w-24 h-24 flex items-center justify-center bg-gray-50">
+                          <div className="text-center text-gray-400">
+                            <div className="text-[10px] font-semibold mb-0.5">Official Stamp</div>
+                            <div className="text-[8px]">Place stamp here</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Note */}
+                <div className="bg-sky-50 px-8 py-4 border-t-2 border-sky-200">
+                  <p className="text-xs text-sky-700 text-center italic">
+                    This is an official document generated by the Idara Al-Khair School Management System. 
+                    For verification, please contact the administration office with reference number CT- (+92 300 299 2469)
+
+.
+                  </p>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 justify-end px-8 py-4 bg-gray-50 border-t print:hidden">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowCampusLetter(false);
+                      setCampusLetter(null);
+                    }}
+                  >
+                    Close
+                  </Button>
+                  
+                  {/* Download button for initiating teacher */}
+                  {isTeacher && currentTeacherId === selectedCampusTransfer?.initiated_by_teacher && (
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        window.print();
+                      }}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      Download Letter
+                    </Button>
+                  )}
+                </div>
               </div>
-              
-              <div className="flex flex-col sm:flex-row justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setShowDeclineDialog(false);
-                    setDeclineReason('');
-                    setSelectedRequest(null);
-                  }}
-                  className="w-full sm:w-auto text-xs sm:text-sm"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={handleDecline}
-                  disabled={!declineReason.trim() || actionLoading === selectedRequest?.id}
-                  className="w-full sm:w-auto text-xs sm:text-sm"
-                >
-                  {actionLoading === selectedRequest?.id ? 'Declining...' : 'Decline Transfer'}
-                </Button>
-              </div>
-            </div>
+            )}
           </DialogContent>
         </Dialog>
-
       </div>
     </div>
   );

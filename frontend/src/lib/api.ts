@@ -2455,6 +2455,24 @@ export async function getAvailableShiftSections(studentId: number, toShift: 'mor
   }
 }
 
+export async function getAvailableCampusTransferSections(
+  studentId: number, 
+  toCampusId: number, 
+  toShift: 'M' | 'A'
+) {
+  try {
+    const qs = new URLSearchParams();
+    qs.append('student', studentId.toString());
+    qs.append('to_campus', toCampusId.toString());
+    qs.append('to_shift', toShift === 'M' ? 'morning' : 'afternoon');
+    const url = `/api/transfers/campus/available-sections/?${qs.toString()}`;
+    return await apiGet<AvailableClassroomOption[]>(url);
+  } catch (error) {
+    console.error('Failed to fetch available campus transfer sections:', error);
+    return [];
+  }
+}
+
 // Grade Skip Transfer APIs
 export interface GradeSkipTransfer {
   id: number;
@@ -2505,6 +2523,16 @@ export async function getAvailableGradesForSkip(studentId: number) {
     return await apiGet<AvailableGradeForSkip>(url);
   } catch (error) {
     console.error('Failed to fetch available grades for skip:', error);
+    throw error;
+  }
+}
+
+export async function getAvailableGradesForCampusSkip(studentId: number, toCampusId: number) {
+  try {
+    const url = `/api/transfers/campus/available-grades-for-skip/?student_id=${studentId}&to_campus_id=${toCampusId}`;
+    return await apiGet<AvailableGradeForSkip>(url);
+  } catch (error) {
+    console.error('Failed to fetch available grades for campus skip:', error);
     throw error;
   }
 }
@@ -2570,6 +2598,26 @@ export async function getAvailableSectionsForGradeSkip(
   }
 }
 
+export async function getAvailableSectionsForCampusSkip(
+  studentId: number,
+  toGradeId: number,
+  toCampusId: number,
+  toShift: 'M' | 'A'
+) {
+  try {
+    const qs = new URLSearchParams();
+    qs.append('student_id', studentId.toString());
+    qs.append('to_grade_id', toGradeId.toString());
+    qs.append('to_campus_id', toCampusId.toString());
+    qs.append('to_shift', toShift === 'M' ? 'morning' : 'afternoon');
+    const url = `/api/transfers/campus/available-sections-for-skip/?${qs.toString()}`;
+    return await apiGet<AvailableClassroomOption[]>(url);
+  } catch (error) {
+    console.error('Failed to fetch available sections for campus skip:', error);
+    return [];
+  }
+}
+
 // Campus Transfer APIs
 export interface CampusTransfer {
   id: number;
@@ -2583,7 +2631,9 @@ export interface CampusTransfer {
   from_shift: 'morning' | 'afternoon';
   to_shift: 'morning' | 'afternoon';
   from_classroom: number | null;
+  from_classroom_display: string | null;
   to_classroom: number | null;
+  to_classroom_display: string | null;
   from_grade: number | null;
   to_grade: number | null;
   from_grade_name: string | null;

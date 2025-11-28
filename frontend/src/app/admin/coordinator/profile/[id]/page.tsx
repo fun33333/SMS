@@ -117,6 +117,11 @@ interface DashboardStats {
 }
 
 interface AttendanceSummary {
+  level_id?: number
+  date_range?: {
+    start_date: string
+    end_date: string
+  }
   summary: {
     total_classrooms: number
     total_students: number
@@ -258,14 +263,36 @@ export default function CoordinatorProfilePage() {
       setLoadingClassrooms(false)
     }
     
-    // Wait for coordinator to be set before loading attendance
-    setTimeout(() => {
-      loadAttendanceSummary()
-    }, 200)
+    // Attendance will be loaded by useEffect when coordinator is available
+    // No need to call it here as useEffect handles it
   }
   
-  async function loadAttendanceSummary() {
-    if (!coordinator) return
+  async function loadAttendanceSummary(customStartDate?: string, customEndDate?: string) {
+    if (!coordinator) {
+      console.warn('Coordinator not available yet, skipping attendance load')
+      return
+    }
+    
+    const start = customStartDate || startDate
+    const end = customEndDate || endDate
+    
+    // Validate dates
+    if (!start || !end) {
+      console.error('Start date or end date is missing', { start, end })
+      return
+    }
+    
+    // Ensure dates are in YYYY-MM-DD format
+    const formattedStart = start.split('T')[0]
+    const formattedEnd = end.split('T')[0]
+    
+    // Validate date format
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+    if (!dateRegex.test(formattedStart) || !dateRegex.test(formattedEnd)) {
+      console.error('Invalid date format', { formattedStart, formattedEnd })
+      alert('Invalid date format. Please select dates again.')
+      return
+    }
     
     setLoadingAttendance(true)
     try {
@@ -276,28 +303,120 @@ export default function CoordinatorProfilePage() {
       if (primaryLevel) {
         const levelId = primaryLevel.id || (assignedLevels[0]?.id)
         if (levelId) {
-          const summary = await getLevelAttendanceSummary(levelId, startDate, endDate) as AttendanceSummary | null
-          if (summary) {
-            setAttendanceSummary(summary)
+          console.log('Loading attendance with dates:', formattedStart, 'to', formattedEnd)
+          console.log('Date range details:', {
+            startDate: formattedStart,
+            endDate: formattedEnd,
+            isSameDay: formattedStart === formattedEnd,
+            daysDiff: Math.ceil((new Date(formattedEnd).getTime() - new Date(formattedStart).getTime()) / (1000 * 60 * 60 * 24)) + 1
+          })
+          
+          const response = await getLevelAttendanceSummary(levelId, formattedStart, formattedEnd) as any
+          console.log('API Response received:', response)
+          console.log('Response date_range:', response?.date_range)
+          console.log('Response summary:', response?.summary)
+          console.log('Response classrooms count:', response?.classrooms?.length)
+          
+          // Handle different response structures
+          let summary: AttendanceSummary | null = null
+          
+          if (response) {
+            // Check if response has the expected structure
+            if (response.summary && response.classrooms) {
+              summary = response as AttendanceSummary
+              
+              // Log detailed classroom data
+              if (summary.classrooms && summary.classrooms.length > 0) {
+                console.log('Classroom details:')
+                summary.classrooms.forEach((classroom: any, index: number) => {
+                  console.log(`Classroom ${index + 1}:`, {
+                    name: classroom.classroom?.name,
+                    students: classroom.student_count,
+                    present: classroom.total_present,
+                    absent: classroom.total_absent,
+                    average: classroom.average_percentage
+                  })
+                })
+              }
+            } else if (response.data) {
+              // If wrapped in data property
+              summary = response.data as AttendanceSummary
+            } else {
+              // Try direct assignment
+              summary = response as AttendanceSummary
+            }
+            
+            if (summary) {
+              console.log('Setting attendance summary with:', {
+                total_classrooms: summary.summary?.total_classrooms,
+                total_students: summary.summary?.total_students,
+                total_present: summary.summary?.total_present,
+                total_absent: summary.summary?.total_absent,
+                overall_percentage: summary.summary?.overall_percentage,
+                date_range: response?.date_range
+              })
+              setAttendanceSummary(summary)
+            } else {
+              console.warn('Could not parse attendance summary from response:', response)
+              setAttendanceSummary(null)
+            }
+          } else {
+            console.warn('No attendance summary returned for the selected date range')
+            setAttendanceSummary(null)
           }
         }
       }
     } catch (error) {
       console.error('Error loading attendance summary:', error)
+      setAttendanceSummary(null)
     } finally {
       setLoadingAttendance(false)
     }
   }
   
   useEffect(() => {
-    if (coordinator && isPrincipal) {
+    // Only load attendance if coordinator is loaded and user is principal
+    if (coordinator?.id && isPrincipal) {
       loadAttendanceSummary()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coordinator, startDate, endDate, isPrincipal])
+  }, [coordinator?.id, isPrincipal])
   
   const handleDateRangeChange = () => {
-    loadAttendanceSummary()
+    // Check if coordinator is available
+    if (!coordinator) {
+      console.warn('Coordinator not available, cannot load attendance')
+      return
+    }
+    
+    // Validate date range
+    if (!startDate || !endDate) {
+      alert('Please select both start and end dates')
+      return
+    }
+    
+    if (new Date(startDate) > new Date(endDate)) {
+      alert('Start date must be before or equal to end date')
+      return
+    }
+    
+    // Ensure dates are in YYYY-MM-DD format (ISO format)
+    const formattedStartDate = startDate.split('T')[0]
+    const formattedEndDate = endDate.split('T')[0]
+    
+    console.log('Applying filter with dates:', {
+      originalStartDate: startDate,
+      originalEndDate: endDate,
+      formattedStartDate,
+      formattedEndDate,
+      startDateObj: new Date(formattedStartDate),
+      endDateObj: new Date(formattedEndDate),
+      isSameDay: formattedStartDate === formattedEndDate,
+      daysInRange: Math.ceil((new Date(formattedEndDate).getTime() - new Date(formattedStartDate).getTime()) / (1000 * 60 * 60 * 24)) + 1
+    })
+    
+    // Force reload with formatted dates
+    loadAttendanceSummary(formattedStartDate, formattedEndDate)
   }
 
   // Chart data preparation
@@ -312,21 +431,36 @@ export default function CoordinatorProfilePage() {
   }, [dashboardStats])
 
   const attendanceChartData = useMemo(() => {
-    if (!attendanceSummary || !attendanceSummary.classrooms.length) return []
-    return attendanceSummary.classrooms.slice(0, 10).map(item => ({
-      name: item.classroom.name || `${item.classroom.grade} - ${item.classroom.section}`,
-      attendance: item.average_percentage,
+    if (!attendanceSummary || !attendanceSummary.classrooms || !attendanceSummary.classrooms.length) {
+      console.log('No attendance chart data - summary:', attendanceSummary)
+      return []
+    }
+    const chartData = attendanceSummary.classrooms.slice(0, 10).map(item => ({
+      name: item.classroom?.name || `${item.classroom?.grade || ''} - ${item.classroom?.section || ''}`,
+      attendance: item.average_percentage || 0,
       present: item.total_present || 0,
       absent: item.total_absent || 0
     }))
+    console.log('Chart data prepared:', chartData)
+    return chartData
   }, [attendanceSummary])
 
   const attendancePieData = useMemo(() => {
-    if (!attendanceSummary) return []
-    return [
-      { name: 'Present', value: attendanceSummary.summary.total_present, color: '#10b981' },
-      { name: 'Absent', value: attendanceSummary.summary.total_absent, color: '#ef4444' }
+    if (!attendanceSummary || !attendanceSummary.summary) {
+      console.log('No attendance pie data - summary:', attendanceSummary)
+      return []
+    }
+    const pieData = [
+      { name: 'Present', value: attendanceSummary.summary.total_present || 0, color: '#10b981' },
+      { name: 'Absent', value: attendanceSummary.summary.total_absent || 0, color: '#ef4444' }
     ]
+    console.log('Pie data prepared:', pieData)
+    return pieData
+  }, [attendanceSummary])
+  
+  // Debug: Log when attendanceSummary changes
+  useEffect(() => {
+    console.log('attendanceSummary state updated:', attendanceSummary)
   }, [attendanceSummary])
 
   const getShiftDisplay = (shift?: string) => {
@@ -380,105 +514,50 @@ export default function CoordinatorProfilePage() {
   return (
     <div className="min-h-screen bg-[#e7ecef] p-1.5 sm:p-3 md:p-4 lg:p-6">
       <div className="max-w-7xl mx-auto space-y-2.5 sm:space-y-4 md:space-y-6">
-        {/* Header - Redesigned */}
-        <Card className="bg-gradient-to-r from-[#274c77] via-[#6096ba] to-[#a3cef1] border-0 shadow-lg overflow-hidden">
-          <div className="p-3 sm:p-4 md:p-5">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
-              {/* Left Section - Back Button */}
-          <Button
-            onClick={() => router.back()}
-            variant="outline"
-                className="bg-white/90 hover:bg-white text-[#274c77] border-white/50 shadow-md hover:shadow-lg transition-all h-9 sm:h-10 md:h-11 px-4 sm:px-5 flex-shrink-0 font-medium"
-          >
-                <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5 mr-2 flex-shrink-0" />
-                <span className="text-xs sm:text-sm md:text-base">Back to List</span>
-          </Button>
+        <Card className="bg-gradient-to-r from-[#274c77]/80 via-[#6096ba]/90 to-[#a3cef1]/90 border-0 shadow-lg overflow-hidden rounded-xl">
+          <div className="p-4 sm:p-5 md:p-6">
+            <div className="flex flex-col sm:flex-row items-start gap-5 sm:gap-6">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 bg-white rounded-full flex items-center justify-center shadow-lg flex-shrink-0">
+                <User className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 text-[#6096ba]" />
+              </div>
 
-              {/* Center Section - Employee Code */}
-            {coordinator.employee_code && (
-                <div className="flex-1 flex items-center justify-center sm:justify-start">
-                  <div className="bg-white/95 backdrop-blur-sm rounded-lg px-4 sm:px-5 md:px-6 py-2 sm:py-2.5 shadow-md border border-white/50">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-[#274c77] to-[#6096ba] rounded-lg flex items-center justify-center shadow-sm">
-                        <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                      </div>
-                      <div>
-                        <p className="text-[9px] sm:text-[10px] md:text-xs text-gray-500 font-medium uppercase tracking-wide">Employee ID</p>
-                        <p className="text-sm sm:text-base md:text-lg font-bold text-[#274c77] font-mono">{coordinator.employee_code}</p>
-                      </div>
-                    </div>
-                  </div>
+              {/* Right - Name, Badges, Contact */}
+              <div className="flex-1 min-w-0">
+                {/* Name */}
+                <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-3 sm:mb-4">
+                  {coordinator.full_name || 'Unknown'}
+                </h1>
+                
+                {/* Badges */}
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                  <Badge className="bg-white/20 text-white border-white/30 text-xs sm:text-sm px-3 py-1">
+                    <Shield className="w-3 h-3 mr-1.5" />
+                    Coordinator
+                  </Badge>
+                  {coordinator.campus_name && (
+                    <Badge className="bg-white/20 text-white border-white/30 text-xs sm:text-sm px-3 py-1">
+                      <Building2 className="w-3 h-3 mr-1.5" />
+                      {coordinator.campus_name}
+                    </Badge>
+                  )}
                 </div>
-              )}
 
-              {/* Right Section - Status Badge */}
-              <div className="flex-shrink-0">
-                <div className={`relative overflow-hidden rounded-xl px-4 sm:px-5 md:px-6 py-2.5 sm:py-3 shadow-lg ${
-                coordinator.is_currently_active 
-                    ? 'bg-gradient-to-r from-green-500 to-emerald-600' 
-                    : 'bg-gradient-to-r from-red-500 to-rose-600'
-                }`}>
-                  <div className="flex items-center gap-2">
-              {coordinator.is_currently_active ? (
-                <>
-                        <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 bg-white rounded-full animate-pulse"></div>
-                        <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 text-white flex-shrink-0" />
-                        <span className="text-xs sm:text-sm md:text-base font-semibold text-white">Active</span>
-                </>
-              ) : (
-                <>
-                        <XCircle className="w-4 h-4 sm:w-5 sm:h-5 text-white flex-shrink-0" />
-                        <span className="text-xs sm:text-sm md:text-base font-semibold text-white">Inactive</span>
-                </>
-              )}
+                {/* Contact Info */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 text-white">
+                  <div className="flex items-center gap-2 text-sm sm:text-base">
+                    <Mail className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <span>{coordinator.email}</span>
                   </div>
-                  {/* Decorative shine effect */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full animate-shine"></div>
+                  {coordinator.contact_number && (
+                    <div className="flex items-center gap-2 text-sm sm:text-base">
+                      <Phone className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <span>{coordinator.contact_number}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           </div>
-        </Card>
-
-        {/* Profile Header Card */}
-        <Card className="bg-white shadow-xl border-2 border-[#a3cef1] overflow-hidden">
-          <CardHeader className="bg-gradient-to-r from-[#274c77] to-[#6096ba] text-white rounded-t-lg p-3 sm:p-4 md:p-6">
-            <div className="flex flex-col sm:flex-row items-center sm:items-center space-y-3 sm:space-y-0 sm:space-x-3 md:space-x-4">
-              <div className="w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 lg:w-24 lg:h-24 bg-white rounded-full flex items-center justify-center shadow-lg flex-shrink-0 mx-auto sm:mx-0">
-                <User className="w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10 lg:w-12 lg:h-12 text-[#6096ba]" />
-              </div>
-              <div className="flex-1 min-w-0 w-full text-center sm:text-left">
-                <CardTitle className="text-base sm:text-lg md:text-xl lg:text-2xl xl:text-3xl font-bold mb-1.5 sm:mb-2 break-words px-1">
-                  {coordinator.full_name || 'Unknown'}
-                </CardTitle>
-                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 sm:gap-2 mt-2 sm:mt-3">
-                  <Badge className="bg-white/20 text-white border-white/30 text-[10px] sm:text-xs md:text-sm px-2 sm:px-2.5 md:px-3 py-0.5 sm:py-1">
-                    <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1 inline flex-shrink-0" />
-                    <span className="hidden sm:inline">Coordinator</span>
-                    <span className="sm:hidden">Coord</span>
-                  </Badge>
-                  {coordinator.campus_name && (
-                    <Badge className="bg-white/20 text-white border-white/30 text-[10px] sm:text-xs md:text-sm px-2 sm:px-2.5 md:px-3 py-0.5 sm:py-1">
-                      <Building2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1 inline flex-shrink-0" />
-                      <span className="truncate max-w-[80px] sm:max-w-[120px] md:max-w-none">{coordinator.campus_name}</span>
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex flex-col sm:flex-row items-center sm:items-center gap-1.5 sm:gap-2 md:gap-4 mt-2 sm:mt-3 text-blue-100">
-                  <div className="flex items-center gap-1.5 text-[11px] sm:text-xs md:text-sm">
-                    <Mail className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 flex-shrink-0" />
-                    <span className="truncate max-w-[180px] sm:max-w-none break-all">{coordinator.email}</span>
-                  </div>
-                  {coordinator.contact_number && (
-                    <div className="flex items-center gap-1.5 text-[11px] sm:text-xs md:text-sm">
-                      <Phone className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 flex-shrink-0" />
-                      <span className="break-all">{coordinator.contact_number}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </CardHeader>
         </Card>
 
         {/* Main Information Card with Tabs */}
@@ -487,10 +566,10 @@ export default function CoordinatorProfilePage() {
             <CardTitle className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-[#274c77]">Coordinator Information</CardTitle>
           </CardHeader>
           <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6">
-            <Tabs defaultValue={isPrincipal ? "overview" : "personal"} className="w-full">
+            <Tabs defaultValue={isPrincipal ? "overview" : "information"} className="w-full">
               {/* Mobile: Icons only with equal width, Desktop: Icons + Text */}
               <div className="overflow-x-auto -mx-2 sm:-mx-3 md:-mx-4 lg:-mx-6 px-2 sm:px-3 md:px-4 lg:px-6 pb-2 mb-2 sm:mb-3 md:mb-4 scrollbar-hide">
-                <TabsList className={`inline-flex w-full h-auto bg-gray-100/50 p-0.5 sm:p-1 rounded-lg ${isPrincipal ? 'grid grid-cols-6' : 'grid grid-cols-4'} sm:inline-flex sm:w-full sm:min-w-max`}>
+                <TabsList className={`inline-flex w-full h-auto bg-gray-100/50 p-0.5 sm:p-1 rounded-lg ${isPrincipal ? 'grid grid-cols-4' : 'grid grid-cols-1'} sm:inline-flex sm:w-full sm:min-w-max`}>
                 {isPrincipal && (
                   <TabsTrigger 
                     value="overview" 
@@ -502,28 +581,12 @@ export default function CoordinatorProfilePage() {
                   </TabsTrigger>
                 )}
                 <TabsTrigger 
-                  value="personal" 
+                  value="information" 
                   className="flex flex-col items-center justify-center text-[9px] sm:text-xs md:text-sm px-1 sm:px-1.5 md:px-2 lg:px-3 py-1.5 sm:py-2 whitespace-nowrap min-w-0 sm:min-w-auto flex-1 sm:flex-none"
-                  title="Personal"
+                  title="Information"
                 >
                   <User className="w-4 h-4 sm:w-4 sm:h-4 md:w-4 md:h-4 flex-shrink-0 mb-0.5 sm:mb-0 sm:mr-0 sm:md:mr-1.5" />
-                  <span className="hidden sm:inline text-[10px] sm:text-xs">Personal</span>
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="professional" 
-                  className="flex flex-col items-center justify-center text-[9px] sm:text-xs md:text-sm px-1 sm:px-1.5 md:px-2 lg:px-3 py-1.5 sm:py-2 whitespace-nowrap min-w-0 sm:min-w-auto flex-1 sm:flex-none"
-                  title="Professional"
-                >
-                  <Briefcase className="w-4 h-4 sm:w-4 sm:h-4 md:w-4 md:h-4 flex-shrink-0 mb-0.5 sm:mb-0 sm:mr-0 sm:md:mr-1.5" />
-                  <span className="hidden sm:inline text-[10px] sm:text-xs">Professional</span>
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="education" 
-                  className="flex flex-col items-center justify-center text-[9px] sm:text-xs md:text-sm px-1 sm:px-1.5 md:px-2 lg:px-3 py-1.5 sm:py-2 whitespace-nowrap min-w-0 sm:min-w-auto flex-1 sm:flex-none"
-                  title="Education"
-                >
-                  <BookOpen className="w-4 h-4 sm:w-4 sm:h-4 md:w-4 md:h-4 flex-shrink-0 mb-0.5 sm:mb-0 sm:mr-0 sm:md:mr-1.5" />
-                  <span className="hidden sm:inline text-[10px] sm:text-xs">Education</span>
+                  <span className="hidden sm:inline text-[10px] sm:text-xs">Information</span>
                 </TabsTrigger>
                 {isPrincipal && (
                   <>
@@ -623,8 +686,8 @@ export default function CoordinatorProfilePage() {
                             </CardTitle>
                           </CardHeader>
                           <CardContent className="p-2 sm:p-3 md:p-6">
-                            <div className="w-full" style={{ minHeight: '180px' }}>
-                              <ResponsiveContainer width="100%" height={180}>
+                            <div className="w-full" style={{ minHeight: '250px' }}>
+                              <ResponsiveContainer width="100%" height={250}>
                                 <PieChart>
                                   <Pie
                                     data={statsChartData}
@@ -632,7 +695,7 @@ export default function CoordinatorProfilePage() {
                                     cy="50%"
                                     labelLine={false}
                                     label={(entry: any) => `${entry.name}: ${(entry.percent * 100).toFixed(0)}%`}
-                                    outerRadius={55}
+                                    outerRadius={85}
                                     fill="#8884d8"
                                     dataKey="value"
                                   >
@@ -654,9 +717,10 @@ export default function CoordinatorProfilePage() {
                 </TabsContent>
               )}
 
-              {/* Personal Information Tab */}
-              <TabsContent value="personal" className="space-y-2.5 sm:space-y-3 md:space-y-4 mt-2 sm:mt-3 md:mt-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 md:gap-4">
+              {/* Information Tab - Combined Personal, Professional, and Education */}
+              <TabsContent value="information" className="space-y-2.5 sm:space-y-3 md:space-y-4 mt-2 sm:mt-3 md:mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3 md:gap-4">
+                  {/* Personal Information */}
                   <div className="w-full rounded-lg border bg-white divide-y text-sm">
                     <div className="grid grid-cols-3 gap-1.5 sm:gap-2 p-2 sm:p-2.5 md:p-3">
                       <p className="text-[10px] sm:text-xs text-gray-500 flex-shrink-0">Full Name</p>
@@ -682,8 +746,6 @@ export default function CoordinatorProfilePage() {
                       <p className="text-[10px] sm:text-xs text-gray-500 flex-shrink-0">Contact</p>
                       <div className="col-span-2 text-gray-800 text-[11px] sm:text-xs md:text-sm break-words">{coordinator.contact_number || '—'}</div>
                     </div>
-                  </div>
-                  <div className="w-full rounded-lg border bg-white divide-y text-sm">
                     <div className="grid grid-cols-3 gap-1.5 sm:gap-2 p-2 sm:p-2.5 md:p-3">
                       <p className="text-[10px] sm:text-xs text-gray-500 flex-shrink-0">Email</p>
                       <div className="col-span-2 text-gray-800 text-[11px] sm:text-xs md:text-sm break-words">{coordinator.email || '—'}</div>
@@ -695,12 +757,8 @@ export default function CoordinatorProfilePage() {
                       </div>
                     )}
                   </div>
-                </div>
-              </TabsContent>
 
-              {/* Professional Information Tab */}
-              <TabsContent value="professional" className="space-y-2.5 sm:space-y-3 md:space-y-4 mt-2 sm:mt-3 md:mt-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 md:gap-4">
+                  {/* Professional Information */}
                   <div className="w-full rounded-lg border bg-white divide-y text-sm">
                     <div className="grid grid-cols-3 gap-1.5 sm:gap-2 p-2 sm:p-2.5 md:p-3">
                       <p className="text-[10px] sm:text-xs text-gray-500 flex-shrink-0">Campus</p>
@@ -715,60 +773,54 @@ export default function CoordinatorProfilePage() {
                     <div className="grid grid-cols-3 gap-1.5 sm:gap-2 p-2 sm:p-2.5 md:p-3">
                       <p className="text-[10px] sm:text-xs text-gray-500 flex-shrink-0">Joining Date</p>
                       <div className="col-span-2 text-gray-800 text-[11px] sm:text-xs md:text-sm break-words">
-                  {coordinator.joining_date 
-                    ? new Date(coordinator.joining_date).toLocaleDateString('en-US', { 
-                        year: 'numeric', 
-                        month: 'short', 
-                        day: 'numeric' 
-                      })
+                        {coordinator.joining_date 
+                          ? new Date(coordinator.joining_date).toLocaleDateString('en-US', { 
+                              year: 'numeric', 
+                              month: 'short', 
+                              day: 'numeric' 
+                            })
                           : '—'}
                       </div>
                     </div>
                     <div className="grid grid-cols-3 gap-1.5 sm:gap-2 p-2 sm:p-2.5 md:p-3">
                       <p className="text-[10px] sm:text-xs text-gray-500 flex-shrink-0">Experience</p>
                       <div className="col-span-2 text-gray-800 text-[11px] sm:text-xs md:text-sm break-words">{coordinator.total_experience_years || 0} years</div>
-              </div>
-                </div>
-                  <div className="w-full rounded-lg border bg-white divide-y text-sm">
+                    </div>
                     <div className="grid grid-cols-3 gap-1.5 sm:gap-2 p-2 sm:p-2.5 md:p-3">
                       <p className="text-[10px] sm:text-xs text-gray-500 flex-shrink-0">Assigned Levels</p>
                       <div className="col-span-2 text-gray-800 text-[11px] sm:text-xs md:text-sm">
-                {hasMultipleLevels ? (
+                        {hasMultipleLevels ? (
                           <div className="flex flex-wrap gap-1">
-                    {assignedLevels.map((level: any) => (
+                            {assignedLevels.map((level: any) => (
                               <Badge key={level.id} className="bg-[#6096ba] text-white text-[10px] sm:text-xs">
                                 {level.name}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : primaryLevel ? (
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : primaryLevel ? (
                           <span className="break-words">{primaryLevel.name || coordinator.level_name || '—'}</span>
-                ) : (
+                        ) : (
                           '—'
-                )}
-              </div>
-                </div>
+                        )}
+                      </div>
+                    </div>
                     <div className="grid grid-cols-3 gap-1.5 sm:gap-2 p-2 sm:p-2.5 md:p-3">
                       <p className="text-[10px] sm:text-xs text-gray-500 flex-shrink-0">Can Assign Teachers</p>
                       <div className="col-span-2">
-                <Badge 
+                        <Badge 
                           className={`text-[10px] sm:text-xs ${
-                    coordinator.can_assign_class_teachers 
+                            coordinator.can_assign_class_teachers 
                               ? 'bg-green-100 text-green-800' 
                               : 'bg-red-100 text-red-800'
-                  }`}
-                >
-                  {coordinator.can_assign_class_teachers ? 'Yes' : 'No'}
-                </Badge>
-              </div>
-            </div>
+                          }`}
+                        >
+                          {coordinator.can_assign_class_teachers ? 'Yes' : 'No'}
+                        </Badge>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </TabsContent>
 
-              {/* Education Information Tab */}
-              <TabsContent value="education" className="space-y-2.5 sm:space-y-3 md:space-y-4 mt-2 sm:mt-3 md:mt-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 md:gap-4">
+                  {/* Education Information */}
                   <div className="w-full rounded-lg border bg-white divide-y text-sm">
                     <div className="grid grid-cols-3 gap-1.5 sm:gap-2 p-2 sm:p-2.5 md:p-3">
                       <p className="text-[10px] sm:text-xs text-gray-500 flex-shrink-0">Education Level</p>
@@ -782,7 +834,7 @@ export default function CoordinatorProfilePage() {
                       <p className="text-[10px] sm:text-xs text-gray-500 flex-shrink-0">Year of Passing</p>
                       <div className="col-span-2 text-gray-800 text-[11px] sm:text-xs md:text-sm break-words">{coordinator.year_of_passing || '—'}</div>
                     </div>
-              </div>
+                  </div>
                 </div>
               </TabsContent>
 
@@ -890,6 +942,33 @@ export default function CoordinatorProfilePage() {
                     </div>
               </div>
 
+                  {/* Display Active Date Range */}
+                  {attendanceSummary && attendanceSummary.date_range && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 sm:p-3">
+                      <p className="text-xs sm:text-sm text-blue-800 font-medium">
+                        📅 Showing data from{' '}
+                        <span className="font-semibold">
+                          {new Date(attendanceSummary.date_range.start_date).toLocaleDateString('en-US', { 
+                            year: 'numeric', 
+                            month: 'short', 
+                            day: 'numeric' 
+                          })}
+                        </span>
+                        {' '}to{' '}
+                        <span className="font-semibold">
+                          {new Date(attendanceSummary.date_range.end_date).toLocaleDateString('en-US', { 
+                            year: 'numeric', 
+                            month: 'short', 
+                            day: 'numeric' 
+                          })}
+                        </span>
+                        {attendanceSummary.date_range.start_date === attendanceSummary.date_range.end_date && (
+                          <span className="ml-2 text-blue-600">(Single Day)</span>
+                        )}
+                      </p>
+                    </div>
+                  )}
+
                   {loadingAttendance ? (
                     <div className="flex items-center justify-center py-6 sm:py-8 md:py-12">
                       <LoadingSpinner message="Loading attendance data..." />
@@ -897,30 +976,36 @@ export default function CoordinatorProfilePage() {
                   ) : attendanceSummary ? (
                     <>
                       {/* Overall Summary Cards */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
+                      <div key={`kpi-cards-${startDate}-${endDate}`} className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
                         <Card className="border border-blue-200 bg-blue-50">
                           <CardContent className="p-2 sm:p-2.5 md:p-3 lg:p-4">
                             <p className="text-[10px] sm:text-xs text-gray-600 mb-1">Classrooms</p>
-                            <p className="text-lg sm:text-xl md:text-2xl font-bold text-blue-900">{attendanceSummary.summary.total_classrooms}</p>
+                            <p className="text-lg sm:text-xl md:text-2xl font-bold text-blue-900">
+                              {attendanceSummary?.summary?.total_classrooms ?? 0}
+                            </p>
                           </CardContent>
                         </Card>
                         <Card className="border border-green-200 bg-green-50">
                           <CardContent className="p-2 sm:p-2.5 md:p-3 lg:p-4">
                             <p className="text-[10px] sm:text-xs text-gray-600 mb-1">Students</p>
-                            <p className="text-lg sm:text-xl md:text-2xl font-bold text-green-900">{attendanceSummary.summary.total_students}</p>
+                            <p className="text-lg sm:text-xl md:text-2xl font-bold text-green-900">
+                              {attendanceSummary?.summary?.total_students ?? 0}
+                            </p>
                           </CardContent>
                         </Card>
                         <Card className="border border-indigo-200 bg-indigo-50">
                           <CardContent className="p-2 sm:p-2.5 md:p-3 lg:p-4">
                             <p className="text-[10px] sm:text-xs text-gray-600 mb-1">Present</p>
-                            <p className="text-lg sm:text-xl md:text-2xl font-bold text-indigo-900">{attendanceSummary.summary.total_present}</p>
+                            <p className="text-lg sm:text-xl md:text-2xl font-bold text-indigo-900">
+                              {attendanceSummary?.summary?.total_present ?? 0}
+                            </p>
                           </CardContent>
                         </Card>
                         <Card className="border border-purple-200 bg-purple-50">
                           <CardContent className="p-2 sm:p-2.5 md:p-3 lg:p-4">
                             <p className="text-[10px] sm:text-xs text-gray-600 mb-1">Overall %</p>
                             <p className="text-lg sm:text-xl md:text-2xl font-bold text-purple-900">
-                              {attendanceSummary.summary.overall_percentage.toFixed(1)}%
+                              {attendanceSummary?.summary?.overall_percentage?.toFixed(1) ?? '0.0'}%
                             </p>
                           </CardContent>
                         </Card>
@@ -930,14 +1015,14 @@ export default function CoordinatorProfilePage() {
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
                         {/* Attendance Bar Chart */}
                         {attendanceChartData.length > 0 && (
-                          <Card className="border border-gray-200">
+                          <Card key={`bar-chart-${startDate}-${endDate}`} className="border border-gray-200">
                             <CardHeader className="pb-2 sm:pb-3 p-2 sm:p-3 md:p-6">
                               <CardTitle className="text-xs sm:text-sm md:text-base lg:text-lg">Classroom Attendance</CardTitle>
                             </CardHeader>
                             <CardContent className="p-2 sm:p-3 md:p-6">
                               <div className="w-full overflow-x-auto scrollbar-hide">
                                 <div style={{ minWidth: '280px', minHeight: '220px' }}>
-                                  <ResponsiveContainer width="100%" height={220}>
+                                  <ResponsiveContainer width="100%" height={220} key={`bar-container-${startDate}-${endDate}`}>
                                     <BarChart data={attendanceChartData} margin={{ top: 5, right: 5, left: 0, bottom: 50 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis dataKey="name" angle={-45} textAnchor="end" height={70} tick={{ fontSize: 9 }} />
@@ -947,21 +1032,21 @@ export default function CoordinatorProfilePage() {
                                       <Bar dataKey="attendance" fill="#6096ba" name="Attendance %" radius={[6, 6, 0, 0]} />
                                     </BarChart>
                                   </ResponsiveContainer>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
                         )}
 
                         {/* Attendance Pie Chart */}
                         {attendancePieData.length > 0 && (
-                          <Card className="border border-gray-200">
+                          <Card key={`pie-chart-${startDate}-${endDate}`} className="border border-gray-200">
                             <CardHeader className="pb-2 sm:pb-3 p-2 sm:p-3 md:p-6">
                               <CardTitle className="text-xs sm:text-sm md:text-base lg:text-lg">Present vs Absent</CardTitle>
-          </CardHeader>
+                            </CardHeader>
                             <CardContent className="p-2 sm:p-3 md:p-6">
                               <div className="w-full" style={{ minHeight: '220px' }}>
-                                <ResponsiveContainer width="100%" height={220}>
+                                <ResponsiveContainer width="100%" height={220} key={`pie-container-${startDate}-${endDate}`}>
                                   <PieChart>
                                     <Pie
                                       data={attendancePieData}
@@ -972,15 +1057,16 @@ export default function CoordinatorProfilePage() {
                                       outerRadius={70}
                                       fill="#8884d8"
                                       dataKey="value"
+                                      key={`pie-${startDate}-${endDate}`}
                                     >
                                       {attendancePieData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.color} />
+                                        <Cell key={`cell-${index}-${startDate}-${endDate}`} fill={entry.color} />
                                       ))}
                                     </Pie>
                                     <Tooltip />
                                   </PieChart>
                                 </ResponsiveContainer>
-                </div>
+                              </div>
                             </CardContent>
                           </Card>
                         )}

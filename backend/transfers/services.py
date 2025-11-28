@@ -1,6 +1,7 @@
 from datetime import datetime
 from django.db import transaction
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 from .models import IDHistory, TransferRequest, ClassTransfer, ShiftTransfer, TransferApproval, GradeSkipTransfer, CampusTransfer
 
@@ -740,13 +741,60 @@ def apply_campus_transfer(campus_transfer: CampusTransfer, changed_by: User):
 
     campus_transfer.save()
 
-    # Notify destination class teacher about new student
+    # Send notifications to all relevant parties
     try:
-        if to_classroom and to_classroom.class_teacher:
-            from notifications.services import create_notification
-            from django.contrib.auth import get_user_model
+        from notifications.services import create_notification
+        from django.contrib.auth import get_user_model
 
-            UserModel = get_user_model()
+        UserModel = get_user_model()
+
+        # 1. Notify initiating teacher (who created the request) - with letter download
+        if campus_transfer.initiated_by_teacher:
+            teacher = campus_transfer.initiated_by_teacher
+            teacher_user = getattr(teacher, 'user', None)
+            if not teacher_user and teacher.employee_code:
+                teacher_user = UserModel.objects.filter(username=teacher.employee_code).first()
+            if not teacher_user and teacher.email:
+                teacher_user = UserModel.objects.filter(email__iexact=teacher.email).first()
+
+            if teacher_user:
+                verb = f"Your campus transfer request for {student.name} has been fully approved!"
+                target_text = f"New ID: {campus_transfer.letter_new_student_id}. From {campus_transfer.letter_from_campus_name} to {campus_transfer.letter_to_campus_name}."
+                create_notification(
+                    recipient=teacher_user,
+                    actor=changed_by,
+                    verb=verb,
+                    target_text=target_text,
+                    data={
+                        "type": "campus_transfer.approved.teacher",
+                        "campus_transfer_id": campus_transfer.id,
+                        "student_id": student.id,
+                        "new_student_id": campus_transfer.letter_new_student_id,
+                        "can_download_letter": True,  # Teacher can download letter
+                    },
+                )
+
+        # 2. Notify from-campus principal (view-only notification)
+        if campus_transfer.from_principal:
+            principal_user = campus_transfer.from_principal
+            verb = f"Campus transfer for {student.name} has been approved and applied"
+            target_text = f"Student ID: {campus_transfer.letter_new_student_id}. From {campus_transfer.letter_from_campus_name} to {campus_transfer.letter_to_campus_name}."
+            create_notification(
+                recipient=principal_user,
+                actor=changed_by,
+                verb=verb,
+                target_text=target_text,
+                data={
+                    "type": "campus_transfer.approved.from_principal",
+                    "campus_transfer_id": campus_transfer.id,
+                    "student_id": student.id,
+                    "new_student_id": campus_transfer.letter_new_student_id,
+                    "can_download_letter": False,  # View only
+                },
+            )
+
+        # 3. Notify destination class teacher about new student (view-only)
+        if to_classroom and to_classroom.class_teacher:
             class_teacher = to_classroom.class_teacher
             teacher_user = getattr(class_teacher, 'user', None)
             if not teacher_user and class_teacher.employee_code:
@@ -755,9 +803,8 @@ def apply_campus_transfer(campus_transfer: CampusTransfer, changed_by: User):
                 teacher_user = UserModel.objects.filter(email__iexact=class_teacher.email).first()
 
             if teacher_user:
-                coordinator_name = campus_transfer.letter_to_coordinator_name or "Coordinator"
-                verb = f"{coordinator_name} has assigned new student {student.name} in your class by campus transfer"
-                target_text = campus_transfer.letter_to_class_label or _class_label(to_classroom, to_shift)
+                verb = f"New student {student.name} has been transferred into your class"
+                target_text = f"From {campus_transfer.letter_from_campus_name} to {campus_transfer.letter_to_class_label}. New ID: {campus_transfer.letter_new_student_id}."
                 create_notification(
                     recipient=teacher_user,
                     actor=changed_by,
@@ -769,12 +816,13 @@ def apply_campus_transfer(campus_transfer: CampusTransfer, changed_by: User):
                         "student_id": student.id,
                         "classroom_id": to_classroom.id,
                         "new_student_id": campus_transfer.letter_new_student_id,
+                        "can_download_letter": False,  # View only
                     },
                 )
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f"Failed to send notification to class teacher for campus transfer {campus_transfer.id}: {str(e)}")
+        logger.error(f"Failed to send notifications for campus transfer {campus_transfer.id}: {str(e)}")
 
     emit_transfer_event(
         "campus_transfer.applied",

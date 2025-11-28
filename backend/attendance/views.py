@@ -1259,12 +1259,20 @@ def get_level_attendance_summary(request, level_id):
                 date__range=[start_date, end_date]
             )
             
+            # Debug logging
+            print(f"[DEBUG] Classroom: {classroom}, Date range: {start_date} to {end_date}")
+            print(f"[DEBUG] Attendance records found: {attendances.count()}")
+            if attendances.exists():
+                print(f"[DEBUG] Attendance dates: {[att.date for att in attendances]}")
+            
             classroom_total_students = classroom.students.count()
             classroom_present = sum(att.present_count for att in attendances)
             classroom_absent = sum(att.absent_count for att in attendances)
             classroom_late = sum(att.late_count for att in attendances)
             classroom_leave = sum(att.leave_count for att in attendances)
             classroom_records = attendances.count()
+            
+            print(f"[DEBUG] Present: {classroom_present}, Absent: {classroom_absent}, Records: {classroom_records}")
             
             avg_percentage = 0
             if classroom_records > 0:
