@@ -424,20 +424,16 @@ export default function CreateTransferRequestPage() {
     try {
       setLoading(true);
 
-      if (isPrincipal) {
-        // Principals can choose destination campus; load from API
-        const campusesData = await getAllCampuses();
+      const campusesData = await getAllCampuses();
 
-        if (Array.isArray(campusesData) && campusesData.length > 0) {
-          setCampuses(campusesData);
-        } else {
-          toast.info('No campuses found in database');
-        }
+      if (Array.isArray(campusesData) && campusesData.length > 0) {
+        setCampuses(campusesData);
+      } else {
+        toast.info('No campuses found in database');
       }
     } catch (error) {
       toast.error('Failed to load campus data, using sample data');
 
-      // Fallback to sample data
       setCampuses([
         { id: 1, campus_name: 'Main Campus Karachi', code: 'MC001' },
         { id: 2, campus_name: 'Branch Campus Lahore', code: 'BC002' },
@@ -1441,6 +1437,178 @@ export default function CreateTransferRequestPage() {
                       </div>
                     )}
 
+                    {/* Campus transfer fields for teachers/coordinators */}
+                    {!isPrincipal && formData.transfer_type === 'campus' && selectedEntity && (
+                      <>
+                        <div className="bg-white p-2.5 sm:p-3 rounded-lg space-y-2" style={{ border: '1px solid #a3cef1' }}>
+                          <Label className="text-xs sm:text-sm font-medium" style={{ color: '#274c77' }}>
+                            Destination Campus
+                          </Label>
+                          <Select
+                            value={formData.to_campus}
+                            onValueChange={(value) => setFormData(prev => ({ ...prev, to_campus: value }))}
+                          >
+                            <SelectTrigger className="w-full py-2 sm:py-2.5 md:py-3 text-xs sm:text-sm md:text-base rounded-lg transition-all duration-200 mt-1 sm:mt-1.5 min-h-[40px] sm:min-h-[44px]" style={{ border: '2px solid #a3cef1' }}>
+                              <SelectValue placeholder="Select destination campus" className="text-xs sm:text-sm" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-[300px] sm:max-h-[400px] overflow-y-auto">
+                              {loading ? (
+                                <SelectItem value="loading" disabled className="text-xs sm:text-sm">
+                                  Loading campuses...
+                                </SelectItem>
+                              ) : Array.isArray(campuses) && campuses.length > 0 ? (
+                                campuses
+                                  .filter(c => {
+                                    const anyEntity = selectedEntity as any;
+                                    const currentCampusId =
+                                      selectedEntity.current_campus ||
+                                      anyEntity.campus ||
+                                      anyEntity.current_campus_id ||
+                                      anyEntity.campus_id;
+                                    return !currentCampusId || c.id !== currentCampusId;
+                                  })
+                                  .map(campus => (
+                                    <SelectItem
+                                      key={campus.id}
+                                      value={campus.id.toString()}
+                                      className="text-xs sm:text-sm md:text-base break-words"
+                                    >
+                                      {campus.campus_name} ({campus.code || campus.campus_code || 'N/A'})
+                                    </SelectItem>
+                                  ))
+                              ) : (
+                                <SelectItem value="no-campuses" disabled className="text-xs sm:text-sm">
+                                  No campuses available
+                                </SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="bg-white p-2.5 sm:p-3 rounded-lg space-y-2" style={{ border: '1px solid #a3cef1' }}>
+                          <Label className="text-xs sm:text-sm font-medium" style={{ color: '#274c77' }}>
+                            Destination Shift
+                          </Label>
+                          {(() => {
+                            const anyEntity = selectedEntity as any;
+                            const rawShift = anyEntity.shift;
+                            const shiftStr = String(rawShift).toLowerCase();
+                            const normalizedShift: 'M' | 'A' =
+                              rawShift === 'M' || shiftStr === 'morning'
+                                ? 'M'
+                                : 'A';
+                            const value = formData.to_shift || normalizedShift;
+                            return (
+                              <Select
+                                value={value}
+                                onValueChange={(val: 'M' | 'A') =>
+                                  setFormData(prev => ({ ...prev, to_shift: val }))
+                                }
+                              >
+                                <SelectTrigger className="w-full py-2 sm:py-2.5 md:py-3 text-xs sm:text-sm md:text-base rounded-lg transition-all duration-200 mt-1 sm:mt-1.5 min-h-[40px] sm:min-h-[44px]" style={{ border: '2px solid #a3cef1' }}>
+                                  <SelectValue placeholder="Select destination shift" className="text-xs sm:text-sm" />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-[300px] sm:max-h-[400px] overflow-y-auto">
+                                  <SelectItem value="M" className="text-xs sm:text-sm md:text-base">
+                                    Morning
+                                  </SelectItem>
+                                  <SelectItem value="A" className="text-xs sm:text-sm md:text-base">
+                                    Afternoon
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Skip grade toggle */}
+                        <div className="bg-white p-2.5 sm:p-3 rounded-lg flex items-center justify-between gap-3" style={{ border: '1px solid #a3cef1' }}>
+                          <div className="space-y-0.5">
+                            <Label className="text-xs sm:text-sm font-medium" style={{ color: '#274c77' }}>
+                              Skip Grade in Destination Campus
+                            </Label>
+                            <p className="text-[11px] sm:text-xs text-gray-600">
+                              Enable if this campus transfer should also move the student to the next grade.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setCampusSkipGradeEnabled(prev => !prev)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                              campusSkipGradeEnabled ? 'bg-green-500' : 'bg-gray-300'
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                                campusSkipGradeEnabled ? 'translate-x-5' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Campus transfer skip-grade details */}
+                        {campusSkipGradeEnabled && (
+                          <>
+                            <div className="bg-white p-2.5 sm:p-3 rounded-lg space-y-2" style={{ border: '1px solid #a3cef1' }}>
+                              <Label className="text-xs sm:text-sm font-medium" style={{ color: '#274c77' }}>
+                                Target Grade (Skip Grade)
+                              </Label>
+                              {campusAvailableSkipGrade ? (
+                                <div className="py-2 px-3 rounded-lg bg-gray-50 border border-gray-200">
+                                  <p className="text-sm font-semibold text-gray-900">
+                                    {campusAvailableSkipGrade.name}
+                                  </p>
+                                  {campusAvailableSkipGrade.level_name && (
+                                    <p className="text-xs text-gray-600 mt-1">
+                                      {campusAvailableSkipGrade.level_name}
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="py-2 text-sm text-gray-500">
+                                  No skip grade available for this student.
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Optional target section for campus skip (reusing grade-skip sections list) */}
+                            {campusAvailableSkipGrade && (
+                              <div className="bg-white p-2.5 sm:p-3 rounded-lg space-y-2" style={{ border: '1px solid #a3cef1' }}>
+                                <Label className="text-xs sm:text-sm font-medium" style={{ color: '#274c77' }}>
+                                  Target Section (Optional)
+                                </Label>
+                                <Select
+                                  value={campusSelectedToClassroomId}
+                                  onValueChange={value => setCampusSelectedToClassroomId(value)}
+                                >
+                                  <SelectTrigger className="w-full py-2 sm:py-2.5 md:py-3 text-xs sm:text-sm md:text-base rounded-lg transition-all duration-200 mt-1 sm:mt-1.5 min-h-[40px] sm:min-h-[44px]" style={{ border: '2px solid #a3cef1' }}>
+                                    <SelectValue placeholder="Select target section (optional)" className="text-xs sm:text-sm" />
+                                  </SelectTrigger>
+                                  <SelectContent className="max-h-[300px] sm:max-h-[400px] overflow-y-auto">
+                                    {campusAvailableSkipSections.length === 0 ? (
+                                      <SelectItem value="no-options" disabled className="text-xs sm:text-sm">
+                                        No sections available
+                                      </SelectItem>
+                                    ) : (
+                                      campusAvailableSkipSections.map(option => (
+                                        <SelectItem
+                                          key={option.id}
+                                          value={option.id.toString()}
+                                          className="text-xs sm:text-sm md:text-base break-words"
+                                        >
+                                          {option.label}
+                                        </SelectItem>
+                                      ))
+                                    )}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </>
+                    )}
+
                     {formData.transfer_type === 'shift' && selectedEntity && (() => {
                       // Get current shift and determine opposite shift
                       const currentShift = selectedEntity.shift;
@@ -1453,7 +1621,6 @@ export default function CreateTransferRequestPage() {
 
                       const oppositeShift = normalizedShift === 'M' ? 'A' : normalizedShift === 'A' ? 'M' : null;
 
-                      // Use the opposite shift directly, don't rely on formData.to_shift
                       const displayValue = oppositeShift || 'A';
 
                       return (

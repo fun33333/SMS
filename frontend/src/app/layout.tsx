@@ -32,7 +32,6 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning={true}>
         <Toaster position="top-right" richColors />
         <div className="min-h-screen bg-[#e7ecef] flex">
-           {/* <Breadcrumbs /> */}
           <main className="flex-1 py-8">
             {children}
           </main>

@@ -2865,12 +2865,14 @@ export async function changePasswordWithOTP(sessionToken: string, newPassword: s
 
 // ==================== FORGOT PASSWORD OTP APIs ====================
 
-export async function sendForgotPasswordOTP(employeeCode: string) {
+export async function sendForgotPasswordOTP(email: string) {
   try {
     const response = await fetch('/api/users/send-forgot-password-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employee_code: employeeCode }),
+      body: JSON.stringify({ 
+        email: email 
+      }),
     });
     
     if (!response.ok) {
@@ -2986,13 +2988,13 @@ export async function getPrincipalStats() {
   }
 }
 
-export async function verifyForgotPasswordOTP(employeeCode: string, otpCode: string) {
+export async function verifyForgotPasswordOTP(email: string, otpCode: string) {
   try {
     const response = await fetch('/api/users/verify-forgot-password-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
-        employee_code: employeeCode,
+        email: email,
         otp_code: otpCode
       }),
     });
