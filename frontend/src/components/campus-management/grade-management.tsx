@@ -36,10 +36,123 @@ interface GradeManagementProps {
 }
 
 const GRADE_OPTIONS_BY_LEVEL = {
-  'Pre-Primary': ['Nursery', 'KG-I', 'KG-II'],
+  'Pre-Primary': ['Nursery', 'KG-I', 'KG-II', 'Special Class'],
   'Primary': ['Grade-1', 'Grade-2', 'Grade-3', 'Grade-4', 'Grade-5'],
   'Secondary': ['Grade-6', 'Grade-7', 'Grade-8', 'Grade-9', 'Grade-10'],
 };
+
+// Grade sorting order - Special Class first, then Nursery, KG-I, KG-II, then Grade I-X
+const GRADE_SORT_ORDER = [
+  'Special Class',
+  'Nursery',
+  'KG-I',
+  'KG-II',
+  'Grade I',
+  'Grade-1',
+  'Grade 1',
+  'Grade II',
+  'Grade-2',
+  'Grade 2',
+  'Grade III',
+  'Grade-3',
+  'Grade 3',
+  'Grade IV',
+  'Grade-4',
+  'Grade 4',
+  'Grade V',
+  'Grade-5',
+  'Grade 5',
+  'Grade VI',
+  'Grade-6',
+  'Grade 6',
+  'Grade VII',
+  'Grade-7',
+  'Grade 7',
+  'Grade VIII',
+  'Grade-8',
+  'Grade 8',
+  'Grade IX',
+  'Grade-9',
+  'Grade 9',
+  'Grade X',
+  'Grade-10',
+  'Grade 10',
+];
+
+// Function to get grade sort index
+function getGradeSortIndex(gradeName: string): number {
+  const name = gradeName.trim().toLowerCase();
+  
+  // Exact matches first
+  const exactMatch = GRADE_SORT_ORDER.findIndex(order => 
+    name === order.toLowerCase()
+  );
+  if (exactMatch !== -1) return exactMatch;
+  
+  // Normalize grade name for matching (handle variations)
+  const normalized = name.replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim();
+  
+  // Check for Special Class
+  if (normalized.includes('special class') || normalized.includes('special')) {
+    return 0; // Special Class index
+  }
+  
+  // Check for Nursery
+  if (normalized.includes('nursery')) {
+    return 1; // Nursery index
+  }
+  
+  // Check for KG-I / KG-1
+  if (normalized.includes('kg-i') || normalized.includes('kg 1') || normalized.includes('kg1')) {
+    return 2; // KG-I index
+  }
+  
+  // Check for KG-II / KG-2
+  if (normalized.includes('kg-ii') || normalized.includes('kg 2') || normalized.includes('kg2')) {
+    return 3; // KG-II index
+  }
+  
+  // Extract grade number from "Grade X" format
+  const gradeMatch = normalized.match(/grade\s*([ivx\d]+)/i);
+  if (gradeMatch) {
+    const gradeValue = gradeMatch[1].toLowerCase();
+    
+    // Map Roman numerals to numbers
+    const romanMap: Record<string, number> = {
+      'i': 1, 'ii': 2, 'iii': 3, 'iv': 4, 'v': 5,
+      'vi': 6, 'vii': 7, 'viii': 8, 'ix': 9, 'x': 10
+    };
+    
+    const gradeNum = romanMap[gradeValue] || parseInt(gradeValue) || 0;
+    
+    // Calculate index: Special Class(0), Nursery(1), KG-I(2), KG-II(3), then Grade I starts at 4
+    if (gradeNum >= 1 && gradeNum <= 10) {
+      return 3 + gradeNum; // Grade I = 4, Grade II = 5, etc.
+    }
+  }
+  
+  // Not found, return large number to sort at end
+  return 999;
+}
+
+// Function to sort grades by custom order
+function sortGrades(grades: any[]): any[] {
+  return [...grades].sort((a, b) => {
+    const nameA = (a.name || '').trim();
+    const nameB = (b.name || '').trim();
+    
+    const indexA = getGradeSortIndex(nameA);
+    const indexB = getGradeSortIndex(nameB);
+    
+    // Sort by index
+    if (indexA !== indexB) {
+      return indexA - indexB;
+    }
+    
+    // If same index, sort alphabetically
+    return nameA.localeCompare(nameB);
+  });
+}
 
 export default function GradeManagement({ campusId }: GradeManagementProps) {
   const [grades, setGrades] = useState<any[]>([])
@@ -72,7 +185,10 @@ export default function GradeManagement({ campusId }: GradeManagementProps) {
       const gradesArray = (gradesData as any)?.results || (Array.isArray(gradesData) ? gradesData : [])
       const levelsArray = (levelsData as any)?.results || (Array.isArray(levelsData) ? levelsData : [])
       
-      setGrades(gradesArray)
+      // Sort grades by custom order
+      const sortedGrades = sortGrades(gradesArray)
+      
+      setGrades(sortedGrades)
       setLevels(levelsArray)
     } catch (error) {
       console.error('Failed to fetch data:', error)

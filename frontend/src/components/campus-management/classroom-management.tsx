@@ -44,6 +44,121 @@ interface ClassroomManagementProps {
   campusId?: number
 }
 
+// Grade sorting order - Special Class first, then Nursery, KG-I, KG-II, then Grade I-X
+const GRADE_SORT_ORDER = [
+  'Special Class',
+  'Nursery',
+  'KG-I',
+  'KG-II',
+  'Grade I',
+  'Grade-1',
+  'Grade 1',
+  'Grade II',
+  'Grade-2',
+  'Grade 2',
+  'Grade III',
+  'Grade-3',
+  'Grade 3',
+  'Grade IV',
+  'Grade-4',
+  'Grade 4',
+  'Grade V',
+  'Grade-5',
+  'Grade 5',
+  'Grade VI',
+  'Grade-6',
+  'Grade 6',
+  'Grade VII',
+  'Grade-7',
+  'Grade 7',
+  'Grade VIII',
+  'Grade-8',
+  'Grade 8',
+  'Grade IX',
+  'Grade-9',
+  'Grade 9',
+  'Grade X',
+  'Grade-10',
+  'Grade 10',
+];
+
+// Function to get grade sort index
+function getGradeSortIndex(gradeName: string): number {
+  const name = gradeName.trim().toLowerCase();
+  
+  // Exact matches first
+  const exactMatch = GRADE_SORT_ORDER.findIndex(order => 
+    name === order.toLowerCase()
+  );
+  if (exactMatch !== -1) return exactMatch;
+  
+  // Normalize grade name for matching (handle variations)
+  const normalized = name.replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim();
+  
+  // Check for Special Class
+  if (normalized.includes('special class') || normalized.includes('special')) {
+    return 0; // Special Class index
+  }
+  
+  // Check for Nursery
+  if (normalized.includes('nursery')) {
+    return 1; // Nursery index
+  }
+  
+  // Check for KG-I / KG-1
+  if (normalized.includes('kg-i') || normalized.includes('kg 1') || normalized.includes('kg1')) {
+    return 2; // KG-I index
+  }
+  
+  // Check for KG-II / KG-2
+  if (normalized.includes('kg-ii') || normalized.includes('kg 2') || normalized.includes('kg2')) {
+    return 3; // KG-II index
+  }
+  
+  // Extract grade number from "Grade X" format
+  const gradeMatch = normalized.match(/grade\s*([ivx\d]+)/i);
+  if (gradeMatch) {
+    const gradeValue = gradeMatch[1].toLowerCase();
+    
+    // Map Roman numerals to numbers
+    const romanMap: Record<string, number> = {
+      'i': 1, 'ii': 2, 'iii': 3, 'iv': 4, 'v': 5,
+      'vi': 6, 'vii': 7, 'viii': 8, 'ix': 9, 'x': 10
+    };
+    
+    const gradeNum = romanMap[gradeValue] || parseInt(gradeValue) || 0;
+    
+    // Calculate index: Special Class(0), Nursery(1), KG-I(2), KG-II(3), then Grade I starts at 4
+    if (gradeNum >= 1 && gradeNum <= 10) {
+      return 3 + gradeNum; // Grade I = 4, Grade II = 5, etc.
+    }
+  }
+  
+  // Not found, return large number to sort at end
+  return 999;
+}
+
+// Function to sort classrooms by grade name and section
+function sortClassrooms(classrooms: any[]): any[] {
+  return [...classrooms].sort((a, b) => {
+    const gradeNameA = (a.grade_name || '').trim();
+    const gradeNameB = (b.grade_name || '').trim();
+    
+    const indexA = getGradeSortIndex(gradeNameA);
+    const indexB = getGradeSortIndex(gradeNameB);
+    
+    // Sort by grade index first
+    if (indexA !== indexB) {
+      return indexA - indexB;
+    }
+    
+    // If same grade, sort by section (A, B, C, D, E)
+    const sectionA = (a.section || '').toUpperCase();
+    const sectionB = (b.section || '').toUpperCase();
+    return sectionA.localeCompare(sectionB);
+  });
+}
+
 export default function ClassroomManagement({ campusId }: ClassroomManagementProps) {
   const [classrooms, setClassrooms] = useState<any[]>([])
   const [studentCounts, setStudentCounts] = useState<{ [key: string]: number }>({})
@@ -116,7 +231,10 @@ export default function ClassroomManagement({ campusId }: ClassroomManagementPro
       const levelsArray = (levelsData as any)?.results || (Array.isArray(levelsData) ? levelsData : [])
       const teachersArray = (teachersData as any)?.results || (Array.isArray(teachersData) ? teachersData : [])
       
-      setClassrooms(classroomsArray)
+      // Sort classrooms by grade name and section
+      const sortedClassrooms = sortClassrooms(classroomsArray)
+      
+      setClassrooms(sortedClassrooms)
       // Fetch student counts for each classroom
       const counts: { [key: string]: number } = {}
       await Promise.all(
