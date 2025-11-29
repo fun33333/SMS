@@ -9,29 +9,29 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { getStudentById, apiGet, createBehaviourRecord, getStudentBehaviourRecords, getStudentMonthlyBehaviourLatest } from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
-import { 
+import {
   ArrowLeft, User, GraduationCap, Users, Calendar, MapPin, Award,
   TrendingUp, Star, CheckCircle, AlertCircle, Plus
 } from "lucide-react"
 import { getCurrentUserRole } from '@/lib/permissions'
-import { 
-  ResponsiveContainer, 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   LabelList,
-  PieChart as RechartsPieChart, 
-  Pie, 
-  Cell, 
+  PieChart as RechartsPieChart,
+  Pie,
+  Cell,
   AreaChart,
   Area,
-  RadarChart, 
+  RadarChart,
   Radar,
-  PolarGrid, 
-  PolarAngleAxis, 
+  PolarGrid,
+  PolarAngleAxis,
   PolarRadiusAxis
 } from 'recharts'
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
@@ -66,7 +66,7 @@ const generatePerformanceData = (student: any, results: any[]) => {
 
   const latestResult = results[0]
   const subjectMarks = latestResult.subject_marks || []
-  
+
   return subjectMarks.map((mark: any) => ({
     subject: mark.subject_name.charAt(0).toUpperCase() + mark.subject_name.slice(1).replace('_', ' '),
     grade: Math.round(mark.obtained_marks || 0),
@@ -88,13 +88,13 @@ const generateAttendanceData = (attendanceRecords: any[]) => {
   }
 
   const monthlyData: { [key: string]: { present: number, absent: number, total: number } } = {}
-  
+
   attendanceRecords.forEach(record => {
     const month = new Date(record.attendance?.date || record.date).toLocaleDateString('en-US', { month: 'short' })
     if (!monthlyData[month]) {
       monthlyData[month] = { present: 0, absent: 0, total: 0 }
     }
-    
+
     if (record.status === 'present') {
       monthlyData[month].present++
     } else if (record.status === 'absent') {
@@ -129,12 +129,12 @@ function StudentProfileContent() {
   const [behaviourDelta, setBehaviourDelta] = useState<number | null>(null)
   const [monthlyMode, setMonthlyMode] = useState<boolean>(false)
   const [monthlyRecord, setMonthlyRecord] = useState<any | null>(null)
-  
+
   const router = useRouter()
   const params = useSearchParams()
   const studentId = params?.get("id") || ""
   const userRole = getCurrentUserRole()
-  
+
   // Early return for missing studentId
   if (!studentId) {
     return (
@@ -142,12 +142,12 @@ function StudentProfileContent() {
         <Card className="w-full max-w-md">
           <CardContent className="p-8 text-center">
             <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Student Not Found</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Student Not Found</h2>
             <p className="text-gray-600 mb-6">No student ID provided</p>
             <Button onClick={() => router.back()} className="w-full">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Go Back
-          </Button>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Go Back
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -165,7 +165,7 @@ function StudentProfileContent() {
       try {
         setLoading(true)
         setError(null)
-        
+
         const studentData = await getStudentById(studentId)
         if (studentData) {
           setStudent(studentData)
@@ -176,8 +176,8 @@ function StudentProfileContent() {
         console.error('Error fetching student:', err)
         setError('Failed to load student data')
       } finally {
-      setLoading(false)
-    }
+        setLoading(false)
+      }
     }
 
     fetchStudentData()
@@ -498,12 +498,12 @@ function StudentProfileContent() {
         <Card className="w-full max-w-md">
           <CardContent className="p-8 text-center">
             <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-red-600 mb-4">Error</h2>
+            <h2 className="text-2xl font-bold text-red-600 mb-4">Error</h2>
             <p className="text-gray-600 mb-6">{error}</p>
             <Button onClick={() => router.back()} className="w-full">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Go Back
-              </Button>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Go Back
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -516,12 +516,12 @@ function StudentProfileContent() {
         <Card className="w-full max-w-md">
           <CardContent className="p-8 text-center">
             <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Student Not Found</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Student Not Found</h2>
             <p className="text-gray-600 mb-6">The requested student could not be found</p>
             <Button onClick={() => router.back()} className="w-full">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Go Back
-          </Button>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Go Back
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -689,33 +689,33 @@ function StudentProfileContent() {
         <div className="rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 md:p-6 mb-4 sm:mb-5 md:mb-6 border" style={{ backgroundColor: themeColors.primary, borderColor: themeColors.primary }}>
           <div className="flex flex-col md:flex-row items-start md:items-center md:space-x-5 gap-3 sm:gap-4">
             <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: themeColors.skyblue }}>
-                  <User className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
-                </div>
-              <div className="text-white min-w-0 flex-1">
-                <h1 className="text-xl sm:text-2xl md:text-3xl font-bold break-words">{student?.name || 'Student Profile'}</h1>
-                <p className="text-white/80 text-xs sm:text-sm md:text-base">Student ID: {(student as any)?.student_id || studentId}</p>
-                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-2">
-                  <span className="inline-flex items-center px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
-                      <GraduationCap className="w-3 h-3 mr-1 flex-shrink-0" />
-                      {student?.current_grade || 'N/A'}
-                  </span>
-                  <span className="inline-flex items-center px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
-                      <Users className="w-3 h-3 mr-1 flex-shrink-0" />
-                      Sec {student?.section || 'N/A'}
-                  </span>
-                  <span className="inline-flex items-center px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap truncate" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
-                      <MapPin className="w-3 h-3 mr-1 flex-shrink-0" />
-                      {student?.campus_name || student?.campus?.campus_name || 'N/A'}
-                  </span>
-                  </div>
-                </div>
-              {overallCombined < 70 && (
-                <div className="text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 rounded-md border w-full md:w-auto text-left md:text-right" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
-                  Overall score is below 70%. Please focus on This Student. 
-                </div>
-              )}
+              <User className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+            </div>
+            <div className="text-white min-w-0 flex-1">
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold break-words">{student?.name || 'Student Profile'}</h1>
+              <p className="text-white/80 text-xs sm:text-sm md:text-base">Student ID: {(student as any)?.student_id || studentId}</p>
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-2">
+                <span className="inline-flex items-center px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
+                  <GraduationCap className="w-3 h-3 mr-1 flex-shrink-0" />
+                  {student?.current_grade || 'N/A'}
+                </span>
+                <span className="inline-flex items-center px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
+                  <Users className="w-3 h-3 mr-1 flex-shrink-0" />
+                  Sec {student?.section || 'N/A'}
+                </span>
+                <span className="inline-flex items-center px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap truncate" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
+                  <MapPin className="w-3 h-3 mr-1 flex-shrink-0" />
+                  {student?.campus_name || student?.campus?.campus_name || 'N/A'}
+                </span>
+              </div>
+            </div>
+            {overallCombined < 70 && (
+              <div className="text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 rounded-md border w-full md:w-auto text-left md:text-right" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.25)' }}>
+                Overall score is below 70%. Please focus on This Student.
+              </div>
+            )}
 
-                    </div>
+          </div>
         </div>
 
         {/* KPI Cards Only */}
@@ -723,23 +723,23 @@ function StudentProfileContent() {
           <Card className="text-white border-0 shadow-lg" style={{ backgroundColor: themeColors.primary }}>
             <CardContent className="p-2.5 sm:p-3 md:p-6">
               <div className="flex flex-col items-start gap-1 sm:gap-2">
-                  <p className="text-blue-100 text-xs md:text-sm font-medium">Overall Score</p>
-                  <div className="flex items-center justify-between w-full gap-2">
-                    <p className="text-xl sm:text-2xl md:text-3xl font-bold">{overallCombined}%</p>
-                    <Award className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 text-blue-200 flex-shrink-0" />
-                  </div>
+                <p className="text-blue-100 text-xs md:text-sm font-medium">Overall Score</p>
+                <div className="flex items-center justify-between w-full gap-2">
+                  <p className="text-xl sm:text-2xl md:text-3xl font-bold">{overallCombined}%</p>
+                  <Award className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 text-blue-200 flex-shrink-0" />
                 </div>
+              </div>
             </CardContent>
           </Card>
 
           <Card className="text-white border-0 shadow-lg" style={{ backgroundColor: themeColors.info }}>
             <CardContent className="p-2.5 sm:p-3 md:p-6">
               <div className="flex flex-col items-start gap-1 sm:gap-2">
-                  <p className="text-xs md:text-sm font-medium">Attendance</p>
-                  <div className="flex items-center justify-between w-full gap-2">
-                    <p className="text-xl sm:text-2xl md:text-3xl font-bold">{cwPct}%</p>
-                    <Calendar className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 flex-shrink-0" />
-                  </div>
+                <p className="text-xs md:text-sm font-medium">Attendance</p>
+                <div className="flex items-center justify-between w-full gap-2">
+                  <p className="text-xl sm:text-2xl md:text-3xl font-bold">{cwPct}%</p>
+                  <Calendar className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 flex-shrink-0" />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -758,7 +758,7 @@ function StudentProfileContent() {
 
           <Card className="text-white border-0 shadow-lg" style={{ backgroundColor: themeColors.light }}>
             <CardContent className="p-2.5 sm:p-3 md:p-6">
-                <div>
+              <div>
                 <p className="text-xs md:text-sm font-medium">Performance / Behaviour</p>
                 <div className="mt-1 flex items-baseline gap-1 sm:gap-2">
                   <span className="text-xl sm:text-2xl md:text-3xl font-extrabold leading-none">{behaviourAvg}%</span>
@@ -769,11 +769,11 @@ function StudentProfileContent() {
           </Card>
         </div>
 
-        
 
 
 
-        
+
+
         {/* Responsive two-card section: first normal, second double width */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 md:gap-6 mb-6 md:mb-8 items-stretch">
           {/* First card - same width/height */}
@@ -787,20 +787,20 @@ function StudentProfileContent() {
             ) : (
               <div className="w-full h-48 md:h-full flex items-center justify-center text-4xl md:text-6xl font-bold text-white" style={{ backgroundColor: '#61a5c2' }}>
                 {studentInitials}
-                  </div>
+              </div>
             )}
-              </Card>
+          </Card>
 
           {/* Second card - double width with Tabs (Personal | Academic | Contact) */}
           <Card className="bg-white border shadow-sm md:col-span-1 lg:col-span-2 h-auto md:h-[360px] lg:h-[420px]">
-              <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 sm:pb-3 md:pb-4">
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 sm:pb-3 md:pb-4">
               <CardTitle className="text-lg sm:text-xl md:text-2xl text-[#013a63]">Student Information</CardTitle>
               {userRole === 'teacher' && (
                 <Button onClick={() => setBehaviourOpen(true)} className="h-8 sm:h-9 px-2 sm:px-3 text-xs sm:text-sm text-white transition-all duration-150 ease-in-out transform hover:shadow-lg active:scale-95 active:shadow-md w-full sm:w-auto" style={{ backgroundColor: themeColors.primary }}>
                   <Plus className="w-3 h-3 sm:w-4 sm:h-4 mr-1" /> <span className="hidden sm:inline">Add Behaviour</span><span className="sm:hidden">Add</span>
                 </Button>
               )}
-                </CardHeader>
+            </CardHeader>
             <CardContent className="h-auto md:h-[calc(100%-3.5rem)] flex flex-col min-h-0 overflow-hidden">
               <Tabs defaultValue="personal" className="w-full h-full flex flex-col min-h-0">
                 <TabsList className="grid w-full grid-cols-3 text-xs sm:text-sm">
@@ -815,7 +815,7 @@ function StudentProfileContent() {
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Full Name</p>
                         <div className="col-span-2 font-medium text-gray-800 text-xs sm:text-sm truncate">{student?.name || '—'}</div>
-                  </div>
+                      </div>
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Gender</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.gender || '—'}</div>
@@ -823,7 +823,7 @@ function StudentProfileContent() {
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">DOB</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.dob || '—'}</div>
-                  </div>
+                      </div>
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Age</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{age}</div>
@@ -839,20 +839,20 @@ function StudentProfileContent() {
                           })()}
                         </div>
                       </div>
-                          </div>
+                    </div>
                     <div className="w-full rounded-lg border bg-white divide-y text-sm">
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Religion</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.religion || '—'}</div>
-                          </div>
+                      </div>
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Mother Tongue</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.mother_tongue || '—'}</div>
-                        </div>
+                      </div>
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Place of Birth</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.place_of_birth || '—'}</div>
-                          </div>
+                      </div>
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Zakat Status</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm capitalize">{(student as any)?.zakat_status || '—'}</div>
@@ -861,7 +861,7 @@ function StudentProfileContent() {
                         <p className="text-xs text-gray-500">Family Income</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{(student as any)?.family_income ? `PKR ${(student as any).family_income}` : '—'}</div>
                       </div>
-                      </div>
+                    </div>
                   </div>
                 </TabsContent>
 
@@ -879,7 +879,7 @@ function StudentProfileContent() {
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Section</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.section || '—'}</div>
-                    </div>
+                      </div>
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Class Teacher</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{
@@ -894,12 +894,12 @@ function StudentProfileContent() {
                         <p className="text-xs text-gray-500">Last Class Passed</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{(student as any)?.last_class_passed || '—'}</div>
                       </div>
-                      </div>
+                    </div>
                     <div className="w-full rounded-lg border bg-white divide-y text-sm">
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Campus</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{student?.campus_name || student?.campus?.campus_name || '—'}</div>
-                    </div>
+                      </div>
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Shift</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm capitalize">{(student as any)?.shift || '—'}</div>
@@ -916,9 +916,9 @@ function StudentProfileContent() {
                         <p className="text-xs text-gray-500">Last School</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.last_school_name || '—'}</div>
                       </div>
+                    </div>
                   </div>
-            </div>
-          </TabsContent>
+                </TabsContent>
 
                 <TabsContent value="contact" className="flex-1 mt-2 sm:mt-3 md:mt-4 min-h-0 overflow-y-auto pr-0 sm:pr-1">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 md:gap-4 content-start">
@@ -926,15 +926,15 @@ function StudentProfileContent() {
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Father Name</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{student?.father_name || '—'}</div>
-                </div>
+                      </div>
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Father Contact</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{student?.father_contact || '—'}</div>
-                    </div>
+                      </div>
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Father CNIC</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.father_cnic || '—'}</div>
-                        </div>
+                      </div>
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Father Profession</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.father_profession || '—'}</div>
@@ -943,7 +943,7 @@ function StudentProfileContent() {
                         <p className="text-xs text-gray-500">Guardian Name</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.guardian_name || '—'}</div>
                       </div>
-                        </div>
+                    </div>
                     <div className="w-full rounded-lg border bg-white divide-y text-sm">
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Mother Name</p>
@@ -952,11 +952,11 @@ function StudentProfileContent() {
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Mother Contact</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{(student as any)?.mother_contact || '—'}</div>
-                    </div>
+                      </div>
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Mother Status</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm capitalize">{(student as any)?.mother_status || '—'}</div>
-                            </div>
+                      </div>
                       <div className="grid grid-cols-3 gap-2 p-2 sm:p-3">
                         <p className="text-xs text-gray-500">Address</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm truncate">{(student as any)?.address || '—'}</div>
@@ -965,13 +965,13 @@ function StudentProfileContent() {
                         <p className="text-xs text-gray-500">Emergency Contact</p>
                         <div className="col-span-2 text-gray-800 text-xs sm:text-sm">{(student as any)?.emergency_contact || '—'}</div>
                       </div>
-                        </div>
                     </div>
+                  </div>
                 </TabsContent>
               </Tabs>
-                </CardContent>
-              </Card>
-            </div>        {/* Donut + Subject Progress (same row, equal width) */}
+            </CardContent>
+          </Card>
+        </div>        {/* Donut + Subject Progress (same row, equal width) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 md:gap-6 mb-6 md:mb-8 items-stretch">
           <Card className="bg-white border shadow-sm h-auto md:h-[380px] lg:h-[420px] overflow-visible">
             <CardHeader className="pb-2 sm:pb-3 md:pb-4">
@@ -992,7 +992,7 @@ function StudentProfileContent() {
                     <span className="inline-flex items-center gap-1 text-green-600 whitespace-nowrap"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#22c55e' }}></span><span className="hidden sm:inline">Present:</span> {cwPresent}</span>
                     <span className="inline-flex items-center gap-1 text-rose-600 whitespace-nowrap"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#ef4444' }}></span><span className="hidden sm:inline">Absent:</span> {cwAbsent}</span>
                     <span className="inline-flex items-center gap-1 text-slate-600 whitespace-nowrap"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#cbd5e1' }}></span>NR: {(donutData?.find(d => d.name === 'No Record')?.value as number) || 0}</span>
-                </div>
+                  </div>
 
                   {/* Behaviour Modal (teachers only) */}
                   {userRole === 'teacher' && (
@@ -1022,8 +1022,8 @@ function StudentProfileContent() {
                     />
                   )}
                   <div className="text-[10px] text-slate-500 mt-1">Range: {cwStartLabel} – {cwEndLabel}</div>
-                          </div>
-                          </div>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="h-auto md:h-[calc(100%-4.5rem)] pb-2 sm:pb-3 md:pb-4 overflow-visible">
               <div className="relative h-64 md:h-full overflow-visible">
@@ -1049,32 +1049,15 @@ function StudentProfileContent() {
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                   <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold" style={{ color: themeColors.primary }}>{cwPct}%</div>
                   <div className="text-xs text-slate-600">{cwPresent} / {cwDenom}</div>
-                        </div>
-                          </div>
-              <div className="mt-2 sm:mt-3 md:mt-4 h-20 md:h-24">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={sparkData} margin={{ top: 4, right: 4, left: 4, bottom: 4 }}>
-                    <defs>
-                      <linearGradient id="spark" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#60a5fa" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="#60a5fa" stopOpacity={0.05} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="label" hide />
-                    <YAxis domain={[0, 100]} hide />
-                    <Tooltip formatter={(v: any) => [`${v}%`, 'Attendance']} />
-                    <Area type="monotone" dataKey="percent" stroke="#3b82f6" strokeWidth={2} fill="url(#spark)" dot={false} activeDot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-                        </div>
-
-                </CardContent>
-              </Card>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           <Card className="bg-white border shadow-sm h-auto md:h-[380px] lg:h-[420px]">
             <CardHeader className="pb-2 sm:pb-3 md:pb-4">
               <CardTitle className="text-lg sm:text-xl md:text-2xl text-[#013a63]">Subject Progress</CardTitle>
-                </CardHeader>
+            </CardHeader>
             <CardContent className="h-auto md:h-[calc(100%-3.5rem)] pb-2 sm:pb-3 md:pb-4">
               <div className="h-64 md:h-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -1099,10 +1082,10 @@ function StudentProfileContent() {
                     <Bar dataKey="classAvg" name="Class Avg" fill="url(#gradClass)" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
-                </div>
-                </CardContent>
-              </Card>
-                      </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
         {/* Behaviour Snapshot - Student's Behaviour Snapshot*/}
         <div className="grid grid-cols-1 gap-3 sm:gap-4 md:gap-6 mb-8">
           <Card className="bg-white border shadow-sm h-auto md:h-[380px] lg:h-[420px]">
@@ -1112,9 +1095,9 @@ function StudentProfileContent() {
                 {selectedImp && (
                   <div className={`text-xs px-2 sm:px-3 py-1.5 sm:py-2 rounded-md border w-full sm:max-w-xs ${selectedImp.severity === 'critical' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
                     {selectedImp.message}
-                    </div>
+                  </div>
                 )}
-                      </div>
+              </div>
             </CardHeader>
             <CardContent className="h-auto md:h-[calc(100%-4.5rem)] pb-2 sm:pb-3 md:pb-4">
               {behaviourComputed && behaviourComputed.items ? (
@@ -1143,7 +1126,7 @@ function StudentProfileContent() {
                       })}
                     </div>
                     {/* Inline message area removed as requested */}
-                      </div>
+                  </div>
 
                   {/* Right: Radar chart (70%) */}
                   <div className="md:col-span-2 lg:col-span-7 h-64 md:h-full">
@@ -1155,15 +1138,15 @@ function StudentProfileContent() {
                         <Radar name="Score" dataKey="value" stroke="#013a63" fill="#60a5fa" fillOpacity={0.7} />
                       </RadarChart>
                     </ResponsiveContainer>
-                    </div>
-                      </div>
+                  </div>
+                </div>
               ) : (
                 <div className="h-full flex items-center justify-center text-slate-500 text-sm">No behaviour data yet. Add first record.</div>
               )}
               {/* Removed bottom messages block; now handled inline per-row */}
-              </CardContent>
-            </Card>
-          </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   )
