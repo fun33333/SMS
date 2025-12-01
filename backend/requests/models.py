@@ -24,6 +24,9 @@ STATUS_CHOICES = [
     ('under_review', 'Under Review'),
     ('in_progress', 'In Progress'),
     ('waiting', 'Waiting'),
+    ('pending_principal', 'Pending Principal Approval'),
+    ('approved', 'Approved'),
+    ('pending_confirmation', 'Pending Teacher Confirmation'),
     ('resolved', 'Resolved'),
     ('rejected', 'Rejected'),
 ]
@@ -34,6 +37,7 @@ class RequestComplaint(models.Model):
     # Foreign Keys
     teacher = models.ForeignKey('teachers.Teacher', on_delete=models.CASCADE, related_name='requests')
     coordinator = models.ForeignKey('coordinator.Coordinator', on_delete=models.CASCADE, related_name='assigned_requests')
+    principal = models.ForeignKey('principals.Principal', on_delete=models.SET_NULL, null=True, blank=True, related_name='forwarded_requests')
     
     # Request Details
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
@@ -41,8 +45,24 @@ class RequestComplaint(models.Model):
     description = models.TextField()
     
     # Status & Priority
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='submitted')
+    status = models.CharField(max_length=25, choices=STATUS_CHOICES, default='submitted')
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='low')
+    
+    # Principal Approval
+    requires_principal_approval = models.BooleanField(default=False)
+    forwarding_note = models.TextField(blank=True, null=True, help_text="Coordinator's note when forwarding to principal")
+    
+    # Approval Tracking
+    approved_by = models.CharField(max_length=20, blank=True, null=True, help_text="coordinator or principal")
+    approved_at = models.DateTimeField(null=True, blank=True)
+    
+    # Teacher Confirmation
+    teacher_confirmed = models.BooleanField(default=False)
+    teacher_confirmed_at = models.DateTimeField(null=True, blank=True)
+    teacher_satisfaction_note = models.TextField(blank=True, null=True)
+    
+    # Rejection
+    rejection_reason = models.TextField(blank=True, null=True)
     
     # Coordinator Response
     coordinator_notes = models.TextField(blank=True, null=True)
@@ -52,6 +72,7 @@ class RequestComplaint(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    forwarded_to_principal_at = models.DateTimeField(null=True, blank=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
     
     class Meta:
@@ -67,8 +88,23 @@ class RequestComplaint(models.Model):
         if self.status == 'under_review' and not self.reviewed_at:
             self.reviewed_at = timezone.now()
         
-        # Auto-set resolved_at when status changes to resolved/rejected
-        if self.status in ['resolved', 'rejected'] and not self.resolved_at:
+        # Auto-set forwarded_to_principal_at when status changes to pending_principal
+        if self.status == 'pending_principal' and not self.forwarded_to_principal_at:
+            self.forwarded_to_principal_at = timezone.now()
+        
+        # Auto-set approved_at when status changes to approved
+        if self.status == 'approved' and not self.approved_at:
+            self.approved_at = timezone.now()
+        
+        # Auto-set teacher_confirmed_at when teacher confirms
+        if self.teacher_confirmed and not self.teacher_confirmed_at:
+            self.teacher_confirmed_at = timezone.now()
+            # Auto-set status to resolved when teacher confirms
+            if self.status == 'pending_confirmation':
+                self.status = 'resolved'
+        
+        # Auto-set resolved_at when status changes to resolved
+        if self.status == 'resolved' and not self.resolved_at:
             self.resolved_at = timezone.now()
         
         super().save(*args, **kwargs)

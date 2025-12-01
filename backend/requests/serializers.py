@@ -48,6 +48,8 @@ class RequestComplaintDetailSerializer(serializers.ModelSerializer):
     teacher_email = serializers.CharField(source='teacher.email', read_only=True)
     coordinator_name = serializers.CharField(source='coordinator.full_name', read_only=True)
     coordinator_email = serializers.CharField(source='coordinator.email', read_only=True)
+    principal_name = serializers.SerializerMethodField(read_only=True)
+    principal_email = serializers.SerializerMethodField(read_only=True)
     category_display = serializers.CharField(source='get_category_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     priority_display = serializers.CharField(source='get_priority_display', read_only=True)
@@ -62,14 +64,27 @@ class RequestComplaintDetailSerializer(serializers.ModelSerializer):
             return f"{teacher.full_name} ({teacher.employee_code})"
         return teacher.full_name
     
+    def get_principal_name(self, obj):
+        """Return principal name if assigned"""
+        if obj.principal:
+            return f"{obj.principal.full_name} ({obj.principal.employee_code})" if obj.principal.employee_code else obj.principal.full_name
+        return None
+    
+    def get_principal_email(self, obj):
+        """Return principal email if assigned"""
+        return obj.principal.email if obj.principal else None
+    
     class Meta:
         model = RequestComplaint
         fields = [
             'id', 'category', 'category_display', 'subject', 'description',
             'status', 'status_display', 'priority', 'priority_display',
-            'coordinator_notes', 'resolution_notes',
+            'coordinator_notes', 'resolution_notes', 'forwarding_note', 'rejection_reason',
             'teacher_name', 'teacher_email', 'coordinator_name', 'coordinator_email',
-            'created_at', 'updated_at', 'reviewed_at', 'resolved_at',
+            'principal_name', 'principal_email',
+            'requires_principal_approval', 'approved_by', 'approved_at',
+            'teacher_confirmed', 'teacher_confirmed_at', 'teacher_satisfaction_note',
+            'created_at', 'updated_at', 'reviewed_at', 'forwarded_to_principal_at', 'resolved_at',
             'comments', 'status_history'
         ]
 
@@ -78,11 +93,16 @@ class RequestComplaintCreateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = RequestComplaint
-        fields = ['category', 'subject', 'description']
+        fields = ['category', 'subject', 'description', 'priority']
     
     def create(self, validated_data):
-        # Set default priority to 'medium' for teacher requests
-        validated_data['priority'] = 'medium'
+        # Ensure boolean fields are set to False explicitly to avoid DB null errors
+        validated_data['requires_principal_approval'] = False
+        validated_data['teacher_confirmed'] = False
+        
+        # Set default priority if not provided
+        if 'priority' not in validated_data:
+            validated_data['priority'] = 'low'
         
         # Get teacher from request user
         user = self.context['request'].user
@@ -148,3 +168,76 @@ class RequestCommentCreateSerializer(serializers.ModelSerializer):
         validated_data['request'] = self.context['request_obj']
         
         return super().create(validated_data)
+
+class RequestForwardToPrincipalSerializer(serializers.Serializer):
+    """Serializer for forwarding request to principal"""
+    
+    forwarding_note = serializers.CharField(required=True, help_text="Reason for forwarding to principal")
+    
+    def validate(self, data):
+        request_obj = self.context.get('request_obj')
+        if not request_obj:
+            raise serializers.ValidationError("Request object not found")
+        
+        if request_obj.status == 'pending_principal':
+            raise serializers.ValidationError("Request is already forwarded to principal")
+        
+        if request_obj.status in ['resolved', 'rejected']:
+            raise serializers.ValidationError("Cannot forward a closed request")
+        
+        return data
+
+class RequestApprovalSerializer(serializers.Serializer):
+    """Serializer for approving a request"""
+    
+    resolution_notes = serializers.CharField(required=False, allow_blank=True, help_text="Notes about the approval")
+    send_for_confirmation = serializers.BooleanField(default=True, help_text="Send to teacher for confirmation")
+    
+    def validate(self, data):
+        request_obj = self.context.get('request_obj')
+        if not request_obj:
+            raise serializers.ValidationError("Request object not found")
+        
+        if request_obj.status in ['resolved', 'rejected']:
+            raise serializers.ValidationError("Request is already closed")
+        
+        if request_obj.status == 'approved':
+            raise serializers.ValidationError("Request is already approved")
+        
+        return data
+
+class RequestRejectionSerializer(serializers.Serializer):
+    """Serializer for rejecting a request"""
+    
+    rejection_reason = serializers.CharField(required=True, help_text="Reason for rejection")
+    
+    def validate(self, data):
+        request_obj = self.context.get('request_obj')
+        if not request_obj:
+            raise serializers.ValidationError("Request object not found")
+        
+        if request_obj.status in ['resolved', 'rejected']:
+            raise serializers.ValidationError("Request is already closed")
+        
+        if not data.get('rejection_reason', '').strip():
+            raise serializers.ValidationError("Rejection reason is required")
+        
+        return data
+
+class RequestTeacherConfirmationSerializer(serializers.Serializer):
+    """Serializer for teacher confirming request completion"""
+    
+    teacher_satisfaction_note = serializers.CharField(required=False, allow_blank=True, help_text="Teacher's satisfaction feedback")
+    
+    def validate(self, data):
+        request_obj = self.context.get('request_obj')
+        if not request_obj:
+            raise serializers.ValidationError("Request object not found")
+        
+        if request_obj.status != 'approved' and request_obj.status != 'pending_confirmation':
+            raise serializers.ValidationError("Request must be approved before confirmation")
+        
+        if request_obj.teacher_confirmed:
+            raise serializers.ValidationError("Request is already confirmed")
+        
+        return data
