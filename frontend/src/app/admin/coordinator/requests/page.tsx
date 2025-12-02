@@ -23,7 +23,8 @@ import {
   ArrowRight,
   Filter,
   Search,
-  UserCheck
+  UserCheck,
+  X
 } from "lucide-react";
 import {
   getCoordinatorRequests,
@@ -453,175 +454,239 @@ export default function CoordinatorRequestPage() {
 
       {/* Request Detail Modal */}
       <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-[#274c77]">Request Details</DialogTitle>
-            <DialogDescription>
-              Manage request status and workflow
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedRequest && (
-            <div className="space-y-6">
-              {/* Actions Bar */}
-              {['submitted', 'under_review', 'in_progress', 'waiting'].includes(selectedRequest.status) && (
-                <div className="flex flex-wrap gap-2 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <Select
-                    value={selectedRequest.status}
-                    onValueChange={updateStatus}
-                  >
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Update Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="submitted">Submitted</SelectItem>
-                      <SelectItem value="under_review">Under Review</SelectItem>
-                      <SelectItem value="in_progress">In Progress</SelectItem>
-                      <SelectItem value="waiting">Waiting</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  <Select
-                    value={selectedRequest.priority}
-                    onValueChange={updatePriority}
-                  >
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Update Priority" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Low Priority</SelectItem>
-                      <SelectItem value="medium">Medium Priority</SelectItem>
-                      <SelectItem value="high">High Priority</SelectItem>
-                      <SelectItem value="urgent">Urgent</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  <div className="flex-1" />
-
-                  <Button
-                    variant="outline"
-                    className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                    onClick={() => openActionDialog('forward')}
-                  >
-                    <Send className="h-4 w-4 mr-2" />
-                    Forward to Principal
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    className="text-red-600 border-red-200 hover:bg-red-50"
-                    onClick={() => openActionDialog('reject')}
-                  >
-                    <XCircle className="h-4 w-4 mr-2" />
-                    Reject
-                  </Button>
-
-                  <Button
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                    onClick={() => openActionDialog('approve')}
-                  >
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Approve
-                  </Button>
-                </div>
-              )}
-
-              {/* Request Info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-[#274c77]">{selectedRequest.subject}</h3>
-                    <p className="text-gray-600">{selectedRequest.description}</p>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Badge className={STATUS_COLORS[selectedRequest.status as keyof typeof STATUS_COLORS]}>
-                      {getStatusIcon(selectedRequest.status)}
-                      <span className="ml-1">{selectedRequest.status_display}</span>
-                    </Badge>
-                    <Badge className={PRIORITY_COLORS[selectedRequest.priority as keyof typeof PRIORITY_COLORS]}>
-                      {selectedRequest.priority_display}
-                    </Badge>
-                  </div>
-                </div>
-
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Teacher:</span>
-                    <span className="font-medium">{selectedRequest.teacher_name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Category:</span>
-                    <span className="font-medium">{selectedRequest.category_display}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Created:</span>
-                    <span className="font-medium">{formatDate(selectedRequest.created_at)}</span>
-                  </div>
-                  {selectedRequest.approved_by && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Approved By:</span>
-                      <span className="font-medium capitalize">{selectedRequest.approved_by}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Status Timeline */}
-              {selectedRequest.status_history && (
-                <RequestStatusTimeline
-                  statusHistory={selectedRequest.status_history}
-                  currentStatus={selectedRequest.status}
-                />
-              )}
-
-              {/* Comments Section */}
-              <div className="space-y-4">
-                <h4 className="font-semibold text-[#274c77]">Comments</h4>
-
-                <div className="space-y-2">
-                  <Textarea
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    placeholder="Add a comment..."
-                    rows={3}
-                  />
-                  <Button
-                    onClick={handleAddComment}
-                    disabled={addingComment || !newComment.trim()}
-                    size="sm"
-                    className="bg-[#6096ba] hover:bg-[#274c77]"
-                  >
-                    {addingComment ? (
-                      <>
-                        <LoadingSpinner />
-                        <span className="ml-2">Adding...</span>
-                      </>
-                    ) : (
-                      <>
-                        <MessageSquare className="h-4 w-4 mr-1" />
-                        Add Comment
-                      </>
-                    )}
-                  </Button>
-                </div>
-
-                <div className="space-y-3">
-                  {selectedRequest.comments?.map((comment) => (
-                    <div key={comment.id} className="bg-gray-50 p-4 rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Badge variant="outline">
-                          {comment.user_type === 'teacher' ? 'Teacher' : 'Coordinator'}
-                        </Badge>
-                        <span className="text-sm text-gray-600">{formatDate(comment.created_at)}</span>
-                      </div>
-                      <p className="text-gray-700">{comment.comment}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden p-0 border-0 shadow-2xl">
+          <div className="overflow-y-auto max-h-[calc(90vh-2rem)] scrollbar-hide [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
+            {/* Header */}
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 z-10 flex items-start justify-between">
+              <DialogHeader className="text-left">
+                <DialogTitle className="text-2xl font-bold text-[#274c77]">Request Details</DialogTitle>
+                <DialogDescription className="text-gray-600">
+                  Manage request status and workflow
+                </DialogDescription>
+              </DialogHeader>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowDetailModal(false)}
+                className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full -mr-2 -mt-2"
+              >
+                <X className="h-5 w-5" />
+              </Button>
             </div>
-          )}
+
+            {selectedRequest && (
+              <div className="px-6 py-6 space-y-6">
+                {/* Request Overview Section */}
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                  {/* Header with Title and Badges */}
+                  <div className="bg-gradient-to-r from-[#274c77] to-[#6096ba] px-6 py-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <h3 className="text-xl font-bold text-white flex-1">{selectedRequest.subject}</h3>
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-white/20 text-white border-white/30 backdrop-blur-sm">
+                          {getStatusIcon(selectedRequest.status)}
+                          <span className="ml-1">{selectedRequest.status_display}</span>
+                        </Badge>
+                        <Badge className="bg-white/20 text-white border-white/30 backdrop-blur-sm">
+                          {selectedRequest.priority_display}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+                    <p className="text-gray-700 leading-relaxed">{selectedRequest.description}</p>
+                  </div>
+
+                  {/* Meta Info Grid */}
+                  <div className="flex flex-wrap items-center gap-6 px-6 py-5 border-t border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <div className="bg-blue-100 text-blue-600 p-2 rounded-lg">
+                        <User className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Teacher</p>
+                        <p className="font-semibold text-gray-900 whitespace-nowrap">{selectedRequest.teacher_name}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="bg-purple-100 text-purple-600 p-2 rounded-lg">
+                        <FileText className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Category</p>
+                        <p className="font-semibold text-gray-900 whitespace-nowrap">{selectedRequest.category_display}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="bg-orange-100 text-orange-600 p-2 rounded-lg">
+                        <Calendar className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Created</p>
+                        <p className="font-semibold text-gray-900 whitespace-nowrap">{formatDate(selectedRequest.created_at)}</p>
+                      </div>
+                    </div>
+                    {selectedRequest.approved_by && (
+                      <div className="flex items-center gap-2">
+                        <div className="bg-green-100 text-green-600 p-2 rounded-lg">
+                          <CheckCircle className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Approved By</p>
+                          <p className="font-semibold text-gray-900 whitespace-nowrap capitalize">{selectedRequest.approved_by}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Actions Section */}
+                {['submitted', 'under_review', 'in_progress', 'waiting'].includes(selectedRequest.status) && (
+                  <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                    <h4 className="text-lg font-semibold text-[#274c77] mb-4 flex items-center gap-2">
+                      <UserCheck className="h-5 w-5" />
+                      Actions & Workflow
+                    </h4>
+                    <div className="flex flex-wrap gap-3">
+                      <Select
+                        value={selectedRequest.status}
+                        onValueChange={updateStatus}
+                      >
+                        <SelectTrigger className="w-[180px]">
+                          <SelectValue placeholder="Update Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="submitted">Submitted</SelectItem>
+                          <SelectItem value="under_review">Under Review</SelectItem>
+                          <SelectItem value="in_progress">In Progress</SelectItem>
+                          <SelectItem value="waiting">Waiting</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      <Select
+                        value={selectedRequest.priority}
+                        onValueChange={updatePriority}
+                      >
+                        <SelectTrigger className="w-[180px]">
+                          <SelectValue placeholder="Update Priority" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Low Priority</SelectItem>
+                          <SelectItem value="medium">Medium Priority</SelectItem>
+                          <SelectItem value="high">High Priority</SelectItem>
+                          <SelectItem value="urgent">Urgent</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      <div className="flex-1 hidden md:block" />
+
+                      <Button
+                        variant="outline"
+                        className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                        onClick={() => openActionDialog('forward')}
+                      >
+                        <Send className="h-4 w-4 mr-2" />
+                        Forward to Principal
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        className="text-red-600 border-red-200 hover:bg-red-50"
+                        onClick={() => openActionDialog('reject')}
+                      >
+                        <XCircle className="h-4 w-4 mr-2" />
+                        Reject
+                      </Button>
+
+                      <Button
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                        onClick={() => openActionDialog('approve')}
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Approve
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Status Timeline */}
+                {selectedRequest.status_history && (
+                  <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                    <h4 className="text-lg font-semibold text-[#274c77] mb-4 flex items-center gap-2">
+                      <Clock className="h-5 w-5" />
+                      Request Timeline
+                    </h4>
+                    <RequestStatusTimeline
+                      statusHistory={selectedRequest.status_history}
+                      currentStatus={selectedRequest.status}
+                    />
+                  </div>
+                )}
+
+                {/* Comments Section */}
+                <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                  <h4 className="text-lg font-semibold text-[#274c77] mb-4 flex items-center gap-2">
+                    <MessageSquare className="h-5 w-5" />
+                    Comments & Notes
+                  </h4>
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Textarea
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        placeholder="Add a comment or note..."
+                        rows={3}
+                        className="bg-gray-50 border-gray-200 focus:bg-white transition-colors"
+                      />
+                      <div className="flex justify-end">
+                        <Button
+                          onClick={handleAddComment}
+                          disabled={addingComment || !newComment.trim()}
+                          size="sm"
+                          className="bg-[#6096ba] hover:bg-[#274c77]"
+                        >
+                          {addingComment ? (
+                            <>
+                              <LoadingSpinner />
+                              <span className="ml-2">Adding...</span>
+                            </>
+                          ) : (
+                            <>
+                              <MessageSquare className="h-4 w-4 mr-1" />
+                              Add Comment
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 mt-6">
+                      {selectedRequest.comments?.map((comment) => (
+                        <div key={comment.id} className="bg-gray-50 p-4 rounded-lg border border-gray-100">
+                          <div className="flex items-center justify-between mb-2">
+                            <Badge variant="outline" className={comment.user_type === 'teacher' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-purple-50 text-purple-700 border-purple-200'}>
+                              {comment.user_type === 'teacher' ? 'Teacher' : 'Coordinator'}
+                            </Badge>
+                            <span className="text-xs text-gray-500 flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {formatDate(comment.created_at)}
+                            </span>
+                          </div>
+                          <p className="text-gray-700 text-sm leading-relaxed">{comment.comment}</p>
+                        </div>
+                      ))}
+                      {(!selectedRequest.comments || selectedRequest.comments.length === 0) && (
+                        <p className="text-center text-gray-400 py-4 text-sm">No comments yet</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 

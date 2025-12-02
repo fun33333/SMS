@@ -26,7 +26,10 @@ import {
     UserCheck,
     ThumbsUp,
     Info,
-    AlertTriangle
+    AlertTriangle,
+    ChevronUp,
+    ChevronDown,
+    X
 } from "lucide-react";
 import {
     createRequest,
@@ -122,6 +125,7 @@ export default function TeacherRequestPage() {
     const [addingComment, setAddingComment] = useState(false);
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [confirming, setConfirming] = useState(false);
+    const [showComments, setShowComments] = useState(false);
 
     const [formData, setFormData] = useState<RequestData>({
         category: '',
@@ -350,85 +354,78 @@ export default function TeacherRequestPage() {
                         </CardContent>
                     </Card>
                 ) : (
-                    <div className="grid gap-5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {requests.map((request) => (
-                            <Card key={request.id} className="group hover:shadow-xl transition-all duration-300 border-l-4 border-l-[#6096ba] overflow-hidden">
-                                <CardContent className="p-0">
-                                    <div className="flex items-stretch">
-                                        {/* Left Color Accent */}
-                                        <div className="w-1.5 bg-gradient-to-b from-[#6096ba] to-[#274c77]"></div>
-
+                            <Card key={request.id} className="group hover:shadow-lg transition-all duration-200 border-l-4 border-l-[#6096ba] overflow-hidden">
+                                <CardContent className="p-4">
+                                    <div className="flex items-start justify-between gap-4">
                                         {/* Main Content */}
-                                        <div className="flex-1 p-5">
-                                            <div className="flex items-start justify-between gap-4">
-                                                <div className="flex-1 space-y-3">
-                                                    {/* Title and Badges */}
-                                                    <div className="flex items-start gap-3 flex-wrap">
-                                                        <h3 className="text-lg font-bold text-[#274c77] group-hover:text-[#6096ba] transition-colors">
-                                                            {request.subject}
-                                                        </h3>
-                                                        <div className="flex items-center gap-2">
-                                                            <Badge className={`${STATUS_COLORS[request.status as keyof typeof STATUS_COLORS]} flex items-center gap-1 px-2.5 py-0.5 font-medium`}>
-                                                                {getStatusIcon(request.status)}
-                                                                <span className="text-xs">{request.status_display}</span>
-                                                            </Badge>
-                                                            <Badge className={`${PRIORITY_COLORS[request.priority as keyof typeof PRIORITY_COLORS]} px-2.5 py-0.5 font-medium text-xs`}>
-                                                                {request.priority_display}
-                                                            </Badge>
-                                                        </div>
-                                                    </div>
+                                        <div className="flex-1 min-w-0">
+                                            {/* Title Row with Badges */}
+                                            <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                <h3 className="text-base font-bold text-[#274c77] group-hover:text-[#6096ba] transition-colors">
+                                                    {request.subject}
+                                                </h3>
+                                                <Badge className={`${STATUS_COLORS[request.status as keyof typeof STATUS_COLORS]} flex items-center gap-1 px-2 py-0.5 text-xs`}>
+                                                    {getStatusIcon(request.status)}
+                                                    <span>{request.status_display}</span>
+                                                </Badge>
+                                                <Badge className={`${PRIORITY_COLORS[request.priority as keyof typeof PRIORITY_COLORS]} px-2 py-0.5 text-xs`}>
+                                                    {request.priority_display}
+                                                </Badge>
+                                            </div>
 
-                                                    {/* Meta Information */}
-                                                    <div className="flex items-center gap-4 text-sm text-gray-600">
-                                                        <div className="flex items-center gap-1.5 bg-gray-50 px-3 py-1.5 rounded-md">
-                                                            <FileText className="h-3.5 w-3.5 text-[#6096ba]" />
-                                                            <span className="font-medium">{request.category_display}</span>
-                                                        </div>
-                                                        <div className="flex items-center gap-1.5">
-                                                            <User className="h-3.5 w-3.5 text-gray-400" />
-                                                            <span>To: <span className="font-medium text-gray-700">{request.coordinator_name}</span></span>
-                                                        </div>
-                                                        <div className="flex items-center gap-1.5">
-                                                            <Calendar className="h-3.5 w-3.5 text-gray-400" />
-                                                            <span className="text-gray-500">{formatDate(request.created_at)}</span>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Description */}
-                                                    <p className="text-gray-600 line-clamp-2 text-sm leading-relaxed">
-                                                        {request.description}
-                                                    </p>
+                                            {/* Meta Information - Compact Row */}
+                                            <div className="flex items-center gap-3 text-xs text-gray-600 mb-2">
+                                                <div className="flex items-center gap-1">
+                                                    <FileText className="h-3 w-3 text-[#6096ba]" />
+                                                    <span className="font-medium">{request.category_display}</span>
                                                 </div>
-
-                                                {/* Action Buttons */}
-                                                <div className="flex flex-col gap-2 min-w-[140px]">
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => handleViewDetails(request.id)}
-                                                        className="w-full border-[#6096ba] text-[#6096ba] hover:bg-[#6096ba] hover:text-white transition-all"
-                                                    >
-                                                        <Eye className="h-4 w-4 mr-1.5" />
-                                                        View Details
-                                                    </Button>
-
-                                                    {(request.status === 'approved' || request.status === 'pending_confirmation') && !request.teacher_confirmed && (
-                                                        <Button
-                                                            variant="default"
-                                                            size="sm"
-                                                            className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white shadow-md hover:shadow-lg transition-all"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setSelectedRequest(request);
-                                                                setShowConfirmDialog(true);
-                                                            }}
-                                                        >
-                                                            <ThumbsUp className="h-4 w-4 mr-1.5" />
-                                                            Confirm
-                                                        </Button>
-                                                    )}
+                                                <span className="text-gray-300">•</span>
+                                                <div className="flex items-center gap-1">
+                                                    <User className="h-3 w-3 text-gray-400" />
+                                                    <span>{request.coordinator_name}</span>
+                                                </div>
+                                                <span className="text-gray-300">•</span>
+                                                <div className="flex items-center gap-1">
+                                                    <Calendar className="h-3 w-3 text-gray-400" />
+                                                    <span>{formatDate(request.created_at)}</span>
                                                 </div>
                                             </div>
+
+                                            {/* Description */}
+                                            <p className="text-gray-600 line-clamp-1 text-sm">
+                                                {request.description}
+                                            </p>
+                                        </div>
+
+                                        {/* Action Buttons */}
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleViewDetails(request.id)}
+                                                className="bg-white border-2 border-[#6096ba] text-[#6096ba] hover:bg-[#6096ba] hover:text-[#6096ba] transition-all h-8 px-3"
+                                            >
+                                                <Eye className="h-3.5 w-3.5 mr-1" />
+                                                View Details
+                                            </Button>
+
+                                            {(request.status === 'approved' || request.status === 'pending_confirmation') && !request.teacher_confirmed && (
+                                                <Button
+                                                    variant="default"
+                                                    size="sm"
+                                                    className="bg-green-600 hover:bg-green-700 text-white h-8 px-3"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedRequest(request);
+                                                        setShowConfirmDialog(true);
+                                                    }}
+                                                >
+                                                    <ThumbsUp className="h-3.5 w-3.5 mr-1" />
+                                                    Confirm
+                                                </Button>
+                                            )}
                                         </div>
                                     </div>
                                 </CardContent>
@@ -613,170 +610,237 @@ export default function TeacherRequestPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* Request Detail Modal */}
             <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
-                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle className="text-[#274c77]">Request Details</DialogTitle>
-                        <DialogDescription>
-                            View and manage your request details
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    {selectedRequest && (
-                        <div className="space-y-6">
-                            {/* Request Info */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-4">
-                                    <div>
-                                        <h3 className="text-lg font-semibold text-[#274c77]">{selectedRequest.subject}</h3>
-                                        <p className="text-gray-600">{selectedRequest.description}</p>
-                                    </div>
-
-                                    <div className="flex gap-2">
-                                        <Badge className={STATUS_COLORS[selectedRequest.status as keyof typeof STATUS_COLORS]}>
-                                            {getStatusIcon(selectedRequest.status)}
-                                            <span className="ml-1">{selectedRequest.status_display}</span>
-                                        </Badge>
-                                        <Badge className={PRIORITY_COLORS[selectedRequest.priority as keyof typeof PRIORITY_COLORS]}>
-                                            {selectedRequest.priority_display}
-                                        </Badge>
-                                    </div>
-
-                                    {(selectedRequest.status === 'approved' || selectedRequest.status === 'pending_confirmation') && !selectedRequest.teacher_confirmed && (
-                                        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                                            <h4 className="font-semibold text-green-800 mb-2 flex items-center gap-2">
-                                                <CheckCircle className="h-5 w-5" />
-                                                Action Required
-                                            </h4>
-                                            <p className="text-green-700 mb-3">
-                                                Your request has been approved! Please confirm if the work has been completed to your satisfaction.
-                                            </p>
-                                            <Button
-                                                className="bg-green-600 hover:bg-green-700 text-white w-full"
-                                                onClick={() => setShowConfirmDialog(true)}
-                                            >
-                                                Confirm Completion
-                                            </Button>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="space-y-3 text-sm">
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Category:</span>
-                                        <span className="font-medium">{selectedRequest.category_display}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Coordinator:</span>
-                                        <span className="font-medium">{selectedRequest.coordinator_name}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Created:</span>
-                                        <span className="font-medium">{formatDate(selectedRequest.created_at)}</span>
-                                    </div>
-                                    {selectedRequest.reviewed_at && (
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-600">Reviewed:</span>
-                                            <span className="font-medium">{formatDate(selectedRequest.reviewed_at)}</span>
-                                        </div>
-                                    )}
-                                    {selectedRequest.resolved_at && (
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-600">Resolved:</span>
-                                            <span className="font-medium">{formatDate(selectedRequest.resolved_at)}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Status Timeline */}
-                            {selectedRequest.status_history && (
-                                <RequestStatusTimeline
-                                    statusHistory={selectedRequest.status_history}
-                                    currentStatus={selectedRequest.status}
-                                />
-                            )}
-
-                            {/* Coordinator Notes */}
-                            {selectedRequest.coordinator_notes && (
-                                <div className="space-y-2">
-                                    <h4 className="font-semibold text-[#274c77]">Coordinator Notes</h4>
-                                    <div className="bg-blue-50 p-4 rounded-lg">
-                                        <p className="text-gray-700">{selectedRequest.coordinator_notes}</p>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Rejection Reason */}
-                            {selectedRequest.rejection_reason && (
-                                <div className="space-y-2">
-                                    <h4 className="font-semibold text-red-700">Rejection Reason</h4>
-                                    <div className="bg-red-50 p-4 rounded-lg border border-red-100">
-                                        <p className="text-red-700">{selectedRequest.rejection_reason}</p>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Resolution Notes */}
-                            {selectedRequest.resolution_notes && (
-                                <div className="space-y-2">
-                                    <h4 className="font-semibold text-green-700">Resolution Notes</h4>
-                                    <div className="bg-green-50 p-4 rounded-lg border border-green-100">
-                                        <p className="text-green-700">{selectedRequest.resolution_notes}</p>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Comments Section */}
-                            <div className="space-y-4">
-                                <h4 className="font-semibold text-[#274c77]">Comments</h4>
-
-                                {/* Add Comment */}
-                                <div className="space-y-2">
-                                    <Textarea
-                                        value={newComment}
-                                        onChange={(e) => setNewComment(e.target.value)}
-                                        placeholder="Add a comment..."
-                                        rows={3}
-                                    />
-                                    <Button
-                                        onClick={handleAddComment}
-                                        disabled={addingComment || !newComment.trim()}
-                                        size="sm"
-                                        className="bg-[#6096ba] hover:bg-[#274c77]"
-                                    >
-                                        {addingComment ? (
-                                            <>
-                                                <LoadingSpinner />
-                                                <span className="ml-2">Adding...</span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <MessageSquare className="h-4 w-4 mr-1" />
-                                                Add Comment
-                                            </>
-                                        )}
-                                    </Button>
-                                </div>
-
-                                {/* Comments List */}
-                                <div className="space-y-3">
-                                    {selectedRequest.comments?.map((comment) => (
-                                        <div key={comment.id} className="bg-gray-50 p-4 rounded-lg">
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <Badge variant="outline">
-                                                    {comment.user_type === 'teacher' ? 'Teacher' : 'Coordinator'}
-                                                </Badge>
-                                                <span className="text-sm text-gray-600">{formatDate(comment.created_at)}</span>
-                                            </div>
-                                            <p className="text-gray-700">{comment.comment}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
+                <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden p-0 border-0 shadow-2xl">
+                    <div className="overflow-y-auto max-h-[calc(90vh-2rem)] scrollbar-hide [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
+                        {/* Header */}
+                        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 z-10 flex items-start justify-between">
+                            <DialogHeader className="text-left">
+                                <DialogTitle className="text-2xl font-bold text-[#274c77]">Request Details</DialogTitle>
+                                <DialogDescription className="text-gray-600">
+                                    View and manage your request details
+                                </DialogDescription>
+                            </DialogHeader>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setShowDetailModal(false)}
+                                className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full -mr-2 -mt-2"
+                            >
+                                <X className="h-5 w-5" />
+                            </Button>
                         </div>
-                    )}
+
+                        {selectedRequest && (
+                            <div className="px-6 py-6 space-y-6">
+                                {/* Request Overview Section */}
+                                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                                    {/* Header with Title and Badges */}
+                                    <div className="bg-gradient-to-r from-[#274c77] to-[#6096ba] px-6 py-4">
+                                        <div className="flex items-start justify-between gap-4">
+                                            <h3 className="text-xl font-bold text-white flex-1">{selectedRequest.subject}</h3>
+                                            <div className="flex items-center gap-2">
+                                                <Badge className="bg-white/20 text-white border-white/30 backdrop-blur-sm">
+                                                    {getStatusIcon(selectedRequest.status)}
+                                                    <span className="ml-1">{selectedRequest.status_display}</span>
+                                                </Badge>
+                                                <Badge className="bg-white/20 text-white border-white/30 backdrop-blur-sm">
+                                                    {selectedRequest.priority_display}
+                                                </Badge>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Description */}
+                                    <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+                                        <p className="text-gray-700 leading-relaxed">{selectedRequest.description}</p>
+                                    </div>
+
+                                    {/* Meta Info Grid */}
+                                    <div className="flex flex-wrap items-center gap-6 px-6 py-5 border-t border-gray-100">
+                                        <div className="flex items-center gap-2">
+                                            <div className="bg-blue-100 text-blue-600 p-2 rounded-lg">
+                                                <FileText className="h-4 w-4" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs text-gray-500">Category</p>
+                                                <p className="font-semibold text-gray-900 whitespace-nowrap">{selectedRequest.category_display}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <div className="bg-purple-100 text-purple-600 p-2 rounded-lg">
+                                                <User className="h-4 w-4" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs text-gray-500">Coordinator</p>
+                                                <p className="font-semibold text-gray-900 whitespace-nowrap">{selectedRequest.coordinator_name}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <div className="bg-green-100 text-green-600 p-2 rounded-lg">
+                                                <Calendar className="h-4 w-4" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs text-gray-500">Created</p>
+                                                <p className="font-semibold text-gray-900 whitespace-nowrap">{formatDate(selectedRequest.created_at)}</p>
+                                            </div>
+                                        </div>
+                                        {selectedRequest.resolved_at && (
+                                            <div className="flex items-center gap-2">
+                                                <div className="bg-emerald-100 text-emerald-600 p-2 rounded-lg">
+                                                    <CheckCircle className="h-4 w-4" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs text-gray-500">Resolved</p>
+                                                    <p className="font-semibold text-gray-900 whitespace-nowrap">{formatDate(selectedRequest.resolved_at)}</p>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Action Required Alert */}
+                                {(selectedRequest.status === 'approved' || selectedRequest.status === 'pending_confirmation') && !selectedRequest.teacher_confirmed && (
+                                    <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 rounded-r-xl p-5 shadow-sm">
+                                        <div className="flex items-start gap-4">
+                                            <div className="bg-green-500 text-white p-2.5 rounded-lg">
+                                                <CheckCircle className="h-5 w-5" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <h4 className="font-bold text-green-900 mb-1">Action Required</h4>
+                                                <p className="text-green-800 text-sm mb-3">
+                                                    Your request has been approved! Please confirm if the work has been completed to your satisfaction.
+                                                </p>
+                                                <Button
+                                                    className="bg-green-600 hover:bg-green-700 text-white shadow-md"
+                                                    onClick={() => setShowConfirmDialog(true)}
+                                                >
+                                                    <ThumbsUp className="h-4 w-4 mr-2" />
+                                                    Confirm Completion
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Timeline Section */}
+                                {selectedRequest.status_history && (
+                                    <div className="bg-white border border-gray-200 rounded-xl p-6">
+                                        <h4 className="text-lg font-bold text-[#274c77] mb-4 flex items-center gap-2">
+                                            <Clock className="h-5 w-5 text-[#6096ba]" />
+                                            Request Timeline
+                                        </h4>
+                                        <RequestStatusTimeline
+                                            statusHistory={selectedRequest.status_history}
+                                            currentStatus={selectedRequest.status}
+                                        />
+                                    </div>
+                                )}
+
+                                {/* Notes Sections */}
+                                {(selectedRequest.coordinator_notes || selectedRequest.rejection_reason || selectedRequest.resolution_notes) && (
+                                    <div className="space-y-4">
+                                        {selectedRequest.coordinator_notes && (
+                                            <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
+                                                <h4 className="font-bold text-blue-900 mb-2 flex items-center gap-2">
+                                                    <FileText className="h-4 w-4" />
+                                                    Coordinator Notes
+                                                </h4>
+                                                <p className="text-blue-800">{selectedRequest.coordinator_notes}</p>
+                                            </div>
+                                        )}
+
+                                        {selectedRequest.rejection_reason && (
+                                            <div className="bg-red-50 border border-red-200 rounded-xl p-5">
+                                                <h4 className="font-bold text-red-900 mb-2 flex items-center gap-2">
+                                                    <AlertCircle className="h-4 w-4" />
+                                                    Rejection Reason
+                                                </h4>
+                                                <p className="text-red-800">{selectedRequest.rejection_reason}</p>
+                                            </div>
+                                        )}
+
+                                        {selectedRequest.resolution_notes && (
+                                            <div className="bg-green-50 border border-green-200 rounded-xl p-5">
+                                                <h4 className="font-bold text-green-900 mb-2 flex items-center gap-2">
+                                                    <CheckCircle className="h-4 w-4" />
+                                                    Resolution Notes
+                                                </h4>
+                                                <p className="text-green-800">{selectedRequest.resolution_notes}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Comments Section - Collapsible */}
+                                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                                    <button
+                                        onClick={() => setShowComments(!showComments)}
+                                        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                                    >
+                                        <h4 className="text-lg font-bold text-[#274c77] flex items-center gap-2">
+                                            <MessageSquare className="h-5 w-5 text-[#6096ba]" />
+                                            Comments
+                                            <span className="text-sm font-normal text-gray-500">({selectedRequest.comments?.length || 0})</span>
+                                        </h4>
+                                        {showComments ? (
+                                            <ChevronUp className="h-5 w-5 text-gray-400" />
+                                        ) : (
+                                            <ChevronDown className="h-5 w-5 text-gray-400" />
+                                        )}
+                                    </button>
+
+                                    {showComments && (
+                                        <div className="px-6 pb-6 space-y-4 border-t border-gray-200">
+                                            {/* Add Comment */}
+                                            <div className="pt-4 space-y-2">
+                                                <Textarea
+                                                    value={newComment}
+                                                    onChange={(e) => setNewComment(e.target.value)}
+                                                    placeholder="Add a comment..."
+                                                    rows={3}
+                                                    className="resize-none"
+                                                />
+                                                <Button
+                                                    onClick={handleAddComment}
+                                                    disabled={addingComment || !newComment.trim()}
+                                                    size="sm"
+                                                    className="bg-[#6096ba] hover:bg-[#274c77]"
+                                                >
+                                                    {addingComment ? (
+                                                        <>
+                                                            <LoadingSpinner />
+                                                            <span className="ml-2">Adding...</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <MessageSquare className="h-4 w-4 mr-2" />
+                                                            Add Comment
+                                                        </>
+                                                    )}
+                                                </Button>
+                                            </div>
+
+                                            {/* Comments List */}
+                                            <div className="space-y-3">
+                                                {selectedRequest.comments?.map((comment) => (
+                                                    <div key={comment.id} className="bg-gray-50 border border-gray-200 p-4 rounded-lg">
+                                                        <div className="flex items-center gap-2 mb-2">
+                                                            <Badge variant="outline" className="text-xs">
+                                                                {comment.user_type === 'teacher' ? 'Teacher' : 'Coordinator'}
+                                                            </Badge>
+                                                            <span className="text-xs text-gray-500">{formatDate(comment.created_at)}</span>
+                                                        </div>
+                                                        <p className="text-gray-700 text-sm">{comment.comment}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </DialogContent>
             </Dialog>
 
