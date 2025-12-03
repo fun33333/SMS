@@ -16,6 +16,7 @@ const _mt = 'mother_tongue_distribution', _rd = 'religion_distribution';
 const _ad = 'age_distribution', _zs = 'zakat_status', _ho = 'house_ownership';
 const _lo = 'login', _rf = 'refresh', _ch = 'choices', _sec = 'sections';
 const _av = 'available', _id = '{id}';
+const _tt = 'timetable', _sub = 'subjects', _ctt = 'class-timetable', _ttt = 'teacher-timetable';
 
 const getEndpoints = () => ({
   STUDENTS: `${_a}/${_s}/`,
@@ -53,6 +54,10 @@ const getEndpoints = () => ({
   BEHAVIOUR_STUDENT: (id: number | string) => `/api/behaviour/student/${id}/`,
   BEHAVIOUR_MONTHLY_STUDENT: (id: number | string) => `/api/behaviour/monthly/student/${id}/`,
   BEHAVIOUR_MONTHLY_COMPUTE: `/api/behaviour/monthly/compute/`,
+  // Timetable
+  TIMETABLE_SUBJECTS: `${_a}/${_tt}/${_sub}/`,
+  TIMETABLE_CLASS: `${_a}/${_tt}/${_ctt}/`,
+  TIMETABLE_TEACHER: `${_a}/${_tt}/${_ttt}/`,
 });
 
 export const API_ENDPOINTS = getEndpoints() as ReturnType<typeof getEndpoints>;
@@ -276,6 +281,9 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
     });
     if (!res.ok) {
       const text = await res.text();
+      // Log server error body to help debugging validation errors (e.g., serializer.errors)
+      // Caller may still handle the thrown ApiError.
+      console.error(`[apiPost] POST ${path} failed ${res.status} ${res.statusText}:`, text);
       handleApiError(res, text);
     }
     return (await res.json()) as T;
@@ -3157,5 +3165,133 @@ export async function resetPasswordWithOTP(sessionToken: string, newPassword: st
   } catch (error) {
     if (error instanceof ApiError) throw error;
     throw new ApiError(`Network error: ${error}`, 0, 'Network Error');
+  }
+}
+
+export async function getSubjects(params?: { campus?: number; level?: number; is_active?: boolean }) {
+  try {
+    const queryParams = new URLSearchParams();
+    if (params?.campus) queryParams.append('campus', params.campus.toString());
+    if (params?.level) queryParams.append('level', params.level.toString());
+    if (params?.is_active !== undefined) queryParams.append('is_active', params.is_active.toString());
+
+    const url = queryParams.toString()
+      ? API_ENDPOINTS.TIMETABLE_SUBJECTS + '?' + queryParams.toString()
+      : API_ENDPOINTS.TIMETABLE_SUBJECTS;
+
+    const response = await apiGet(url);
+    return Array.isArray(response) ? response : (response as any)?.results || [];
+  } catch (error) {
+    console.error('Failed to fetch subjects:', error);
+    return [];
+  }
+}
+
+/**
+ * Create a new subject
+ */
+export async function createSubject(data: { name: string; campus: number; level?: number; description?: string }) {
+  try {
+    return await apiPost(API_ENDPOINTS.TIMETABLE_SUBJECTS, data);
+  } catch (error) {
+    console.error('Failed to create subject:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get class timetable periods (optionally filtered)
+ */
+export async function getClassTimetable(params?: {
+  classroom?: number;
+  teacher?: number;
+  subject?: number;
+  day?: string;
+  grade?: string;
+  section?: string;
+}) {
+  try {
+    const queryParams = new URLSearchParams();
+    if (params?.classroom) queryParams.append('classroom', params.classroom.toString());
+    if (params?.teacher) queryParams.append('teacher', params.teacher.toString());
+    if (params?.subject) queryParams.append('subject', params.subject.toString());
+    if (params?.day) queryParams.append('day', params.day);
+    if (params?.grade) queryParams.append('grade', params.grade);
+    if (params?.section) queryParams.append('section', params.section);
+
+    const url = queryParams.toString()
+      ? API_ENDPOINTS.TIMETABLE_CLASS + '?' + queryParams.toString()
+      : API_ENDPOINTS.TIMETABLE_CLASS;
+
+    const response = await apiGet(url);
+    return Array.isArray(response) ? response : (response as any)?.results || [];
+  } catch (error) {
+    console.error('Failed to fetch class timetable:', error);
+    return [];
+  }
+}
+
+/**
+ * Create a class timetable period
+ */
+export async function createClassPeriod(data: {
+  classroom: number;
+  teacher: number;
+  subject: number;
+  day: string;
+  start_time: string;
+  end_time: string;
+  is_break?: boolean;
+  notes?: string;
+}) {
+  try {
+    return await apiPost(API_ENDPOINTS.TIMETABLE_CLASS, data);
+  } catch (error) {
+    console.error('Failed to create class period:', error);
+    throw error;
+  }
+}
+
+/**
+ * Delete class periods by filter
+ */
+export async function deleteClassPeriods(params: {
+  classroom?: number;
+  teacher?: number;
+}) {
+  try {
+    const queryParams = new URLSearchParams();
+    if (params.classroom) queryParams.append('classroom', params.classroom.toString());
+    if (params.teacher) queryParams.append('teacher', params.teacher.toString());
+
+    const url = queryParams.toString()
+      ? API_ENDPOINTS.TIMETABLE_CLASS + 'bulk_delete/?' + queryParams.toString()
+      : API_ENDPOINTS.TIMETABLE_CLASS + 'bulk_delete/';
+
+    return await apiDelete(url);
+  } catch (error) {
+    console.error('Failed to delete class periods:', error);
+    throw error;
+  }
+}
+
+/**
+ * Bulk create class periods
+ */
+export async function bulkCreateClassPeriods(periods: Array<{
+  classroom: number;
+  teacher: number;
+  subject: number;
+  day: string;
+  start_time: string;
+  end_time: string;
+  is_break?: boolean;
+  notes?: string;
+}>) {
+  try {
+    return await apiPost(API_ENDPOINTS.TIMETABLE_CLASS + 'bulk_create/', { periods });
+  } catch (error) {
+    console.error('Failed to bulk create class periods:', error);
+    throw error;
   }
 }

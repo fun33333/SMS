@@ -1,13 +1,19 @@
-
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
-const teacherData = {
-    name: "Mr. Ahmed Khan",
-    classTeacherOf: "8th A",
-};
+// --- Types ---
+interface PeriodAssignment {
+    id: string
+    day: string
+    timeSlot: string
+    grade: string
+    section: string
+    subject: string
+    teacherId: number
+    teacherName: string
+}
 
-const weekDays = [
+const WEEK_DAYS = [
     "Monday",
     "Tuesday",
     "Wednesday",
@@ -16,78 +22,75 @@ const weekDays = [
     "Saturday",
 ];
 
-const periodsByDay: Record<string, Array<{ time: string; subject: string; class: string }>> = {
-    Monday: [
-        { time: "08:00 - 08:40", subject: "Mathematics", class: "8th A" },
-        { time: "08:40 - 09:20", subject: "Science", class: "7th B" },
-        { time: "09:20 - 10:00", subject: "Mathematics", class: "8th B" },
-        { time: "10:20 - 11:00", subject: "Physics", class: "9th A" },
-        { time: "11:00 - 11:40", subject: "Mathematics", class: "8th A" },
-        { time: "11:40 - 12:20", subject: "Free Period", class: "-" },
-        { time: "12:20 - 13:30", subject: "Chemistry", class: "10th A" },
-    ],
-    Tuesday: [
-        { time: "08:00 - 08:40", subject: "Science", class: "7th B" },
-        { time: "08:40 - 09:20", subject: "Mathematics", class: "8th A" },
-        { time: "09:20 - 10:00", subject: "Physics", class: "9th A" },
-        { time: "10:20 - 11:00", subject: "Mathematics", class: "8th B" },
-        { time: "11:00 - 11:40", subject: "Chemistry", class: "10th A" },
-        { time: "11:40 - 12:20", subject: "Free Period", class: "-" },
-        { time: "12:20 - 13:30", subject: "Mathematics", class: "8th A" },
-    ],
-    Wednesday: [
-        { time: "08:00 - 08:40", subject: "Mathematics", class: "8th B" },
-        { time: "08:40 - 09:20", subject: "Physics", class: "9th A" },
-        { time: "09:20 - 10:00", subject: "Science", class: "7th B" },
-        { time: "10:20 - 11:00", subject: "Mathematics", class: "8th A" },
-        { time: "11:00 - 11:40", subject: "Chemistry", class: "10th A" },
-        { time: "11:40 - 12:20", subject: "Free Period", class: "-" },
-        { time: "12:20 - 13:30", subject: "Mathematics", class: "8th A" },
-    ],
-    Thursday: [
-        { time: "08:00 - 08:40", subject: "Physics", class: "9th A" },
-        { time: "08:40 - 09:20", subject: "Mathematics", class: "8th A" },
-        { time: "09:20 - 10:00", subject: "Science", class: "7th B" },
-        { time: "10:20 - 11:00", subject: "Mathematics", class: "8th B" },
-        { time: "11:00 - 11:40", subject: "Chemistry", class: "10th A" },
-        { time: "11:40 - 12:20", subject: "Free Period", class: "-" },
-        { time: "12:20 - 13:30", subject: "Mathematics", class: "8th A" },
-    ],
-    Friday: [
-        { time: "08:00 - 08:40", subject: "Mathematics", class: "8th A" },
-        { time: "08:40 - 09:20", subject: "Science", class: "7th B" },
-        { time: "09:20 - 10:00", subject: "Mathematics", class: "8th B" },
-        { time: "10:20 - 11:00", subject: "Physics", class: "9th A" },
-        { time: "11:00 - 11:40", subject: "Mathematics", class: "8th A" },
-        { time: "11:40 - 12:30", subject: "Free Period", class: "-" },
-    ],
-    Saturday: [
-        { time: "08:00 - 08:40", subject: "Mathematics", class: "8th A" },
-        { time: "08:40 - 09:20", subject: "Science", class: "7th B" },
-        { time: "09:20 - 10:00", subject: "Mathematics", class: "8th B" },
-        { time: "10:20 - 11:00", subject: "Physics", class: "9th A" },
-        { time: "11:00 - 11:40", subject: "Mathematics", class: "8th A" },
-        { time: "11:40 - 12:20", subject: "Free Period", class: "-" },
-        { time: "12:20 - 13:30", subject: "Chemistry", class: "10th A" },
-    ],
-};
+const TIME_SLOTS = [
+    "08:00 - 08:45",
+    "08:45 - 09:30",
+    "09:30 - 10:15",
+    "10:15 - 11:00",
+    "11:00 - 11:30", // Break
+    "11:30 - 12:15",
+    "12:15 - 01:00",
+    "01:00 - 01:30"  // Last period
+]
 
 const TeacherTimetablePage = () => {
-    const [selectedDay, setSelectedDay] = useState<string>(weekDays[0]);
-    
+    const [selectedDay, setSelectedDay] = useState<string>(WEEK_DAYS[0]);
+    const [assignments, setAssignments] = useState<PeriodAssignment[]>([]);
+    const [teacherName, setTeacherName] = useState<string>("Loading...");
+
+    // In a real app, we would get the logged-in teacher's ID from context/auth
+    // For this demo, we'll try to find the first teacher who has assignments, or just show all for debug
+    // or better, let's just show assignments for a specific teacher ID if we knew it.
+    // Since we don't have a teacher login flow active here (we are in admin view), 
+    // we might want to show a selector OR just show assignments for "Teacher 1" as a demo.
+    // However, the user request implies this page is for the teacher to view *their* timetable.
+    // Let's assume we can get the teacher ID from localStorage if set, or just filter for *any* assignment to show *something*.
+
+    useEffect(() => {
+        const loadData = () => {
+            const saved = localStorage.getItem('school_timetable_assignments');
+            if (saved) {
+                try {
+                    const allAssignments: PeriodAssignment[] = JSON.parse(saved);
+
+                    // For demo purposes, we'll filter for the teacher who has the most assignments
+                    // or just pick the first one found in the list to simulate "Logged In Teacher"
+                    if (allAssignments.length > 0) {
+                        const firstTeacherId = allAssignments[0].teacherId;
+                        const myAssignments = allAssignments.filter(a => a.teacherId === firstTeacherId);
+                        setAssignments(myAssignments);
+                        setTeacherName(allAssignments[0].teacherName);
+                    } else {
+                        setTeacherName("No Assignments Found");
+                    }
+                } catch (e) {
+                    console.error("Failed to parse timetable assignments", e);
+                }
+            } else {
+                setTeacherName("No Data");
+            }
+        };
+        loadData();
+    }, []);
+
+    const getPeriodForSlot = (timeSlot: string) => {
+        return assignments.find(a => a.day === selectedDay && a.timeSlot === timeSlot);
+    };
+
+    const isBreakTime = (timeSlot: string) => timeSlot.includes("11:00 - 11:30");
 
     return (
         <div className="max-w-5xl mx-auto mt-12 p-8 bg-[#e7ecef] rounded-2xl shadow-2xl border-2 border-[#a3cef1]">
             <h2 className="text-[#274c77] font-extrabold text-4xl mb-2 tracking-wide">Teacher Timetable</h2>
             <div className="mb-6 text-lg text-[#8b8c89]">
-                <span className="font-bold text-[#274c77]">Name:</span> {teacherData.name}<br />
-                <span className="font-bold text-[#274c77]">Class Teacher of:</span> {teacherData.classTeacherOf}
+                <span className="font-bold text-[#274c77]">Name:</span> {teacherName}<br />
+                <span className="font-bold text-[#274c77]">Role:</span> Class Teacher
             </div>
-            <div className="flex gap-2 mb-8 border-b-2 border-[#a3cef1] justify-center">
-                {weekDays.map((day) => (
+            <div className="flex gap-2 mb-8 border-b-2 border-[#a3cef1] justify-center overflow-x-auto">
+                {WEEK_DAYS.map((day) => (
                     <button
                         key={day}
-                        className={`px-6 py-2 rounded-t-lg font-semibold transition-all duration-200 focus:outline-none 
+                        className={`px-6 py-2 rounded-t-lg font-semibold transition-all duration-200 focus:outline-none whitespace-nowrap
         ${selectedDay === day
                                 ? 'bg-[#a3cef1] text-[#274c77] border-b-4 border-[#6096ba] shadow-md'
                                 : 'bg-[#e7ecef] text-[#8b8c89] hover:bg-[#a3cef1]/60'}`}
@@ -109,13 +112,33 @@ const TeacherTimetablePage = () => {
                         </tr>
                     </thead>
                     <tbody>
-                        {periodsByDay[selectedDay].map((period, idx) => (
-                            <tr key={idx} className="hover:bg-[#a3cef1]/30 transition">
-                                <td className="border border-[#a3cef1] px-6 py-3 text-[#274c77] text-base">{period.time}</td>
-                                <td className="border border-[#a3cef1] px-6 py-3 text-[#274c77] text-base">{period.subject}</td>
-                                <td className="border border-[#a3cef1] px-6 py-3 text-[#274c77] text-base">{period.class}</td>
-                            </tr>
-                        ))}
+                        {TIME_SLOTS.map((slot, idx) => {
+                            const isBreak = isBreakTime(slot);
+                            const period = getPeriodForSlot(slot);
+
+                            if (isBreak) {
+                                return (
+                                    <tr key={idx} className="bg-gray-200">
+                                        <td className="border border-[#a3cef1] px-6 py-3 text-[#274c77] text-base font-bold">{slot}</td>
+                                        <td colSpan={2} className="border border-[#a3cef1] px-6 py-3 text-center text-gray-500 font-bold uppercase tracking-widest">
+                                            Break
+                                        </td>
+                                    </tr>
+                                );
+                            }
+
+                            return (
+                                <tr key={idx} className="hover:bg-[#a3cef1]/30 transition">
+                                    <td className="border border-[#a3cef1] px-6 py-3 text-[#274c77] text-base">{slot}</td>
+                                    <td className="border border-[#a3cef1] px-6 py-3 text-[#274c77] text-base">
+                                        {period ? period.subject : <span className="text-gray-400 italic">Free Period</span>}
+                                    </td>
+                                    <td className="border border-[#a3cef1] px-6 py-3 text-[#274c77] text-base">
+                                        {period ? `${period.grade} - ${period.section}` : "-"}
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
