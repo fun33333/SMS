@@ -8,17 +8,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Calendar, Plus, X, Save, User, Users, GraduationCap, BookOpen } from "lucide-react"
-import { getCoordinatorTeachers, findCoordinatorByEmployeeCode, getCoordinatorClasses, getSubjects, createSubject, getUserCampusId, bulkCreateClassPeriods, getClassTimetable, deleteClassPeriods } from "@/lib/api"
+import { getCoordinatorTeachers, findCoordinatorByEmployeeCode, getCoordinatorClasses, getSubjects, createSubject, getUserCampusId, bulkCreateClassPeriods, getClassTimetable, deleteClassPeriods, bulkCreateTeacherPeriods } from "@/lib/api"
 
 // --- Types ---
 
 interface Teacher {
-  id: number
-  full_name: string
-  current_subjects: string
-  current_classes_taught: string
-  email: string
-  employee_code: string
+id: number
+full_name: string
+current_subjects: string
+current_classes_taught: string
+email: string
+employee_code: string
 }
 
 interface PeriodAssignment {
@@ -71,6 +71,7 @@ export default function TimeTablePage() {
   const [classrooms, setClassrooms] = useState<any[]>([])
   const [availableGrades, setAvailableGrades] = useState<string[]>(DEFAULT_GRADES)
   const [savedClasses, setSavedClasses] = useState<any[]>([])
+  const [savedTeachers, setSavedTeachers] = useState<any[]>([])
 
   // Selections
   const [selectedGrade, setSelectedGrade] = useState<string>("")
@@ -103,10 +104,10 @@ export default function TimeTablePage() {
   }, [])
 
   useEffect(() => {
-    if (classrooms.length > 0) {
+    if (classrooms.length > 0 && teachers.length > 0) {
       fetchSavedClasses()
     }
-  }, [classrooms])
+  }, [classrooms, teachers])
 
   useEffect(() => {
     if (viewMode === 'class') {
@@ -248,18 +249,35 @@ export default function TimeTablePage() {
               const [hh, mm] = timeStr.slice(0, 5).split(':')
               let h = parseInt(hh, 10)
               if (h > 12) h -= 12
+              if (h === 0) h = 12
               return `${String(h).padStart(2, '0')}:${mm}`
             }
 
             const start = toDisplayTime(item.start_time)
             const end = toDisplayTime(item.end_time)
 
+            // Find the actual classroom to get correct grade/section
+            let itemGrade = selectedGrade
+            let itemSection = selectedSection
+
+            if (item.classroom_details) {
+              itemGrade = item.classroom_details.grade
+              itemSection = item.classroom_details.section
+            } else if (item.classroom) {
+              // Try to find classroom in our list
+              const classroom = classrooms.find(c => c.id === item.classroom)
+              if (classroom) {
+                itemGrade = classroom.grade
+                itemSection = classroom.section
+              }
+            }
+
             return {
               id: item.id.toString(),
               day: item.day.charAt(0).toUpperCase() + item.day.slice(1), // Capitalize day
               timeSlot: `${start} - ${end}`,
-              grade: item.classroom_details?.grade || selectedGrade,
-              section: item.classroom_details?.section || selectedSection,
+              grade: itemGrade,
+              section: itemSection,
               subject: subjectObj ? subjectObj.name : (item.subject_details?.name || item.subject?.toString() || ''),
               teacherId: item.teacher,
               teacherName: teacherObj ? teacherObj.full_name : (item.teacher_details?.full_name || 'Unknown')
@@ -277,10 +295,15 @@ export default function TimeTablePage() {
   const fetchSavedClasses = async () => {
     try {
       const classesWithTimetables = []
+      const teachersWithTimetables = []
+
+      // Check classrooms for class timetables
       for (const classroom of classrooms) {
         try {
           const data = await getClassTimetable({ classroom: classroom.id })
-          if (data && data.length > 0) {
+          // Only include if there are periods marked as class view
+          const classViewPeriods = data.filter((item: any) => !item.notes || item.notes === 'view:class')
+          if (classViewPeriods && classViewPeriods.length > 0) {
             classesWithTimetables.push(classroom)
           }
         } catch (err) {
@@ -288,7 +311,33 @@ export default function TimeTablePage() {
           console.log(`No timetable for ${classroom.grade} ${classroom.section}`)
         }
       }
+
+      // Check teachers for teacher timetables
+      for (const teacher of teachers) {
+        try {
+          const data = await getClassTimetable({ teacher: teacher.id })
+          console.log(`Teacher ${teacher.full_name} timetable data:`, data)
+
+          if (data && data.length > 0) {
+            // Only include if there are periods marked as teacher view
+            const teacherViewPeriods = data.filter((item: any) => item.notes === 'view:teacher')
+            console.log(`Teacher ${teacher.full_name} has ${teacherViewPeriods.length} teacher view periods`)
+
+            if (teacherViewPeriods && teacherViewPeriods.length > 0) {
+              teachersWithTimetables.push(teacher)
+            }
+          }
+        } catch (err) {
+          // Skip teachers without timetables
+          console.log(`No timetable for teacher ${teacher.full_name}`)
+        }
+      }
+
+      console.log('Classes with timetables:', classesWithTimetables.length)
+      console.log('Teachers with timetables:', teachersWithTimetables.length)
+
       setSavedClasses(classesWithTimetables)
+      setSavedTeachers(teachersWithTimetables)
     } catch (error) {
       console.error('Failed to fetch saved classes:', error)
     }
@@ -412,14 +461,21 @@ export default function TimeTablePage() {
 
       // Bulk-create on server (save all unique periods)
       try {
-        await bulkCreateClassPeriods(uniquePeriods as any)
+        if (viewMode === 'teacher') {
+          // Use Teacher Timetable API
+          await bulkCreateTeacherPeriods(uniquePeriods as any)
+        } else {
+          // Use Class Timetable API
+          await bulkCreateClassPeriods(uniquePeriods as any)
+        }
+
         // close any visible validation panel
         setValidationPanelVisible(false)
         setDuplicateGroups([])
         setValidationErrors([])
         alert('Time Table Saved Successfully!')
-        // Clear the timetable grid for next class
-        setAssignments([])
+
+        await fetchTimetable()
         fetchSavedClasses()
       } catch (apiErr: any) {
         console.error('Bulk create API failed:', apiErr)
@@ -527,12 +583,15 @@ export default function TimeTablePage() {
         section: existing.section
       })
     } else {
-      // Pre-fill based on view mode
+      const defaultGrade = viewMode === 'class' ? selectedGrade : (availableGrades[0] || '')
+      const validSections = classrooms.filter(c => c.grade === defaultGrade).map(c => c.section).sort()
+      const defaultSection = viewMode === 'class' ? selectedSection : (validSections[0] || '')
+
       setFormData({
         subject: '',
         teacherId: viewMode === 'teacher' ? selectedTeacherId : '',
-        grade: viewMode === 'class' ? selectedGrade : (availableGrades[0] || ''),
-        section: viewMode === 'class' ? selectedSection : 'A'
+        grade: defaultGrade,
+        section: defaultSection
       })
     }
     setIsDialogOpen(true)
@@ -552,7 +611,6 @@ export default function TimeTablePage() {
       return
     }
 
-    // Check for conflicts
     const teacherConflict = assignments.find(a =>
       a.day === editingSlot.day &&
       a.timeSlot === editingSlot.timeSlot &&
@@ -572,7 +630,6 @@ export default function TimeTablePage() {
 
     let newAssignments = [...assignments]
 
-    // Remove overlapping assignments
     newAssignments = newAssignments.filter(a =>
       !(a.day === editingSlot.day &&
         a.timeSlot === editingSlot.timeSlot &&
@@ -910,7 +967,10 @@ export default function TimeTablePage() {
                 <Label>Grade</Label>
                 <Select
                   value={formData.grade}
-                  onValueChange={v => setFormData({ ...formData, grade: v })}
+                  onValueChange={v => {
+                    const validSections = classrooms.filter(c => c.grade === v).map(c => c.section).sort()
+                    setFormData({ ...formData, grade: v, section: validSections[0] || '' })
+                  }}
                   disabled={viewMode === 'class'}
                 >
                   <SelectTrigger><SelectValue placeholder="Select Grade" /></SelectTrigger>
@@ -928,7 +988,14 @@ export default function TimeTablePage() {
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {SECTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    {Array.from(new Set(
+                      classrooms
+                        .filter(c => c.grade === formData.grade)
+                        .map(c => c.section)
+                    ))
+                      .sort()
+                      .map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)
+                    }
                   </SelectContent>
                 </Select>
               </div>
@@ -989,13 +1056,13 @@ export default function TimeTablePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Saved Classes Section */}
+      {/* Saved Class Timetables Section */}
       {savedClasses.length > 0 && (
         <Card className="border-[#a3cef1]">
           <CardHeader>
             <CardTitle className="text-[#274c77] flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
-              Saved Timetables
+              <GraduationCap className="h-5 w-5" />
+              Class Timetables
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1016,6 +1083,42 @@ export default function TimeTablePage() {
                     </div>
                     <div className="text-xs text-gray-500 mt-1">
                       {classroom.shift || 'Morning'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Saved Teacher Timetables Section */}
+      {savedTeachers.length > 0 && (
+        <Card className="border-[#a3cef1]">
+          <CardHeader>
+            <CardTitle className="text-[#274c77] flex items-center gap-2">
+              <User className="h-5 w-5" />
+              Teacher Timetables
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+              {savedTeachers.map((teacher) => (
+                <div
+                  key={teacher.id}
+                  onClick={() => {
+                    setViewMode('teacher')
+                    setSelectedTeacherId(teacher.id.toString())
+                  }}
+                  className="p-4 border-2 border-[#a3cef1] rounded-lg cursor-pointer hover:bg-[#f8f9fa] hover:border-[#274c77] hover:shadow-md transition-all group"
+                >
+                  <div className="flex flex-col items-center text-center">
+                    <User className="h-8 w-8 text-[#274c77] mb-2 group-hover:scale-110 transition-transform" />
+                    <div className="text-sm font-bold text-[#274c77]">
+                      {teacher.full_name}
+                    </div>
+                    <div className="text-xs text-gray-600 mt-1">
+                      {teacher.employee_code}
                     </div>
                   </div>
                 </div>

@@ -3232,8 +3232,33 @@ export async function getClassTimetable(params?: {
 }
 
 /**
- * Create a class timetable period
+ * Get teacher timetable periods (optionally filtered)
  */
+export async function getTeacherTimetable(params?: {
+  teacher?: number;
+  classroom?: number;
+  subject?: number;
+  day?: string;
+}) {
+  try {
+    const queryParams = new URLSearchParams();
+    if (params?.teacher) queryParams.append('teacher_id', params.teacher.toString());
+    if (params?.classroom) queryParams.append('classroom', params.classroom.toString());
+    if (params?.subject) queryParams.append('subject', params.subject.toString());
+    if (params?.day) queryParams.append('day', params.day);
+
+    const url = queryParams.toString()
+      ? API_ENDPOINTS.TIMETABLE_TEACHER + '?' + queryParams.toString()
+      : API_ENDPOINTS.TIMETABLE_TEACHER;
+
+    const response = await apiGet(url);
+    return Array.isArray(response) ? response : (response as any)?.results || [];
+  } catch (error) {
+    console.error('Failed to fetch teacher timetable:', error);
+    return [];
+  }
+}
+
 export async function createClassPeriod(data: {
   classroom: number;
   teacher: number;
@@ -3292,6 +3317,27 @@ export async function bulkCreateClassPeriods(periods: Array<{
     return await apiPost(API_ENDPOINTS.TIMETABLE_CLASS + 'bulk_create/', { periods });
   } catch (error) {
     console.error('Failed to bulk create class periods:', error);
+    throw error;
+  }
+}
+
+/**
+ * Bulk create teacher periods
+ */
+export async function bulkCreateTeacherPeriods(periods: Array<{
+  classroom: number;
+  teacher: number;
+  subject: number;
+  day: string;
+  start_time: string;
+  end_time: string;
+  is_break?: boolean;
+  notes?: string;
+}>) {
+  try {
+    return await apiPost(API_ENDPOINTS.TIMETABLE_TEACHER + 'bulk_create/', { periods });
+  } catch (error) {
+    console.error('Failed to bulk create teacher periods:', error);
     throw error;
   }
 }

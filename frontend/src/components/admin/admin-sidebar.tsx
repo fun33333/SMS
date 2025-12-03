@@ -231,9 +231,10 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
           href: "/admin/coordinator/teacher-list",
           subItems: [
             { title: "Teacher List", href: "/admin/coordinator/teacher-list" },
-            { title: "Result Approval", href: "/admin/coordinator/result-approval" },
             { title: "Request Management", href: "/admin/coordinator/requests" },
-            { title: "Time Table", href: "/admin/coordinator/time-table" },
+            { title: "Time Table Management", href: "/admin/coordinator/time-table" },
+            { title: "Result Approval", href: "/admin/coordinator/result-approval" },
+
           ],
         }
       ]
