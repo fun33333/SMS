@@ -1,7 +1,8 @@
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
+from users.permissions import IsPrincipal
 from django_filters.rest_framework import DjangoFilterBackend
 
 from .models import Subject, ClassTimeTable, TeacherTimeTable, ShiftTiming
@@ -18,14 +19,20 @@ from .serializers import (
 class ShiftTimingViewSet(viewsets.ModelViewSet):
     """
     ViewSet for ShiftTiming CRUD operations
+    Only Principals can add/edit/delete timings. Others (e.g., Coordinators) can only view.
     """
     queryset = ShiftTiming.objects.all()
     serializer_class = ShiftTimingSerializer
-    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['campus', 'shift']
     ordering_fields = ['order', 'start_time']
     ordering = ['order', 'start_time']
+
+    def get_permissions(self):
+        # Only allow unsafe methods (POST, PUT, PATCH, DELETE) for Principals
+        if self.request.method in SAFE_METHODS:
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsPrincipal()]
 
 
 class SubjectViewSet(viewsets.ModelViewSet):

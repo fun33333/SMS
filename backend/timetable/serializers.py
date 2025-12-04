@@ -6,7 +6,7 @@ class ShiftTimingSerializer(serializers.ModelSerializer):
         model = ShiftTiming
         fields = [
             'id', 'campus', 'shift', 'name',
-            'start_time', 'end_time', 'is_break', 'order'
+            'start_time', 'end_time', 'is_break', 'order', 'days'
         ]
 
 class SubjectSerializer(serializers.ModelSerializer):

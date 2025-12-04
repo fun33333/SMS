@@ -289,6 +289,7 @@ class ShiftTiming(models.Model):
     
     is_break = models.BooleanField(default=False, help_text="Is this a break?")
     order = models.PositiveIntegerField(default=0, help_text="Ordering for display")
+    days = models.JSONField(default=list, blank=True, null=True, help_text="Days this timing applies to (e.g., ['Monday', 'Tuesday']). Empty means all days.")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -305,4 +306,5 @@ class ShiftTiming(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.campus.campus_name} ({self.shift}) - {self.name}: {self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')}"
+        days_str = ', '.join(self.days) if self.days else 'All days'
+        return f"{self.campus.campus_name} ({self.shift}) - {self.name}: {self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')} [{days_str}]"

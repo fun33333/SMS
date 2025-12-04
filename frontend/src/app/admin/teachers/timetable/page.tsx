@@ -80,17 +80,17 @@ const TeacherTimetablePage = () => {
     const isBreakTime = (timeSlot: string) => timeSlot.includes("11:00 - 11:30");
 
     return (
-        <div className="max-w-5xl mx-auto mt-12 p-8 bg-[#e7ecef] rounded-2xl shadow-2xl border-2 border-[#a3cef1]">
-            <h2 className="text-[#274c77] font-extrabold text-4xl mb-2 tracking-wide">Teacher Timetable</h2>
-            <div className="mb-6 text-lg text-[#8b8c89]">
+        <div className="max-w-5xl mx-auto mt-6 sm:mt-12 px-2 sm:px-8 py-4 sm:py-8 bg-[#e7ecef] rounded-2xl shadow-2xl border-2 border-[#a3cef1]">
+            <h2 className="text-[#274c77] font-extrabold text-2xl sm:text-4xl mb-2 tracking-wide text-center">Teacher Timetable</h2>
+            <div className="mb-4 sm:mb-6 text-base sm:text-lg text-[#8b8c89] text-center">
                 <span className="font-bold text-[#274c77]">Name:</span> {teacherName}<br />
                 <span className="font-bold text-[#274c77]">Role:</span> Class Teacher
             </div>
-            <div className="flex gap-2 mb-8 border-b-2 border-[#a3cef1] justify-center overflow-x-auto">
+            <div className="flex gap-2 mb-6 sm:mb-8 border-b-2 border-[#a3cef1] justify-center overflow-x-auto scrollbar-thin scrollbar-thumb-[#a3cef1] scrollbar-track-[#e7ecef] pb-2">
                 {WEEK_DAYS.map((day) => (
                     <button
                         key={day}
-                        className={`px-6 py-2 rounded-t-lg font-semibold transition-all duration-200 focus:outline-none whitespace-nowrap
+                        className={`px-3 sm:px-6 py-2 rounded-t-lg font-semibold transition-all duration-200 focus:outline-none whitespace-nowrap text-xs sm:text-base
         ${selectedDay === day
                                 ? 'bg-[#a3cef1] text-[#274c77] border-b-4 border-[#6096ba] shadow-md'
                                 : 'bg-[#e7ecef] text-[#8b8c89] hover:bg-[#a3cef1]/60'}`}
@@ -101,14 +101,14 @@ const TeacherTimetablePage = () => {
                 ))}
             </div>
 
-            <h3 className="text-[#6096ba] font-bold text-2xl mb-4">{selectedDay} Periods</h3>
-            <div className="overflow-x-auto">
-                <table className="w-full rounded-xl overflow-hidden shadow-lg bg-[#e7ecef]">
+            <h3 className="text-[#6096ba] font-bold text-lg sm:text-2xl mb-2 sm:mb-4 text-center">{selectedDay} Periods</h3>
+            <div className="overflow-x-auto w-full">
+                <table className="min-w-[340px] w-full rounded-xl overflow-hidden shadow-lg bg-[#e7ecef] text-xs sm:text-base">
                     <thead>
                         <tr>
-                            <th className="bg-[#6096ba] text-[#e7ecef] px-6 py-3 border border-[#a3cef1] font-bold text-lg">Time</th>
-                            <th className="bg-[#6096ba] text-[#e7ecef] px-6 py-3 border border-[#a3cef1] font-bold text-lg">Subject</th>
-                            <th className="bg-[#6096ba] text-[#e7ecef] px-6 py-3 border border-[#a3cef1] font-bold text-lg">Class</th>
+                            <th className="bg-[#6096ba] text-[#e7ecef] px-2 sm:px-6 py-2 sm:py-3 border border-[#a3cef1] font-bold text-xs sm:text-lg">Time</th>
+                            <th className="bg-[#6096ba] text-[#e7ecef] px-2 sm:px-6 py-2 sm:py-3 border border-[#a3cef1] font-bold text-xs sm:text-lg">Subject</th>
+                            <th className="bg-[#6096ba] text-[#e7ecef] px-2 sm:px-6 py-2 sm:py-3 border border-[#a3cef1] font-bold text-xs sm:text-lg">Class</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -119,8 +119,8 @@ const TeacherTimetablePage = () => {
                             if (isBreak) {
                                 return (
                                     <tr key={idx} className="bg-gray-200">
-                                        <td className="border border-[#a3cef1] px-6 py-3 text-[#274c77] text-base font-bold">{slot}</td>
-                                        <td colSpan={2} className="border border-[#a3cef1] px-6 py-3 text-center text-gray-500 font-bold uppercase tracking-widest">
+                                        <td className="border border-[#a3cef1] px-2 sm:px-6 py-2 sm:py-3 text-[#274c77] text-xs sm:text-base font-bold">{slot}</td>
+                                        <td colSpan={2} className="border border-[#a3cef1] px-2 sm:px-6 py-2 sm:py-3 text-center text-gray-500 font-bold uppercase tracking-widest">
                                             Break
                                         </td>
                                     </tr>
@@ -129,11 +129,11 @@ const TeacherTimetablePage = () => {
 
                             return (
                                 <tr key={idx} className="hover:bg-[#a3cef1]/30 transition">
-                                    <td className="border border-[#a3cef1] px-6 py-3 text-[#274c77] text-base">{slot}</td>
-                                    <td className="border border-[#a3cef1] px-6 py-3 text-[#274c77] text-base">
+                                    <td className="border border-[#a3cef1] px-2 sm:px-6 py-2 sm:py-3 text-[#274c77] text-xs sm:text-base">{slot}</td>
+                                    <td className="border border-[#a3cef1] px-2 sm:px-6 py-2 sm:py-3 text-[#274c77] text-xs sm:text-base">
                                         {period ? period.subject : <span className="text-gray-400 italic">Free Period</span>}
                                     </td>
-                                    <td className="border border-[#a3cef1] px-6 py-3 text-[#274c77] text-base">
+                                    <td className="border border-[#a3cef1] px-2 sm:px-6 py-2 sm:py-3 text-[#274c77] text-xs sm:text-base">
                                         {period ? `${period.grade} - ${period.section}` : "-"}
                                     </td>
                                 </tr>
@@ -143,12 +143,12 @@ const TeacherTimetablePage = () => {
                 </table>
             </div>
             {selectedDay === "Friday" && (
-                <div className="mt-5 text-[#6096ba] font-bold text-base">
+                <div className="mt-3 sm:mt-5 text-[#6096ba] font-bold text-xs sm:text-base text-center">
                     Note: <span className="text-[#274c77]">Friday is a half day. School closes at 12:30pm.</span>
                 </div>
             )}
             {selectedDay !== "Friday" && (
-                <div className="mt-5 text-[#8b8c89] font-bold text-base">
+                <div className="mt-3 sm:mt-5 text-[#8b8c89] font-bold text-xs sm:text-base text-center">
                     Note: <span className="text-[#274c77]">School closes at 1:30pm.</span>
                 </div>
             )}

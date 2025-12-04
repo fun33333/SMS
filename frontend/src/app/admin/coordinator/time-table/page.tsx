@@ -4,11 +4,11 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+// Timing management dialog imports removed for coordinator (read-only)
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Calendar, Plus, X, Save, User, Users, GraduationCap, BookOpen } from "lucide-react"
-import { getCoordinatorTeachers, findCoordinatorByEmployeeCode, getCoordinatorClasses, getSubjects, createSubject, getUserCampusId, bulkCreateClassPeriods, getClassTimetable, deleteClassPeriods, bulkCreateTeacherPeriods, getShiftTimings, createShiftTiming, updateShiftTiming, deleteShiftTiming } from "@/lib/api"
+import { getCoordinatorTeachers, findCoordinatorByEmployeeCode, getCoordinatorClasses, getSubjects, createSubject, getUserCampusId, bulkCreateClassPeriods, getClassTimetable, deleteClassPeriods, bulkCreateTeacherPeriods, getShiftTimings } from "@/lib/api"
 
 // --- Types ---
 
@@ -31,16 +31,12 @@ interface PeriodAssignment {
   teacherId: number
   teacherName: string
 }
-
-// --- Constants ---
-
-// Default slots as fallback
 const DEFAULT_TIME_SLOTS = [
   "08:00 - 08:45",
   "08:45 - 09:30",
   "09:30 - 10:15",
   "10:15 - 11:00",
-  "11:00 - 11:30", // Break
+  "11:00 - 11:30",
   "11:30 - 12:15",
   "12:15 - 01:00",
   "01:00 - 01:30"
@@ -82,7 +78,7 @@ export default function TimeTablePage() {
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>("")
   const [selectedShift, setSelectedShift] = useState<string>("morning") // New: shift selector
   const [availableShifts, setAvailableShifts] = useState<string[]>(["morning"]) // New: coordinator's available shifts
-  const [isManagingTimings, setIsManagingTimings] = useState(false) // New: timing management modal
+  // Timing management state removed for coordinator (read-only)
 
   // Dialog & Editing
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -239,6 +235,13 @@ export default function TimeTablePage() {
     }
   }
 
+  // Helper function to convert 24-hour time to 12-hour format (without AM/PM)
+  const formatTime12Hour = (time24: string) => {
+    const [hours, minutes] = time24.split(':').map(Number)
+    const hours12 = hours % 12 || 12 // Convert 0 to 12 for midnight, 13-23 to 1-11
+    return `${hours12}:${minutes.toString().padStart(2, '0')}`
+  }
+
   const fetchTimeSlots = async () => {
     try {
       const campusId = getUserCampusId()
@@ -251,10 +254,10 @@ export default function TimeTablePage() {
         // Store full timing objects for break detection
         setShiftTimingsData(timings)
 
-        // Format: "HH:MM - HH:MM"
+        // Format: "HH:MM AM/PM - HH:MM AM/PM"
         const slots = timings.map((t: any) => {
-          const start = t.start_time.slice(0, 5)
-          const end = t.end_time.slice(0, 5)
+          const start = formatTime12Hour(t.start_time.slice(0, 5))
+          const end = formatTime12Hour(t.end_time.slice(0, 5))
           return `${start} - ${end}`
         })
         setTimeSlots(slots)
@@ -641,7 +644,7 @@ export default function TimeTablePage() {
     }
   }
 
-  const isBreakTime = (timeSlot: string) => {
+  const isBreakTime = (timeSlot: string, day: string) => {
     // Check if this slot is marked as break in the fetched timing data
     const timing = shiftTimingsData.find((t: any) => {
       const start = t.start_time.slice(0, 5)
@@ -649,13 +652,21 @@ export default function TimeTablePage() {
       const slot = `${start} - ${end}`
       return slot === timeSlot
     })
-    return timing ? timing.is_break : false
+
+    if (!timing || !timing.is_break) return false
+
+    // Check if this break applies to the given day
+    // If days array is empty or null, break applies to all days
+    if (!timing.days || timing.days.length === 0) return true
+
+    // Check if current day is in the days array
+    return timing.days.includes(day)
   }
 
   // --- Handlers ---
 
   const handleSlotClick = (day: string, timeSlot: string) => {
-    if (isBreakTime(timeSlot)) return
+    if (isBreakTime(timeSlot, day)) return
 
     const existing = getAssignment(day, timeSlot)
     setEditingSlot({ day, timeSlot })
@@ -790,21 +801,15 @@ export default function TimeTablePage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-4 sm:space-y-6 px-2 sm:px-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 sm:gap-4">
         <div>
           <h1 className="text-2xl font-bold text-[#274c77]">Time Table Management</h1>
           <p className="text-gray-600">Manage schedules for classes and teachers</p>
         </div>
 
         <div className="flex items-center gap-4">
-          <Button
-            onClick={() => setIsManagingTimings(true)}
-            className="bg-green-600 hover:bg-green-700 text-white gap-2"
-          >
-            <Calendar size={16} />
-            Manage Timings
-          </Button>
+          {/* Manage Timings button removed for coordinator */}
 
           <Button
             onClick={() => handleManualSave()}
@@ -979,13 +984,13 @@ export default function TimeTablePage() {
             <p className="text-gray-500 mb-6">
               Please configure shift timings for {selectedShift} shift before creating timetables.
             </p>
-            <Button
-              onClick={() => setIsManagingTimings(true)}
+            {/* Hide Configure Timings button for coordinator */}
+            {/* <Button
               className="bg-green-600 hover:bg-green-700 text-white"
             >
               <Plus size={16} className="mr-2" />
               Configure Timings
-            </Button>
+            </Button> */}
           </CardContent>
         ) : (
           <div className="overflow-x-auto">
@@ -1005,7 +1010,7 @@ export default function TimeTablePage() {
                       {slot}
                     </td>
                     {WEEK_DAYS.map(day => {
-                      const isBreak = isBreakTime(slot)
+                      const isBreak = isBreakTime(slot, day)
                       const assignment = getAssignment(day, slot)
 
                       if (isBreak) {
@@ -1052,134 +1057,9 @@ export default function TimeTablePage() {
         )}
       </Card>
 
-      {/* Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {editingSlot && `${editingSlot.day} @ ${editingSlot.timeSlot}`}
-            </DialogTitle>
-          </DialogHeader>
+      {/* Edit Dialog removed for coordinator (read-only timings) */}
 
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Subject</Label>
-              <div className="flex gap-2">
-                <Select
-                  value={formData.subject}
-                  onValueChange={v => setFormData({ ...formData, subject: v })}
-                >
-                  <SelectTrigger className="flex-1">
-                    <SelectValue placeholder="Select Subject" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {subjects.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setIsAddSubjectDialogOpen(true)}
-                  title="Add New Subject"
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Grade</Label>
-                <Select
-                  value={formData.grade}
-                  onValueChange={v => {
-                    const validSections = classrooms.filter(c => c.grade === v).map(c => c.section).sort()
-                    setFormData({ ...formData, grade: v, section: validSections[0] || '' })
-                  }}
-                  disabled={viewMode === 'class'}
-                >
-                  <SelectTrigger><SelectValue placeholder="Select Grade" /></SelectTrigger>
-                  <SelectContent>
-                    {availableGrades.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Section</Label>
-                <Select
-                  value={formData.section}
-                  onValueChange={v => setFormData({ ...formData, section: v })}
-                  disabled={viewMode === 'class'}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Array.from(new Set(
-                      classrooms
-                        .filter(c => c.grade === formData.grade)
-                        .map(c => c.section)
-                    ))
-                      .sort()
-                      .map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)
-                    }
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Teacher</Label>
-              <Select
-                value={formData.teacherId}
-                onValueChange={v => setFormData({ ...formData, teacherId: v })}
-                disabled={viewMode === 'teacher'}
-              >
-                <SelectTrigger><SelectValue placeholder="Select Teacher" /></SelectTrigger>
-                <SelectContent>
-                  {teachers.map(t => (
-                    <SelectItem key={t.id} value={t.id.toString()}>
-                      {t.full_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="flex justify-between">
-            <Button variant="destructive" onClick={handleDelete} type="button">
-              Clear Slot
-            </Button>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleSave} className="bg-[#274c77]">Save Assignment</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Subject Dialog */}
-      <Dialog open={isAddSubjectDialogOpen} onOpenChange={setIsAddSubjectDialogOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Add New Subject</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Subject Name</Label>
-              <Input
-                value={newSubjectName}
-                onChange={e => setNewSubjectName(e.target.value)}
-                placeholder="e.g. Physics"
-                autoFocus
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddSubjectDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddSubject} className="bg-[#274c77]">Add Subject</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Add Subject Dialog removed for coordinator (read-only timings) */}
 
       {/* Saved Class Timetables Section */}
       {savedClasses.length > 0 && (
@@ -1191,19 +1071,19 @@ export default function TimeTablePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 sm:gap-4">
               {savedClasses.map((classroom) => (
                 <div
                   key={classroom.id}
                   onClick={() => handleClassCardClick(classroom)}
-                  className="p-4 border-2 border-[#a3cef1] rounded-lg cursor-pointer hover:bg-[#f8f9fa] hover:border-[#274c77] hover:shadow-md transition-all group"
+                  className="p-2 sm:p-4 border-2 border-[#a3cef1] rounded-lg cursor-pointer hover:bg-[#f8f9fa] hover:border-[#274c77] hover:shadow-md transition-all group"
                 >
                   <div className="flex flex-col items-center text-center">
-                    <GraduationCap className="h-8 w-8 text-[#274c77] mb-2 group-hover:scale-110 transition-transform" />
-                    <div className="text-lg font-bold text-[#274c77]">
+                    <GraduationCap className="h-6 w-6 sm:h-8 sm:w-8 text-[#274c77] mb-1 sm:mb-2 group-hover:scale-110 transition-transform" />
+                    <div className="text-base sm:text-lg font-bold text-[#274c77]">
                       {classroom.grade}
                     </div>
-                    <div className="text-sm text-gray-600 font-medium">
+                    <div className="text-xs sm:text-sm text-gray-600 font-medium">
                       Section {classroom.section}
                     </div>
                     <div className="text-xs text-gray-500 mt-1">
@@ -1227,7 +1107,7 @@ export default function TimeTablePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 sm:gap-4">
               {savedTeachers.map((teacher) => (
                 <div
                   key={teacher.id}
@@ -1235,11 +1115,11 @@ export default function TimeTablePage() {
                     setViewMode('teacher')
                     setSelectedTeacherId(teacher.id.toString())
                   }}
-                  className="p-4 border-2 border-[#a3cef1] rounded-lg cursor-pointer hover:bg-[#f8f9fa] hover:border-[#274c77] hover:shadow-md transition-all group"
+                  className="p-2 sm:p-4 border-2 border-[#a3cef1] rounded-lg cursor-pointer hover:bg-[#f8f9fa] hover:border-[#274c77] hover:shadow-md transition-all group"
                 >
                   <div className="flex flex-col items-center text-center">
-                    <User className="h-8 w-8 text-[#274c77] mb-2 group-hover:scale-110 transition-transform" />
-                    <div className="text-sm font-bold text-[#274c77]">
+                    <User className="h-6 w-6 sm:h-8 sm:w-8 text-[#274c77] mb-1 sm:mb-2 group-hover:scale-110 transition-transform" />
+                    <div className="text-xs sm:text-sm font-bold text-[#274c77]">
                       {teacher.full_name}
                     </div>
                     <div className="text-xs text-gray-600 mt-1">
@@ -1253,148 +1133,6 @@ export default function TimeTablePage() {
         </Card>
       )}
 
-      {/* Timing Management Dialog */}
-      <Dialog open={isManagingTimings} onOpenChange={setIsManagingTimings}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Manage Shift Timings - {selectedShift.charAt(0).toUpperCase() + selectedShift.slice(1)} Shift</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {/* Current Timings List */}
-            <div>
-              <h4 className="font-semibold mb-2">Current Periods</h4>
-              {shiftTimingsData.length === 0 ? (
-                <p className="text-gray-500 text-sm">No periods configured yet.</p>
-              ) : (
-                <div className="space-y-2">
-                  {shiftTimingsData.map((timing: any, index: number) => (
-                    <div key={timing.id} className="flex items-center gap-2 p-2 border rounded">
-                      <span className="w-8 text-sm text-gray-500">#{index + 1}</span>
-                      <span className="flex-1 font-medium">{timing.name}</span>
-                      <span className="text-sm">{timing.start_time.slice(0, 5)} - {timing.end_time.slice(0, 5)}</span>
-                      {timing.is_break && <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">Break</span>}
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={async () => {
-                          if (confirm('Delete this period?')) {
-                            try {
-                              await deleteShiftTiming(timing.id)
-                              await fetchTimeSlots()
-                              alert('Period deleted!')
-                            } catch (err) {
-                              alert('Failed to delete period')
-                            }
-                          }
-                        }}
-                      >
-                        <X size={14} />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Add New Period Form */}
-            <div className="border-t pt-4">
-              <h4 className="font-semibold mb-3">Add New Period</h4>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Period Name</Label>
-                  <Input
-                    id="period-name"
-                    placeholder="e.g., Period 1, Break"
-                  />
-                </div>
-                <div>
-                  <Label>Order</Label>
-                  <Input
-                    id="period-order"
-                    type="number"
-                    placeholder="1, 2, 3..."
-                    defaultValue={shiftTimingsData.length + 1}
-                  />
-                </div>
-                <div>
-                  <Label>Start Time</Label>
-                  <Input
-                    id="period-start"
-                    type="time"
-                  />
-                </div>
-                <div>
-                  <Label>End Time</Label>
-                  <Input
-                    id="period-end"
-                    type="time"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <label className="flex items-center gap-2">
-                    <input
-                      id="period-break"
-                      type="checkbox"
-                      className="rounded"
-                    />
-                    <span className="text-sm">This is a break period</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsManagingTimings(false)}>
-              Close
-            </Button>
-            <Button
-              className="bg-green-600 hover:bg-green-700"
-              onClick={async () => {
-                const name = (document.getElementById('period-name') as HTMLInputElement)?.value
-                const order = parseInt((document.getElementById('period-order') as HTMLInputElement)?.value || '0')
-                const startTime = (document.getElementById('period-start') as HTMLInputElement)?.value
-                const endTime = (document.getElementById('period-end') as HTMLInputElement)?.value
-                const isBreak = (document.getElementById('period-break') as HTMLInputElement)?.checked
-
-                if (!name || !startTime || !endTime) {
-                  alert('Please fill all fields')
-                  return
-                }
-
-                try {
-                  const campusId = getUserCampusId()
-                  await createShiftTiming({
-                    campus: campusId,
-                    shift: selectedShift,
-                    name,
-                    start_time: startTime,
-                    end_time: endTime,
-                    is_break: isBreak,
-                    order
-                  })
-
-                    // Clear form
-                    ; (document.getElementById('period-name') as HTMLInputElement).value = ''
-                    ; (document.getElementById('period-start') as HTMLInputElement).value = ''
-                    ; (document.getElementById('period-end') as HTMLInputElement).value = ''
-                    ; (document.getElementById('period-break') as HTMLInputElement).checked = false
-
-                  await fetchTimeSlots()
-                  alert('Period added successfully!')
-                } catch (err) {
-                  console.error(err)
-                  alert('Failed to add period')
-                }
-              }}
-            >
-              <Plus size={16} className="mr-2" />
-              Add Period
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

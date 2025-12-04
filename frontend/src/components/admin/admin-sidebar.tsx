@@ -275,6 +275,13 @@ export function AdminSidebar({ sidebarOpen, setSidebarOpen }: AdminSidebarProps)
             ],
           },
           {
+            key: "shift-timings",
+            title: "Shift Timings",
+            icon: Calendar,
+            href: "/admin/principal/shift-timings",
+            subItems: [],
+          },
+          {
             key: "transfers",
             title: "Transfers",
             icon: ArrowRightLeft,
