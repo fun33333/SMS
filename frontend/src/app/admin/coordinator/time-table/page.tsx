@@ -8,17 +8,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Calendar, Plus, X, Save, User, Users, GraduationCap, BookOpen } from "lucide-react"
-import { getCoordinatorTeachers, findCoordinatorByEmployeeCode, getCoordinatorClasses, getSubjects, createSubject, getUserCampusId, bulkCreateClassPeriods, getClassTimetable, deleteClassPeriods, bulkCreateTeacherPeriods } from "@/lib/api"
+import { getCoordinatorTeachers, findCoordinatorByEmployeeCode, getCoordinatorClasses, getSubjects, createSubject, getUserCampusId, bulkCreateClassPeriods, getClassTimetable, deleteClassPeriods, bulkCreateTeacherPeriods, getShiftTimings, createShiftTiming, updateShiftTiming, deleteShiftTiming } from "@/lib/api"
 
 // --- Types ---
 
 interface Teacher {
-id: number
-full_name: string
-current_subjects: string
-current_classes_taught: string
-email: string
-employee_code: string
+  id: number
+  full_name: string
+  current_subjects: string
+  current_classes_taught: string
+  email: string
+  employee_code: string
 }
 
 interface PeriodAssignment {
@@ -34,7 +34,8 @@ interface PeriodAssignment {
 
 // --- Constants ---
 
-const TIME_SLOTS = [
+// Default slots as fallback
+const DEFAULT_TIME_SLOTS = [
   "08:00 - 08:45",
   "08:45 - 09:30",
   "09:30 - 10:15",
@@ -72,11 +73,16 @@ export default function TimeTablePage() {
   const [availableGrades, setAvailableGrades] = useState<string[]>(DEFAULT_GRADES)
   const [savedClasses, setSavedClasses] = useState<any[]>([])
   const [savedTeachers, setSavedTeachers] = useState<any[]>([])
+  const [timeSlots, setTimeSlots] = useState<string[]>(DEFAULT_TIME_SLOTS)
+  const [shiftTimingsData, setShiftTimingsData] = useState<any[]>([]) // Store full timing objects with is_break
 
   // Selections
   const [selectedGrade, setSelectedGrade] = useState<string>("")
   const [selectedSection, setSelectedSection] = useState<string>("A")
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>("")
+  const [selectedShift, setSelectedShift] = useState<string>("morning") // New: shift selector
+  const [availableShifts, setAvailableShifts] = useState<string[]>(["morning"]) // New: coordinator's available shifts
+  const [isManagingTimings, setIsManagingTimings] = useState(false) // New: timing management modal
 
   // Dialog & Editing
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -113,13 +119,24 @@ export default function TimeTablePage() {
     if (viewMode === 'class') {
       if (selectedGrade && selectedSection) {
         fetchTimetable()
+        fetchTimeSlots()
       }
     } else {
       if (selectedTeacherId) {
         fetchTimetable()
+        // For teacher view, we might need to know which shift they are in or show all?
+        // For now, let's default to morning or try to infer from their classes
+        fetchTimeSlots()
       }
     }
   }, [selectedGrade, selectedSection, selectedTeacherId, viewMode, teachers, subjects])
+
+  // Refetch timings when shift changes
+  useEffect(() => {
+    if (selectedShift) {
+      fetchTimeSlots()
+    }
+  }, [selectedShift])
 
   // --- Data Loading ---
 
@@ -185,11 +202,70 @@ export default function TimeTablePage() {
         } catch (err) {
           console.error('Failed to load subjects for campus:', err)
         }
+
+        // 3. Detect available shifts from campus
+        try {
+          const campusId = getUserCampusId()
+          if (campusId) {
+            // Fetch campus to get shift_available
+            const campusResponse = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://sms.idaraalkhair.sbs/be'}/api/campus/${campusId}/`, {
+              headers: {
+                'Authorization': `Bearer ${localStorage.getItem('sis_access_token')}`
+              }
+            })
+            if (campusResponse.ok) {
+              const campusData = await campusResponse.json()
+              const shiftAvailable = campusData.shift_available || 'morning'
+
+              if (shiftAvailable === 'both') {
+                setAvailableShifts(['morning', 'afternoon'])
+              } else if (shiftAvailable === 'afternoon') {
+                setAvailableShifts(['afternoon'])
+                setSelectedShift('afternoon')
+              } else {
+                setAvailableShifts(['morning'])
+                setSelectedShift('morning')
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Failed to load campus shifts:', err)
+        }
       }
     } catch (error) {
       console.error('Error fetching data:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchTimeSlots = async () => {
+    try {
+      const campusId = getUserCampusId()
+      if (!campusId) return
+
+      // Use the selectedShift state directly
+      const timings = await getShiftTimings(campusId, selectedShift)
+
+      if (timings && timings.length > 0) {
+        // Store full timing objects for break detection
+        setShiftTimingsData(timings)
+
+        // Format: "HH:MM - HH:MM"
+        const slots = timings.map((t: any) => {
+          const start = t.start_time.slice(0, 5)
+          const end = t.end_time.slice(0, 5)
+          return `${start} - ${end}`
+        })
+        setTimeSlots(slots)
+      } else {
+        setShiftTimingsData([])
+        setTimeSlots([]) // Empty array if no timings - will show blank sheet
+      }
+
+    } catch (error) {
+      console.error("Failed to fetch time slots", error)
+      setTimeSlots([])
     }
   }
 
@@ -243,7 +319,7 @@ export default function TimeTablePage() {
             const teacherObj = teachers.find(t => t.id === item.teacher)
             const subjectObj = subjects.find(s => s.id === item.subject)
 
-            // Helper to convert 24h string "HH:MM" to 12h string "HH:MM" for matching TIME_SLOTS
+            // Helper to convert 24h string "HH:MM" to 12h string "HH:MM" for matching timeSlots
             const toDisplayTime = (timeStr: string) => {
               if (!timeStr) return ''
               const [hh, mm] = timeStr.slice(0, 5).split(':')
@@ -565,7 +641,16 @@ export default function TimeTablePage() {
     }
   }
 
-  const isBreakTime = (timeSlot: string) => timeSlot.includes("11:00 - 11:30")
+  const isBreakTime = (timeSlot: string) => {
+    // Check if this slot is marked as break in the fetched timing data
+    const timing = shiftTimingsData.find((t: any) => {
+      const start = t.start_time.slice(0, 5)
+      const end = t.end_time.slice(0, 5)
+      const slot = `${start} - ${end}`
+      return slot === timeSlot
+    })
+    return timing ? timing.is_break : false
+  }
 
   // --- Handlers ---
 
@@ -714,6 +799,14 @@ export default function TimeTablePage() {
 
         <div className="flex items-center gap-4">
           <Button
+            onClick={() => setIsManagingTimings(true)}
+            className="bg-green-600 hover:bg-green-700 text-white gap-2"
+          >
+            <Calendar size={16} />
+            Manage Timings
+          </Button>
+
+          <Button
             onClick={() => handleManualSave()}
             className="bg-[#274c77] hover:bg-[#1a365d] text-white gap-2"
             disabled={isSaving}
@@ -840,6 +933,21 @@ export default function TimeTablePage() {
                     </SelectContent>
                   </Select>
                 </div>
+                {/* Shift Selector - only show if coordinator has both shifts */}
+                {availableShifts.length > 1 && (
+                  <div className="w-40">
+                    <Label className="text-[#274c77]">Shift</Label>
+                    <Select value={selectedShift} onValueChange={setSelectedShift}>
+                      <SelectTrigger className="bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="morning">Morning</SelectItem>
+                        <SelectItem value="afternoon">Afternoon</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </>
             ) : (
               <div className="w-64">
@@ -864,67 +972,84 @@ export default function TimeTablePage() {
 
       {/* Main Grid */}
       <Card className="border-[#a3cef1] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="bg-[#274c77] text-white">
-                <th className="p-3 border-r border-white/20 w-32 sticky left-0 bg-[#274c77] z-10">Time</th>
-                {WEEK_DAYS.map(day => (
-                  <th key={day} className="p-3 border-l border-white/20 min-w-[140px]">{day}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {TIME_SLOTS.map((slot, i) => (
-                <tr key={slot} className={i % 2 === 0 ? 'bg-white' : 'bg-[#f8f9fa]'}>
-                  <td className="p-3 border-r border-gray-200 font-medium text-sm text-gray-600 sticky left-0 bg-inherit z-10">
-                    {slot}
-                  </td>
-                  {WEEK_DAYS.map(day => {
-                    const isBreak = isBreakTime(slot)
-                    const assignment = getAssignment(day, slot)
+        {timeSlots.length === 0 ? (
+          <CardContent className="p-12 text-center">
+            <Calendar size={64} className="mx-auto text-gray-300 mb-4" />
+            <h3 className="text-xl font-semibold text-gray-700 mb-2">No Timings Configured</h3>
+            <p className="text-gray-500 mb-6">
+              Please configure shift timings for {selectedShift} shift before creating timetables.
+            </p>
+            <Button
+              onClick={() => setIsManagingTimings(true)}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              <Plus size={16} className="mr-2" />
+              Configure Timings
+            </Button>
+          </CardContent>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-[#274c77] text-white">
+                  <th className="p-3 border-r border-white/20 w-32 sticky left-0 bg-[#274c77] z-10">Time</th>
+                  {WEEK_DAYS.map(day => (
+                    <th key={day} className="p-3 border-l border-white/20 min-w-[140px]">{day}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {timeSlots.map((slot, i) => (
+                  <tr key={slot} className={i % 2 === 0 ? 'bg-white' : 'bg-[#f8f9fa]'}>
+                    <td className="p-3 border-r border-gray-200 font-medium text-sm text-gray-600 sticky left-0 bg-inherit z-10">
+                      {slot}
+                    </td>
+                    {WEEK_DAYS.map(day => {
+                      const isBreak = isBreakTime(slot)
+                      const assignment = getAssignment(day, slot)
 
-                    if (isBreak) {
+                      if (isBreak) {
+                        return (
+                          <td key={day} className="p-2 border-l border-gray-200 bg-gray-100 text-center">
+                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Break</span>
+                          </td>
+                        )
+                      }
+
                       return (
-                        <td key={day} className="p-2 border-l border-gray-200 bg-gray-100 text-center">
-                          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Break</span>
+                        <td
+                          key={day}
+                          className="p-2 border-l border-gray-200 cursor-pointer hover:bg-[#e7f1ff] transition-colors relative group"
+                          onClick={() => handleSlotClick(day, slot)}
+                        >
+                          {assignment ? (
+                            <div className="bg-[#d0e7ff] p-2 rounded border border-[#a3cef1] text-sm">
+                              <div className="font-semibold text-[#274c77]">
+                                {typeof assignment.subject === 'string' && /^\d+$/.test(assignment.subject)
+                                  ? (subjects.find(s => s.id.toString() === assignment.subject)?.name || assignment.subject)
+                                  : (subjects.find(s => s.name.toLowerCase() === assignment.subject.toString().toLowerCase())?.name || assignment.subject)
+                                }
+                              </div>
+                              {viewMode === 'class' ? (
+                                <div className="text-xs text-gray-600 truncate">{assignment.teacherName}</div>
+                              ) : (
+                                <div className="text-xs text-gray-600">{assignment.grade} - {assignment.section}</div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="h-12 flex items-center justify-center opacity-0 group-hover:opacity-100">
+                              <Plus className="text-[#a3cef1]" size={20} />
+                            </div>
+                          )}
                         </td>
                       )
-                    }
-
-                    return (
-                      <td
-                        key={day}
-                        className="p-2 border-l border-gray-200 cursor-pointer hover:bg-[#e7f1ff] transition-colors relative group"
-                        onClick={() => handleSlotClick(day, slot)}
-                      >
-                        {assignment ? (
-                          <div className="bg-[#d0e7ff] p-2 rounded border border-[#a3cef1] text-sm">
-                            <div className="font-semibold text-[#274c77]">
-                              {typeof assignment.subject === 'string' && /^\d+$/.test(assignment.subject)
-                                ? (subjects.find(s => s.id.toString() === assignment.subject)?.name || assignment.subject)
-                                : (subjects.find(s => s.name.toLowerCase() === assignment.subject.toString().toLowerCase())?.name || assignment.subject)
-                              }
-                            </div>
-                            {viewMode === 'class' ? (
-                              <div className="text-xs text-gray-600 truncate">{assignment.teacherName}</div>
-                            ) : (
-                              <div className="text-xs text-gray-600">{assignment.grade} - {assignment.section}</div>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="h-12 flex items-center justify-center opacity-0 group-hover:opacity-100">
-                            <Plus className="text-[#a3cef1]" size={20} />
-                          </div>
-                        )}
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {/* Edit Dialog */}
@@ -1127,6 +1252,149 @@ export default function TimeTablePage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Timing Management Dialog */}
+      <Dialog open={isManagingTimings} onOpenChange={setIsManagingTimings}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Manage Shift Timings - {selectedShift.charAt(0).toUpperCase() + selectedShift.slice(1)} Shift</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Current Timings List */}
+            <div>
+              <h4 className="font-semibold mb-2">Current Periods</h4>
+              {shiftTimingsData.length === 0 ? (
+                <p className="text-gray-500 text-sm">No periods configured yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {shiftTimingsData.map((timing: any, index: number) => (
+                    <div key={timing.id} className="flex items-center gap-2 p-2 border rounded">
+                      <span className="w-8 text-sm text-gray-500">#{index + 1}</span>
+                      <span className="flex-1 font-medium">{timing.name}</span>
+                      <span className="text-sm">{timing.start_time.slice(0, 5)} - {timing.end_time.slice(0, 5)}</span>
+                      {timing.is_break && <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">Break</span>}
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={async () => {
+                          if (confirm('Delete this period?')) {
+                            try {
+                              await deleteShiftTiming(timing.id)
+                              await fetchTimeSlots()
+                              alert('Period deleted!')
+                            } catch (err) {
+                              alert('Failed to delete period')
+                            }
+                          }
+                        }}
+                      >
+                        <X size={14} />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Add New Period Form */}
+            <div className="border-t pt-4">
+              <h4 className="font-semibold mb-3">Add New Period</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Period Name</Label>
+                  <Input
+                    id="period-name"
+                    placeholder="e.g., Period 1, Break"
+                  />
+                </div>
+                <div>
+                  <Label>Order</Label>
+                  <Input
+                    id="period-order"
+                    type="number"
+                    placeholder="1, 2, 3..."
+                    defaultValue={shiftTimingsData.length + 1}
+                  />
+                </div>
+                <div>
+                  <Label>Start Time</Label>
+                  <Input
+                    id="period-start"
+                    type="time"
+                  />
+                </div>
+                <div>
+                  <Label>End Time</Label>
+                  <Input
+                    id="period-end"
+                    type="time"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      id="period-break"
+                      type="checkbox"
+                      className="rounded"
+                    />
+                    <span className="text-sm">This is a break period</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsManagingTimings(false)}>
+              Close
+            </Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700"
+              onClick={async () => {
+                const name = (document.getElementById('period-name') as HTMLInputElement)?.value
+                const order = parseInt((document.getElementById('period-order') as HTMLInputElement)?.value || '0')
+                const startTime = (document.getElementById('period-start') as HTMLInputElement)?.value
+                const endTime = (document.getElementById('period-end') as HTMLInputElement)?.value
+                const isBreak = (document.getElementById('period-break') as HTMLInputElement)?.checked
+
+                if (!name || !startTime || !endTime) {
+                  alert('Please fill all fields')
+                  return
+                }
+
+                try {
+                  const campusId = getUserCampusId()
+                  await createShiftTiming({
+                    campus: campusId,
+                    shift: selectedShift,
+                    name,
+                    start_time: startTime,
+                    end_time: endTime,
+                    is_break: isBreak,
+                    order
+                  })
+
+                    // Clear form
+                    ; (document.getElementById('period-name') as HTMLInputElement).value = ''
+                    ; (document.getElementById('period-start') as HTMLInputElement).value = ''
+                    ; (document.getElementById('period-end') as HTMLInputElement).value = ''
+                    ; (document.getElementById('period-break') as HTMLInputElement).checked = false
+
+                  await fetchTimeSlots()
+                  alert('Period added successfully!')
+                } catch (err) {
+                  console.error(err)
+                  alert('Failed to add period')
+                }
+              }}
+            >
+              <Plus size={16} className="mr-2" />
+              Add Period
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

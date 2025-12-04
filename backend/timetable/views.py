@@ -4,14 +4,28 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import Subject, ClassTimeTable, TeacherTimeTable
+from .models import Subject, ClassTimeTable, TeacherTimeTable, ShiftTiming
 from .serializers import (
     SubjectSerializer,
     ClassTimeTableSerializer,
     ClassTimeTableCreateSerializer,
     TeacherTimeTableSerializer,
-    TeacherTimeTableCreateSerializer
+    TeacherTimeTableCreateSerializer,
+    ShiftTimingSerializer
 )
+
+
+class ShiftTimingViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for ShiftTiming CRUD operations
+    """
+    queryset = ShiftTiming.objects.all()
+    serializer_class = ShiftTimingSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['campus', 'shift']
+    ordering_fields = ['order', 'start_time']
+    ordering = ['order', 'start_time']
 
 
 class SubjectViewSet(viewsets.ModelViewSet):

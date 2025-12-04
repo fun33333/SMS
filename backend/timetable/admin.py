@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Subject, ClassTimeTable, TeacherTimeTable
+from .models import Subject, ClassTimeTable, TeacherTimeTable, ShiftTiming
 
 @admin.register(Subject)
 class SubjectAdmin(admin.ModelAdmin):
@@ -143,3 +143,43 @@ class TeacherTimeTableAdmin(admin.ModelAdmin):
             'classroom__grade',
             'subject'
         )
+
+
+@admin.register(ShiftTiming)
+class ShiftTimingAdmin(admin.ModelAdmin):
+    list_display = [
+        'campus',
+        'shift',
+        'name',
+        'start_time',
+        'end_time',
+        'is_break',
+        'order'
+    ]
+    list_filter = [
+        'campus',
+        'shift',
+        'is_break'
+    ]
+    search_fields = ['name', 'campus__campus_name']
+    ordering = ['campus', 'shift', 'order', 'start_time']
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('campus', 'shift', 'name')
+        }),
+        ('Time Information', {
+            'fields': ('start_time', 'end_time', 'is_break', 'order')
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    readonly_fields = ['created_at', 'updated_at']
+    
+    def get_queryset(self, request):
+        """Optimize queries"""
+        qs = super().get_queryset(request)
+        return qs.select_related('campus')

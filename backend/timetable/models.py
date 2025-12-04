@@ -264,3 +264,45 @@ class TeacherTimeTable(models.Model):
     @property
     def time_slot(self):
         return f"{self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')}"
+
+
+class ShiftTiming(models.Model):
+    """
+    Dynamic shift timings for campuses
+    """
+    SHIFT_CHOICES = [
+        ('morning', 'Morning'),
+        ('afternoon', 'Afternoon'),
+    ]
+
+    campus = models.ForeignKey(
+        'campus.Campus',
+        on_delete=models.CASCADE,
+        related_name='shift_timings',
+        help_text="Campus this timing belongs to"
+    )
+    shift = models.CharField(max_length=20, choices=SHIFT_CHOICES)
+    name = models.CharField(max_length=50, help_text="Period name (e.g., Period 1, Break)")
+    
+    start_time = models.TimeField(help_text="Start time")
+    end_time = models.TimeField(help_text="End time")
+    
+    is_break = models.BooleanField(default=False, help_text="Is this a break?")
+    order = models.PositiveIntegerField(default=0, help_text="Ordering for display")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['campus', 'shift', 'order', 'start_time']
+        verbose_name = "Shift Timing"
+        verbose_name_plural = "Shift Timings"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['campus', 'shift', 'name'],
+                name='unique_shift_period_name'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.campus.campus_name} ({self.shift}) - {self.name}: {self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')}"

@@ -55,6 +55,7 @@ const getEndpoints = () => ({
   BEHAVIOUR_MONTHLY_STUDENT: (id: number | string) => `/api/behaviour/monthly/student/${id}/`,
   BEHAVIOUR_MONTHLY_COMPUTE: `/api/behaviour/monthly/compute/`,
   // Timetable
+  TIMETABLE: `${_a}/${_tt}/`,
   TIMETABLE_SUBJECTS: `${_a}/${_tt}/${_sub}/`,
   TIMETABLE_CLASS: `${_a}/${_tt}/${_ctt}/`,
   TIMETABLE_TEACHER: `${_a}/${_tt}/${_ttt}/`,
@@ -3340,4 +3341,26 @@ export async function bulkCreateTeacherPeriods(periods: Array<{
     console.error('Failed to bulk create teacher periods:', error);
     throw error;
   }
+}
+// Shift Timing API
+export async function getShiftTimings(campusId: number, shift: string) {
+  try {
+    const data = await apiGet(`${API_ENDPOINTS.TIMETABLE}shift-timings/?campus=${campusId}&shift=${shift}`);
+    return Array.isArray(data) ? data : (data as any).results || [];
+  } catch (error) {
+    console.error('Failed to fetch shift timings:', error);
+    return [];
+  }
+}
+
+export async function createShiftTiming(data: any) {
+  return apiPost(`${API_ENDPOINTS.TIMETABLE}shift-timings/`, data);
+}
+
+export async function updateShiftTiming(id: number, data: any) {
+  return apiPut(`${API_ENDPOINTS.TIMETABLE}shift-timings/${id}/`, data);
+}
+
+export async function deleteShiftTiming(id: number) {
+  return apiDelete(`${API_ENDPOINTS.TIMETABLE}shift-timings/${id}/`);
 }

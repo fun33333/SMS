@@ -1,5 +1,13 @@
 from rest_framework import serializers
-from .models import Subject, ClassTimeTable, TeacherTimeTable
+from .models import Subject, ClassTimeTable, TeacherTimeTable, ShiftTiming
+
+class ShiftTimingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShiftTiming
+        fields = [
+            'id', 'campus', 'shift', 'name',
+            'start_time', 'end_time', 'is_break', 'order'
+        ]
 
 class SubjectSerializer(serializers.ModelSerializer):
     campus_name = serializers.CharField(source='campus.campus_name', read_only=True)
