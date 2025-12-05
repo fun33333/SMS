@@ -274,6 +274,11 @@ class ShiftTiming(models.Model):
         ('morning', 'Morning'),
         ('afternoon', 'Afternoon'),
     ]
+    
+    TIMETABLE_TYPE_CHOICES = [
+        ('class', 'Class Timetable'),
+        ('teacher', 'Teacher Timetable'),
+    ]
 
     campus = models.ForeignKey(
         'campus.Campus',
@@ -282,6 +287,12 @@ class ShiftTiming(models.Model):
         help_text="Campus this timing belongs to"
     )
     shift = models.CharField(max_length=20, choices=SHIFT_CHOICES)
+    timetable_type = models.CharField(
+        max_length=20, 
+        choices=TIMETABLE_TYPE_CHOICES, 
+        default='class',
+        help_text="Type of timetable (class or teacher)"
+    )
     name = models.CharField(max_length=50, help_text="Period name (e.g., Period 1, Break)")
     
     start_time = models.TimeField(help_text="Start time")
@@ -295,16 +306,18 @@ class ShiftTiming(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['campus', 'shift', 'order', 'start_time']
+        ordering = ['campus', 'shift', 'timetable_type', 'order', 'start_time']
         verbose_name = "Shift Timing"
         verbose_name_plural = "Shift Timings"
         constraints = [
             models.UniqueConstraint(
-                fields=['campus', 'shift', 'name'],
+                fields=['campus', 'shift', 'timetable_type', 'name'],
                 name='unique_shift_period_name'
             )
         ]
 
     def __str__(self):
         days_str = ', '.join(self.days) if self.days else 'All days'
-        return f"{self.campus.campus_name} ({self.shift}) - {self.name}: {self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')} [{days_str}]"
+        timetable_label = dict(self.TIMETABLE_TYPE_CHOICES).get(self.timetable_type, self.timetable_type)
+        return f"{self.campus.campus_name} ({self.shift} - {timetable_label}) - {self.name}: {self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')} [{days_str}]"
+

@@ -3278,9 +3278,6 @@ export async function createClassPeriod(data: {
   }
 }
 
-/**
- * Delete class periods by filter
- */
 export async function deleteClassPeriods(params: {
   classroom?: number;
   teacher?: number;
@@ -3301,9 +3298,6 @@ export async function deleteClassPeriods(params: {
   }
 }
 
-/**
- * Bulk create class periods
- */
 export async function bulkCreateClassPeriods(periods: Array<{
   classroom: number;
   teacher: number;
@@ -3322,9 +3316,7 @@ export async function bulkCreateClassPeriods(periods: Array<{
   }
 }
 
-/**
- * Bulk create teacher periods
- */
+
 export async function bulkCreateTeacherPeriods(periods: Array<{
   classroom: number;
   teacher: number;
@@ -3364,3 +3356,30 @@ export async function updateShiftTiming(id: number, data: any) {
 export async function deleteShiftTiming(id: number) {
   return apiDelete(`${API_ENDPOINTS.TIMETABLE}shift-timings/${id}/`);
 }
+
+export async function createClassTimetable(data: any) {
+  return apiPost(`${API_ENDPOINTS.TIMETABLE}class-timetable/`, data);
+}
+
+export async function updateClassTimetable(id: number, data: any) {
+  return apiPut(`${API_ENDPOINTS.TIMETABLE}class-timetable/${id}/`, data);
+}
+
+export async function deleteClassTimetable(id: number) {
+  return apiDelete(`${API_ENDPOINTS.TIMETABLE}class-timetable/${id}/`);
+}
+
+
+export async function createTeacherTimetable(data: any) {
+  return apiPost(`${API_ENDPOINTS.TIMETABLE}teacher-timetable/`, data);
+}
+
+export async function updateTeacherTimetable(id: number, data: any) {
+  return apiPut(`${API_ENDPOINTS.TIMETABLE}teacher-timetable/${id}/`, data);
+}
+
+export async function deleteTeacherTimetable(id: number) {
+  return apiDelete(`${API_ENDPOINTS.TIMETABLE}teacher-timetable/${id}/`);
+}
+
+

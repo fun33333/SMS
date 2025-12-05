@@ -5,7 +5,7 @@ class ShiftTimingSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShiftTiming
         fields = [
-            'id', 'campus', 'shift', 'name',
+            'id', 'campus', 'shift', 'timetable_type', 'name',
             'start_time', 'end_time', 'is_break', 'order', 'days'
         ]
 
