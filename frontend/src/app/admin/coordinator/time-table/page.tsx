@@ -528,42 +528,7 @@ import { Trash2 } from "lucide-react";
           <div className="overflow-x-auto">
             <table className="w-full border-collapse min-w-[640px]">
               <thead>
-                {/* Save buttons row (only for teacher timetable) */}
-                {timetableType === 'teacher' && (
-                  <tr>
-                    <th></th>
-                    {WEEK_DAYS.map((day) => (
-                      <th key={day} className="p-1 text-center">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs px-2 py-1"
-                          onClick={async () => {
-                            // Gather all assignments for this day for the selected teacher
-                            const periods = timetableData.filter(
-                              (p: any) =>
-                                (p.day?.toLowerCase?.() === day.toLowerCase()) &&
-                                (p.teacher?.toString() === selectedTeacherId) &&
-                                !p.id // Only new/unsaved periods
-                            );
-                            if (periods.length === 0) {
-                              alert(`No new assignments to save for ${day}`);
-                              return;
-                            }
-                            try {
-                              await bulkCreateTeacherPeriods(periods);
-                              alert(`${day} saved!`);
-                            } catch (e: any) {
-                              alert(`Failed to save ${day}: ${e && e.message ? e.message : e}`);
-                            }
-                          }}
-                        >
-                          Save
-                        </Button>
-                      </th>
-                    ))}
-                  </tr>
-                )}
+                {/* No Save buttons for teacher timetable in coordinator view */}
                 <tr className="bg-gradient-to-r from-slate-700 to-slate-800 text-white">
                   <th className="p-2 sm:p-4 text-left text-xs sm:text-sm font-semibold border-r border-slate-600 sticky left-0 bg-slate-700 z-10 min-w-[100px] sm:min-w-[120px]">
                     Time / Day
