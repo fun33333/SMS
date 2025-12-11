@@ -136,7 +136,7 @@ events/      (publish/consume, schema contracts)
 - Escalate & resolve with SLA tracking.
 
 **Data Model Highlights**
-- `Request`: id, type, priority, requester_id, assigned_to, status, sla_due_at, context (course/campus), created_at, updated_at.
+- `Request`: id, type, priority, requestor_id, assigned_to, status, sla_due_at, context (course/campus), created_at, updated_at.
 - `RequestHistory`: request_id, actor_id, action, metadata, created_at.
 - `Attachment`: request_id, file_url, uploaded_by.
 
