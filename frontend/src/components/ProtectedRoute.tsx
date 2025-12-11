@@ -5,16 +5,16 @@ import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 
 const DEVELOPMENT_PHASE_ROUTES: Record<string, string> = {
-  // '/admin/coordinator/time-table': 'Time Table Management',
+  '/admin/coordinator/time-table': 'Time Table Management',
   '/admin/teachers/result': 'Teacher Results',
-  // '/admin/teachers/request': 'Teacher Requests',
-  // '/admin/teachers/timetable': 'Teacher Timetable',
+  '/admin/teachers/request': 'Teacher Requests',
+  '/admin/teachers/timetable': 'Teacher Timetable',
   // '/admin/students/leaving-certificate': 'Leaving Certificate',
   // '/admin/students/termination-certificate': 'Termination Certificate',
   '/admin/coordinator/result-approval': 'Result Approval',
-  // '/admin/principals/transfers': 'Transfer Management',
-  // '/admin/principals/transfers/create': 'Create Transfer',
-  // '/admin/coordinator/requests' : 'Requests Management',
+  '/admin/principals/transfers': 'Transfer Management',
+  '/admin/principals/transfers/create': 'Create Transfer',
+  '/admin/coordinator/requests' : 'Requests Management',
 
 };
 
