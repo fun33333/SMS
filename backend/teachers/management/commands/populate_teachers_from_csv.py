@@ -154,15 +154,14 @@ class Command(BaseCommand):
         if not cnic:
             raise ValueError('CNIC is required')
 
-        # Parse email
-        email = data.get('Email address:', '').strip()
+        # Parse email - try multiple column names (EMAIL IS REQUIRED)
+        email = data.get('Email Address:', '').strip()
+        if not email:
+            email = data.get('Email address:', '').strip()
         if not email:
             email = data.get("Teacher's Own email Address", '').strip()
         if not email:
-            email = data.get('Email Address:', '').strip()
-        if not email:
-            # Generate a temporary email if none provided
-            email = f"{full_name.lower().replace(' ', '.')}@temp.com"
+            raise ValueError('Email is required for teacher registration')
 
         # Parse education level
         education_level = self.clean_text(data.get('Last Education:', '').strip())
@@ -201,7 +200,10 @@ class Command(BaseCommand):
         is_class_teacher_str = data.get('If class teacher', '').strip().lower()
         is_class_teacher = is_class_teacher_str in ['yes', 'y', '1', 'true']
         
-        class_teacher_grade = self.clean_text(data.get('Class teacher grade:', '').strip())
+        # Try multiple column names for class teacher grade
+        class_teacher_grade = self.clean_text(data.get('Class teacher of class', '').strip())
+        if not class_teacher_grade:
+            class_teacher_grade = self.clean_text(data.get('Class teacher grade:', '').strip())
         class_teacher_section = self.clean_text(data.get('Section', '').strip())
 
         # Parse emergency contact
@@ -261,8 +263,9 @@ class Command(BaseCommand):
     def assign_classroom_to_teacher(self, teacher, campus, grade_name, section, shift):
         """Assign classroom to teacher based on grade, section, and shift"""
         try:
-            # Map grade names to Roman numerals
+            # Map grade names to Roman numerals - handle various input formats
             grade_mapping = {
+                # Arabic numerals
                 'Grade 1': 'Grade I',
                 'Grade 2': 'Grade II', 
                 'Grade 3': 'Grade III',
@@ -273,10 +276,28 @@ class Command(BaseCommand):
                 'Grade 8': 'Grade VIII',
                 'Grade 9': 'Grade IX',
                 'Grade 10': 'Grade X',
+                # Class X format (alternative naming)
+                'Class 1': 'Grade I',
+                'Class 2': 'Grade II',
+                'Class 3': 'Grade III',
+                'Class 4': 'Grade IV',
+                'Class 5': 'Grade V',
+                'Class 6': 'Grade VI',
+                'Class 7': 'Grade VII',
+                'Class 8': 'Grade VIII',
+                'Class 9': 'Grade IX',
+                'Class 10': 'Grade X',
+                # KG variations
                 'KG-1': 'KG-I',
                 'KG-2': 'KG-II',
                 'KG1': 'KG-I',
                 'KG2': 'KG-II',
+                'KG-I': 'KG-I',
+                'KG-II': 'KG-II',
+                'KG-I ': 'KG-I',  # with trailing space
+                'KG-II ': 'KG-II',  # with trailing space
+                # Nursery
+                'Nursery': 'Nursery',
             }
             
             # Convert grade name to Roman numeral format

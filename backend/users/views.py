@@ -11,6 +11,7 @@ from .serializers import UserSerializer, UserRegistrationSerializer, UserLoginSe
 from .permissions import IsSuperAdmin, IsPrincipal, IsCoordinator, IsTeacher
 from .validators import validate_password_strength
 from services.email_notification_service import EmailNotificationService
+from notifications.services import create_notification
 import secrets
 
 @api_view(['GET'])
@@ -635,6 +636,58 @@ def change_password_with_otp(request):
         # Invalidate all existing OTPs for this user
         PasswordChangeOTP.objects.filter(user=user).update(is_used=True)
         
+        # Send notification to user about password change
+        try:
+            create_notification(
+                recipient=user,
+                actor=user,
+                verb='password_changed',
+                target_text='Your password has been changed successfully',
+                data={'type': 'password_change', 'message': 'Your password was changed successfully. Please login with your new password.'}
+            )
+        except Exception as e:
+            print(f"Error creating password change notification: {str(e)}")
+        
+        # If user is a teacher, notify their coordinators
+        if user.is_teacher():
+            try:
+                # Get teacher profile using OneToOne relationship
+                teacher = getattr(user, 'teacher_profile', None)
+                
+                if teacher and teacher.is_currently_active:
+                    # Get all coordinators assigned to this teacher
+                    coordinators = teacher.assigned_coordinators.filter(is_currently_active=True)
+                    
+                    # Get teacher name
+                    teacher_name = teacher.full_name or user.get_full_name() or user.username
+                    
+                    for coordinator in coordinators:
+                        # Find coordinator's user account
+                        coordinator_user = None
+                        try:
+                            coordinator_user = User.objects.get(email=coordinator.email)
+                        except User.DoesNotExist:
+                            try:
+                                coordinator_user = User.objects.get(username=coordinator.employee_code)
+                            except User.DoesNotExist:
+                                pass
+                        
+                        if coordinator_user:
+                            create_notification(
+                                recipient=coordinator_user,
+                                actor=user,
+                                verb='teacher_password_changed',
+                                target_text=f'{teacher_name} has changed their password',
+                                data={
+                                    'type': 'teacher_password_change',
+                                    'teacher_name': teacher_name,
+                                    'teacher_id': teacher.id,
+                                    'message': f'{teacher_name} has changed their password'
+                                }
+                            )
+            except Exception as e:
+                print(f"Error notifying coordinators about teacher password change: {str(e)}")
+        
         return Response({
             'message': 'Password changed successfully. Please login again.'
         }, status=status.HTTP_200_OK)
@@ -649,16 +702,17 @@ def change_password_with_otp(request):
 @permission_classes([AllowAny])
 def send_forgot_password_otp(request):
     """
-    Send OTP for forgot password - uses employee code
+    Send OTP for forgot password - uses email only
     """
     try:
-        employee_code = request.data.get('employee_code')
-        if not employee_code:
-            return Response({'error': 'Employee code is required'}, status=status.HTTP_400_BAD_REQUEST)
+        email = request.data.get('email')
+        
+        if not email:
+            return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            # Find user by username (employee_code)
-            user = User.objects.get(username=employee_code)
+            # Find user by email
+            user = User.objects.get(email__iexact=email.strip())
             
             # Create new OTP (invalidate any existing ones)
             PasswordChangeOTP.objects.filter(user=user, is_used=False).update(is_used=True)
@@ -678,7 +732,9 @@ def send_forgot_password_otp(request):
                 return Response({'error': message}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
                 
         except User.DoesNotExist:
-            return Response({'error': 'Employee code not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({
+                'error': 'Email not found. Please verify your email address.'
+            }, status=status.HTTP_404_NOT_FOUND)
             
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -688,20 +744,20 @@ def send_forgot_password_otp(request):
 @permission_classes([AllowAny])
 def verify_forgot_password_otp(request):
     """
-    Verify OTP for forgot password
+    Verify OTP for forgot password - uses email
     """
     try:
-        employee_code = request.data.get('employee_code')
+        email = request.data.get('email')
         otp_code = request.data.get('otp_code')
         
-        if not employee_code or not otp_code:
+        if not email or not otp_code:
             return Response({
-                'error': 'Employee code and OTP code are required'
+                'error': 'Email and OTP code are required'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            # Find user by username (employee_code)
-            user = User.objects.get(username=employee_code)
+            # Find user by email
+            user = User.objects.get(email__iexact=email.strip())
             
             # Find valid OTP
             otp_obj = PasswordChangeOTP.objects.filter(
@@ -738,7 +794,7 @@ def verify_forgot_password_otp(request):
                 }, status=status.HTTP_400_BAD_REQUEST)
                 
         except User.DoesNotExist:
-            return Response({'error': 'Employee code not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'error': 'Email not found'}, status=status.HTTP_404_NOT_FOUND)
             
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -799,6 +855,58 @@ def reset_password_with_otp(request):
         
         # Invalidate all existing OTPs for this user
         PasswordChangeOTP.objects.filter(user=user).update(is_used=True)
+        
+        # Send notification to user about password reset
+        try:
+            create_notification(
+                recipient=user,
+                actor=user,
+                verb='password_reset',
+                target_text='Your password has been reset successfully',
+                data={'type': 'password_reset', 'message': 'Your password was reset successfully. Please login with your new password.'}
+            )
+        except Exception as e:
+            print(f"Error creating password reset notification: {str(e)}")
+        
+        # If user is a teacher, notify their coordinators
+        if user.is_teacher():
+            try:
+                # Get teacher profile using OneToOne relationship
+                teacher = getattr(user, 'teacher_profile', None)
+                
+                if teacher and teacher.is_currently_active:
+                    # Get all coordinators assigned to this teacher
+                    coordinators = teacher.assigned_coordinators.filter(is_currently_active=True)
+                    
+                    # Get teacher name
+                    teacher_name = teacher.full_name or user.get_full_name() or user.username
+                    
+                    for coordinator in coordinators:
+                        # Find coordinator's user account
+                        coordinator_user = None
+                        try:
+                            coordinator_user = User.objects.get(email=coordinator.email)
+                        except User.DoesNotExist:
+                            try:
+                                coordinator_user = User.objects.get(username=coordinator.employee_code)
+                            except User.DoesNotExist:
+                                pass
+                        
+                        if coordinator_user:
+                            create_notification(
+                                recipient=coordinator_user,
+                                actor=user,
+                                verb='teacher_password_changed',
+                                target_text=f'{teacher_name} has changed their password',
+                                data={
+                                    'type': 'teacher_password_change',
+                                    'teacher_name': teacher_name,
+                                    'teacher_id': teacher.id,
+                                    'message': f'{teacher_name} has changed their password'
+                                }
+                            )
+            except Exception as e:
+                print(f"Error notifying coordinators about teacher password change: {str(e)}")
         
         return Response({
             'message': 'Password reset successfully. Please login with your new password.'

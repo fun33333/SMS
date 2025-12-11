@@ -7,6 +7,7 @@ from .models import (
     ShiftTransfer,
     TransferApproval,
     GradeSkipTransfer,
+    CampusTransfer,
 )
 
 
@@ -134,4 +135,43 @@ class GradeSkipTransferAdmin(admin.ModelAdmin):
         "from_grade_coordinator",
         "to_grade_coordinator",
         "principal",
+    )
+
+
+@admin.register(CampusTransfer)
+class CampusTransferAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "student",
+        "from_campus",
+        "to_campus",
+        "from_shift",
+        "to_shift",
+        "skip_grade",
+        "status",
+        "requested_date",
+        "initiated_by_teacher",
+    )
+    list_filter = (
+        "status",
+        "skip_grade",
+        "from_shift",
+        "to_shift",
+        "from_campus",
+        "to_campus",
+        "requested_date",
+    )
+    search_fields = (
+        "student__name",
+        "student__student_id",
+        "from_campus__campus_name",
+        "to_campus__campus_name",
+    )
+    autocomplete_fields = (
+        "student",
+        "initiated_by_teacher",
+    )
+    readonly_fields = (
+        "created_at",
+        "updated_at",
     )

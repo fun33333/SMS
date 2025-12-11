@@ -2,7 +2,7 @@ import { CacheManager } from './cache';
 
 export function getApiBaseUrl(): string {
   // Prefer envs; provide sensible fallbacks per environment
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL  || 'https://sms.idaraalkhair.sbs/be';
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || 'https://sms.idaraalkhair.sbs/be';
   return baseUrl;
 }
 
@@ -16,6 +16,7 @@ const _mt = 'mother_tongue_distribution', _rd = 'religion_distribution';
 const _ad = 'age_distribution', _zs = 'zakat_status', _ho = 'house_ownership';
 const _lo = 'login', _rf = 'refresh', _ch = 'choices', _sec = 'sections';
 const _av = 'available', _id = '{id}';
+const _tt = 'timetable', _sub = 'subjects', _ctt = 'class-timetable', _ttt = 'teacher-timetable';
 
 const getEndpoints = () => ({
   STUDENTS: `${_a}/${_s}/`,
@@ -53,6 +54,11 @@ const getEndpoints = () => ({
   BEHAVIOUR_STUDENT: (id: number | string) => `/api/behaviour/student/${id}/`,
   BEHAVIOUR_MONTHLY_STUDENT: (id: number | string) => `/api/behaviour/monthly/student/${id}/`,
   BEHAVIOUR_MONTHLY_COMPUTE: `/api/behaviour/monthly/compute/`,
+  // Timetable
+  TIMETABLE: `${_a}/${_tt}/`,
+  TIMETABLE_SUBJECTS: `${_a}/${_tt}/${_sub}/`,
+  TIMETABLE_CLASS: `${_a}/${_tt}/${_ctt}/`,
+  TIMETABLE_TEACHER: `${_a}/${_tt}/${_ttt}/`,
 });
 
 export const API_ENDPOINTS = getEndpoints() as ReturnType<typeof getEndpoints>;
@@ -74,11 +80,11 @@ export class ApiError extends Error {
 // Generic API error handler
 function handleApiError(response: Response, errorText: string): never {
   let errorMessage = `API Error (${response.status}): ${response.statusText}`;
-  
+
   // Try to parse JSON error response for specific error message
   try {
     const errorData = JSON.parse(errorText);
-    
+
     // Handle different error response formats
     if (errorData.error) {
       // Simple error field
@@ -88,7 +94,7 @@ function handleApiError(response: Response, errorText: string): never {
       errorMessage = errorData.detail;
     } else if (errorData.non_field_errors) {
       // Handle non_field_errors (DRF specific)
-      const messages = Array.isArray(errorData.non_field_errors) 
+      const messages = Array.isArray(errorData.non_field_errors)
         ? errorData.non_field_errors.join(', ')
         : String(errorData.non_field_errors);
       errorMessage = messages;
@@ -106,7 +112,7 @@ function handleApiError(response: Response, errorText: string): never {
       errorMessage = errorText;
     }
   }
-  
+
   // Don't log here - let the calling component decide how to handle it
   throw new ApiError(errorMessage, response.status, response.statusText, errorText);
 }
@@ -127,11 +133,11 @@ function getRefreshToken(): string | null {
 
 export function setAuthTokens(access: string, refresh?: string) {
   if (typeof window === 'undefined') return;
-  
+
   // Store in localStorage
   window.localStorage.setItem(ACCESS_TOKEN_KEY, access);
   if (refresh) window.localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
-  
+
   // Also store in cookies for middleware access
   document.cookie = `sis_access_token=${access}; path=/; max-age=${15 * 60}`; // 15 minutes
   if (refresh) {
@@ -143,7 +149,7 @@ export function clearAuthTokens() {
   if (typeof window === 'undefined') return;
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
   window.localStorage.removeItem(REFRESH_TOKEN_KEY);
-  
+
   // Also clear cookies
   document.cookie = 'sis_access_token=; path=/; max-age=0';
   document.cookie = 'sis_refresh_token=; path=/; max-age=0';
@@ -162,7 +168,7 @@ export async function authorizedFetch(path: string, init: RequestInit = {}, alre
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
-  
+
   const res = await fetch(url, { ...init, headers, credentials: 'omit' });
 
   if (res.status !== 401) return res;
@@ -229,7 +235,7 @@ export function logoutClientOnly() {
   if (typeof window !== 'undefined') {
     // Clear all localStorage completely for security
     window.localStorage.clear();
-    
+
     // Also clear all cookies
     document.cookie = 'sis_access_token=; path=/; max-age=0';
     document.cookie = 'sis_refresh_token=; path=/; max-age=0';
@@ -276,6 +282,9 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
     });
     if (!res.ok) {
       const text = await res.text();
+      // Log server error body to help debugging validation errors (e.g., serializer.errors)
+      // Caller may still handle the thrown ApiError.
+      console.error(`[apiPost] POST ${path} failed ${res.status} ${res.statusText}:`, text);
       handleApiError(res, text);
     }
     return (await res.json()) as T;
@@ -290,17 +299,17 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 export async function apiGet<T>(path: string): Promise<T> {
   try {
     const fullUrl = `${getApiBaseUrl()}${path}`;
-    
+
     const res = await authorizedFetch(path, {
       method: "GET",
       headers: { "Accept": "application/json" },
     });
-    
+
     if (!res.ok) {
       const text = await res.text();
       handleApiError(res, text);
     }
-    
+
     const data = await res.json();
     return data as T;
   } catch (error) {
@@ -410,12 +419,12 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     };
   } catch (error) {
     console.error('Failed to fetch dashboard stats:', error);
-    
+
     // Show user-friendly error message
     if (error instanceof ApiError) {
       console.error(`API Error: ${error.status} - ${error.message}`);
     }
-    
+
     // Return fallback data
     return {
       totalStudents: 0,
@@ -563,7 +572,7 @@ export async function getDashboardChartData(params?: {
     };
   } catch (error) {
     console.error('Failed to fetch dashboard chart data:', error);
-    
+
     // Return empty data on error
     return {
       gradeDistribution: [],
@@ -583,13 +592,13 @@ export async function getDashboardChartData(params?: {
 export async function getDashboardStudents(pageSize: number = 50) {
   try {
     const data = await apiGet(`${API_ENDPOINTS.STUDENTS}?page=1&page_size=${pageSize}`);
-    
+
     if (Array.isArray(data)) {
       return data;
     } else if (data && Array.isArray((data as any).results)) {
       return (data as any).results;
     }
-    
+
     return [];
   } catch (error) {
     console.error('Error fetching dashboard students:', error);
@@ -611,14 +620,14 @@ export async function getAllStudents(forceRefresh: boolean = false, shift?: stri
     let allStudents: any[] = [];
     let page = 1;
     let hasNext = true;
-    
+
     while (hasNext) {
       let url = `${API_ENDPOINTS.STUDENTS}?page=${page}&page_size=1000`;
       if (shift) {
         url += `&shift=${encodeURIComponent(shift)}`;
       }
       const data = await apiGet(url);
-      
+
       if (Array.isArray(data)) {
         allStudents = [...allStudents, ...data];
         hasNext = false; // If no pagination, stop
@@ -630,10 +639,10 @@ export async function getAllStudents(forceRefresh: boolean = false, shift?: stri
         hasNext = false;
       }
     }
-    
+
     // Disable caching of huge arrays to prevent quota issues
     // CacheManager.set(CacheManager.KEYS.STUDENTS, allStudents, 10 * 60 * 1000);
-    
+
     return allStudents;
   } catch (error) {
     console.error('Failed to fetch students:', error);
@@ -646,13 +655,13 @@ export async function getTeacherStudents() {
     // Don't use cache for teacher-specific students
     // Backend will filter students based on teacher's assigned classroom
     const data = await apiGet(`${API_ENDPOINTS.STUDENTS}?page=1&page_size=1000`);
-    
+
     if (Array.isArray(data)) {
       return data;
     } else if (data && Array.isArray((data as any).results)) {
       return (data as any).results;
     }
-    
+
     return [];
   } catch (error) {
     console.error('Failed to fetch teacher students:', error);
@@ -680,14 +689,14 @@ export async function getFilteredStudents(params: {
 }> {
   try {
     const queryParams = new URLSearchParams();
-    
+
     // Add pagination params
     if (params.page) queryParams.append('page', params.page.toString());
     if (params.page_size) queryParams.append('page_size', params.page_size.toString());
-    
+
     // Add search param
     if (params.search) queryParams.append('search', params.search);
-    
+
     // Add filter params
     if (params.campus) queryParams.append('campus', params.campus.toString());
     if (params.current_grade) queryParams.append('current_grade', params.current_grade);
@@ -696,10 +705,10 @@ export async function getFilteredStudents(params: {
     if (params.gender) queryParams.append('gender', params.gender);
     if (params.shift) queryParams.append('shift', params.shift);
     if (params.classroom) queryParams.append('classroom', params.classroom.toString());
-    
+
     // Add ordering param
     if (params.ordering) queryParams.append('ordering', params.ordering);
-    
+
     const response = await apiGet(`${API_ENDPOINTS.STUDENTS}?${queryParams.toString()}`);
     return response as {
       count: number;
@@ -727,7 +736,7 @@ export async function getAllCampuses() {
     }
 
     const data = await apiGet(API_ENDPOINTS.CAMPUS);
-    
+
     // Handle different response formats
     let campuses = [];
     if (Array.isArray(data)) {
@@ -739,12 +748,12 @@ export async function getAllCampuses() {
     } else {
       campuses = [];
     }
-    
+
     // Only cache if we got valid data
     if (campuses.length > 0) {
       CacheManager.set(CacheManager.KEYS.CAMPUSES, campuses, 30 * 60 * 1000);
     }
-    
+
     return campuses;
   } catch (error) {
     console.error('Failed to fetch campuses:', error);
@@ -767,14 +776,14 @@ export async function getAllTeachers(shift?: string) {
     let allTeachers: any[] = [];
     let page = 1;
     let hasNext = true;
-    
+
     while (hasNext) {
       let url = `${API_ENDPOINTS.TEACHERS}?page=${page}&page_size=1000`;
       if (shift) {
         url += `&shift=${encodeURIComponent(shift)}`;
       }
       const data = await apiGet(url);
-      
+
       if (Array.isArray(data)) {
         allTeachers = [...allTeachers, ...data];
         hasNext = false; // If no pagination, stop
@@ -786,10 +795,10 @@ export async function getAllTeachers(shift?: string) {
         hasNext = false;
       }
     }
-    
+
     // Disable caching of huge arrays to prevent quota issues
     // CacheManager.set(CacheManager.KEYS.TEACHERS, allTeachers, 10 * 60 * 1000);
-    
+
     return allTeachers;
   } catch (error) {
     console.error('Failed to fetch teachers:', error);
@@ -816,14 +825,14 @@ export async function getFilteredTeachers(params: {
 }> {
   try {
     const queryParams = new URLSearchParams();
-    
+
     // Add pagination params
     if (params.page) queryParams.append('page', params.page.toString());
     if (params.page_size) queryParams.append('page_size', params.page_size.toString());
-    
+
     // Add search param
     if (params.search) queryParams.append('search', params.search);
-    
+
     // Add filter params
     if (params.current_campus) queryParams.append('current_campus', params.current_campus.toString());
     if (params.shift) queryParams.append('shift', params.shift);
@@ -831,10 +840,10 @@ export async function getFilteredTeachers(params: {
     if (params.assigned_coordinator) queryParams.append('assigned_coordinator', params.assigned_coordinator.toString());
     if (params.is_class_teacher !== undefined) queryParams.append('is_class_teacher', params.is_class_teacher.toString());
     if (params.current_subjects) queryParams.append('current_subjects', params.current_subjects);
-    
+
     // Add ordering param
     if (params.ordering) queryParams.append('ordering', params.ordering);
-    
+
     const response = await apiGet(`${API_ENDPOINTS.TEACHERS}?${queryParams.toString()}`);
     return response as {
       count: number;
@@ -857,10 +866,10 @@ export async function getTeacherById(teacherId: string | number) {
     }
 
     const teacher = await apiGet(`${API_ENDPOINTS.TEACHERS}${teacherId}/`);
-    
+
     // Cache the teacher profile for 15 minutes
     CacheManager.set(CacheManager.KEYS.TEACHER_PROFILE(Number(teacherId)), teacher, 15 * 60 * 1000);
-    
+
     return teacher;
   } catch (error) {
     console.error('Failed to fetch teacher by ID:', error);
@@ -879,10 +888,10 @@ export async function getStudentById(studentId: string | number) {
 
     const url = `${API_ENDPOINTS.STUDENTS}${studentId}/`;
     const student = await apiGet(url);
-    
+
     // Cache the student profile for 15 minutes
     CacheManager.set(CacheManager.KEYS.STUDENT_PROFILE(Number(studentId)), student, 15 * 60 * 1000);
-    
+
     return student;
   } catch (error) {
     console.error('❌ Failed to fetch student by ID:', error);
@@ -949,14 +958,14 @@ export async function getCoordinatorClassrooms(coordinatorId: number) {
     const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
     const url = `${cleanBaseUrl}/api/coordinators/${coordinatorId}/classrooms/`;
     console.log('Fetching classrooms from:', url);
-    
+
     const response = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('sis_access_token')}`,
         'Content-Type': 'application/json'
       }
     });
-    
+
     if (!response.ok) {
       if (response.status === 404) {
         console.warn(`Classrooms endpoint not found (404) for coordinator ${coordinatorId}. Make sure backend server is running and endpoint is registered.`);
@@ -966,7 +975,7 @@ export async function getCoordinatorClassrooms(coordinatorId: number) {
       // Return empty array if endpoint doesn't exist or error occurs
       return [];
     }
-    
+
     const data = await response.json();
     return Array.isArray(data) ? data : (data.classrooms || []);
   } catch (error) {
@@ -980,7 +989,7 @@ export async function getCoordinatorClassrooms(coordinatorId: number) {
 export async function findCoordinatorByEmployeeCode(employeeCode: string) {
   try {
     const response = await apiGet(API_ENDPOINTS.COORDINATORS);
-    
+
     // Handle different response formats
     let coordinators = []
     if (Array.isArray(response)) {
@@ -990,7 +999,7 @@ export async function findCoordinatorByEmployeeCode(employeeCode: string) {
     } else if (response && Array.isArray((response as any).data)) {
       coordinators = (response as any).data
     }
-    
+
     const foundCoordinator = coordinators.find((coord: any) => coord.employee_code === employeeCode);
     return foundCoordinator || null;
   } catch (error) {
@@ -1293,11 +1302,11 @@ export async function assignCoordinatorToLevel(levelId: number, coordinatorId: n
 
 export async function getAvailableCoordinators(campusId?: number) {
   try {
-    const url = campusId 
+    const url = campusId
       ? `/api/coordinators/?campus_id=${campusId}&level__isnull=true`
       : '/api/coordinators/?level__isnull=true';
     const response = await apiGet(url);
-    
+
     // Handle paginated response - return results array or empty array
     if (response && typeof response === 'object' && 'results' in response) {
       return response.results || [];
@@ -1321,7 +1330,7 @@ export async function getCampusDashboardStats(campusId: number) {
       getCampusTeachers(campusId),
       getPrincipalCampusData(campusId)
     ]);
-    
+
     return {
       campus,
       totalStudents: Array.isArray(students) ? students.length : 0,
@@ -1437,7 +1446,7 @@ export async function getAttendanceHistory(classroomId: number, startDate?: stri
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
     if (params.toString()) url += `?${params.toString()}`;
-    
+
     return await apiGet(url);
   } catch (error) {
     console.error('Failed to fetch attendance history:', error);
@@ -1470,7 +1479,7 @@ export async function editAttendance(attendanceId: number, data: {
     if (error instanceof ApiError) {
       // Extract user-friendly message from error
       let userMessage = error.message;
-      
+
       // Handle specific error cases
       if (error.status === 403) {
         if (error.message.includes('7 days') || error.message.includes('older than')) {
@@ -1485,11 +1494,11 @@ export async function editAttendance(attendanceId: number, data: {
       } else if (error.status === 404) {
         userMessage = 'Attendance record not found.';
       }
-      
+
       // Create new error with user-friendly message
       throw new ApiError(userMessage, error.status, error.statusText, error.response);
     }
-    
+
     console.error('Failed to edit attendance:', error);
     throw error;
   }
@@ -1512,7 +1521,7 @@ export async function getLevelAttendanceSummary(levelId: number, startDate?: str
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
     if (params.toString()) url += `?${params.toString()}`;
-    
+
     return await apiGet(url);
   } catch (error) {
     console.error('Failed to fetch level attendance summary:', error);
@@ -1696,17 +1705,17 @@ export async function createResult(data: ResultData) {
 export async function getCoordinatorResults() {
   try {
     const response = await apiGet('/api/result/coordinator/results/');
-    
+
     if (response && typeof response === 'object' && 'results' in response) {
       return response.results;
     }
-    
+
     if (Array.isArray(response)) {
       return response;
     }
-    
+
     return [];
-    
+
   } catch (error: any) {
     if (error?.status === 401) {
       localStorage.removeItem('sis_access_token');
@@ -1715,7 +1724,7 @@ export async function getCoordinatorResults() {
       window.location.href = '/Universal_Login';
       return [];
     }
-    
+
     throw error;
   }
 }
@@ -1844,6 +1853,81 @@ export async function addRequestComment(requestId: number, comment: string) {
   }
 }
 
+// New Request Workflow API functions
+export interface ForwardToPrincipalData {
+  forwarding_note: string;
+}
+
+export interface ApprovalData {
+  resolution_notes?: string;
+  send_for_confirmation?: boolean;
+}
+
+export interface RejectionData {
+  rejection_reason: string;
+}
+
+export interface ConfirmationData {
+  teacher_satisfaction_note?: string;
+}
+
+export async function forwardToPrincipal(requestId: number, data: ForwardToPrincipalData) {
+  try {
+    return await apiPost(`/api/requests/${requestId}/forward-to-principal/`, data);
+  } catch (error) {
+    console.error('Failed to forward request to principal:', error);
+    throw error;
+  }
+}
+
+export async function approveRequest(requestId: number, data: ApprovalData) {
+  try {
+    return await apiPost(`/api/requests/${requestId}/approve/`, data);
+  } catch (error) {
+    console.error('Failed to approve request:', error);
+    throw error;
+  }
+}
+
+export async function rejectRequest(requestId: number, data: RejectionData) {
+  try {
+    return await apiPost(`/api/requests/${requestId}/reject/`, data);
+  } catch (error) {
+    console.error('Failed to reject request:', error);
+    throw error;
+  }
+}
+
+export async function confirmCompletion(requestId: number, data: ConfirmationData) {
+  try {
+    return await apiPost(`/api/requests/${requestId}/confirm/`, data);
+  } catch (error) {
+    console.error('Failed to confirm request completion:', error);
+    throw error;
+  }
+}
+
+export async function getPrincipalRequests(filters?: {
+  status?: string;
+  priority?: string;
+  category?: string;
+}) {
+  try {
+    let url = '/api/requests/principal/requests/';
+    if (filters) {
+      const params = new URLSearchParams();
+      if (filters.status) params.append('status', filters.status);
+      if (filters.priority) params.append('priority', filters.priority);
+      if (filters.category) params.append('category', filters.category);
+      if (params.toString()) url += `?${params.toString()}`;
+    }
+    return await apiGet(url);
+  } catch (error) {
+    console.error('Failed to fetch principal requests:', error);
+    return [];
+  }
+}
+
 export async function getTeacherAttendanceSummary(classroomId: number, startDate?: string, endDate?: string) {
   try {
     let url = `/api/attendance/class/${classroomId}/summary/`;
@@ -1851,7 +1935,7 @@ export async function getTeacherAttendanceSummary(classroomId: number, startDate
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
     if (params.toString()) url += `?${params.toString()}`;
-    
+
     return await apiGet(url);
   } catch (error) {
     console.error('Failed to fetch teacher attendance summary:', error);
@@ -1864,13 +1948,13 @@ export async function getTeacherWeeklyAttendance(classroomId: number) {
     const today = new Date();
     const startOfWeek = new Date(today);
     startOfWeek.setDate(today.getDate() - today.getDay() + 1); // Monday
-    
+
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6); // Sunday
-    
+
     const startDate = startOfWeek.toISOString().split('T')[0];
     const endDate = endOfWeek.toISOString().split('T')[0];
-    
+
     return await getTeacherAttendanceSummary(classroomId, startDate, endDate);
   } catch (error) {
     console.error('Failed to fetch weekly attendance:', error);
@@ -1883,10 +1967,10 @@ export async function getTeacherMonthlyTrend(classroomId: number) {
     const today = new Date();
     const startOfMonth = new Date(today.getFullYear(), today.getMonth() - 5, 1);
     const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    
+
     const startDate = startOfMonth.toISOString().split('T')[0];
     const endDate = endOfMonth.toISOString().split('T')[0];
-    
+
     return await getTeacherAttendanceSummary(classroomId, startDate, endDate);
   } catch (error) {
     console.error('Failed to fetch monthly trend:', error);
@@ -1943,7 +2027,7 @@ export async function coordinatorApproveAttendance(attendanceId: number, comment
 
 export async function coordinatorBulkApproveAttendance(attendanceIds: number[], comment?: string) {
   try {
-    return await apiPost(`/api/attendance/coordinator-bulk-approve/`, { 
+    return await apiPost(`/api/attendance/coordinator-bulk-approve/`, {
       attendance_ids: attendanceIds,
       comment: comment || ''
     });
@@ -2022,7 +2106,7 @@ export async function getHolidays(params: GetHolidaysParams = {}) {
   try {
     let url = '/api/attendance/holidays/';
     const query = new URLSearchParams();
-    
+
     if (params.levelId) query.append('level_id', params.levelId.toString());
     params.levelIds?.forEach((id) => query.append('level_ids', id.toString()));
     if (params.gradeId) query.append('grade_id', params.gradeId.toString());
@@ -2030,11 +2114,11 @@ export async function getHolidays(params: GetHolidaysParams = {}) {
     if (params.startDate) query.append('start_date', params.startDate);
     if (params.endDate) query.append('end_date', params.endDate);
     if (params.shift) query.append('shift', params.shift);
-    
+
     if (query.toString()) {
       url += `?${query.toString()}`;
     }
-    
+
     return await apiGet(url);
   } catch (error) {
     console.error('Failed to fetch holidays:', error);
@@ -2250,7 +2334,7 @@ export async function getTransferRequests(params?: {
     if (params?.type) queryParams.append('type', params.type);
     if (params?.status) queryParams.append('status', params.status);
     if (params?.direction) queryParams.append('direction', params.direction);
-    
+
     const url = `/api/transfers/request/list/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
     return await apiGet(url);
   } catch (error) {
@@ -2455,6 +2539,24 @@ export async function getAvailableShiftSections(studentId: number, toShift: 'mor
   }
 }
 
+export async function getAvailableCampusTransferSections(
+  studentId: number,
+  toCampusId: number,
+  toShift: 'M' | 'A'
+) {
+  try {
+    const qs = new URLSearchParams();
+    qs.append('student', studentId.toString());
+    qs.append('to_campus', toCampusId.toString());
+    qs.append('to_shift', toShift === 'M' ? 'morning' : 'afternoon');
+    const url = `/api/transfers/campus/available-sections/?${qs.toString()}`;
+    return await apiGet<AvailableClassroomOption[]>(url);
+  } catch (error) {
+    console.error('Failed to fetch available campus transfer sections:', error);
+    return [];
+  }
+}
+
 // Grade Skip Transfer APIs
 export interface GradeSkipTransfer {
   id: number;
@@ -2505,6 +2607,16 @@ export async function getAvailableGradesForSkip(studentId: number) {
     return await apiGet<AvailableGradeForSkip>(url);
   } catch (error) {
     console.error('Failed to fetch available grades for skip:', error);
+    throw error;
+  }
+}
+
+export async function getAvailableGradesForCampusSkip(studentId: number, toCampusId: number) {
+  try {
+    const url = `/api/transfers/campus/available-grades-for-skip/?student_id=${studentId}&to_campus_id=${toCampusId}`;
+    return await apiGet<AvailableGradeForSkip>(url);
+  } catch (error) {
+    console.error('Failed to fetch available grades for campus skip:', error);
     throw error;
   }
 }
@@ -2570,6 +2682,26 @@ export async function getAvailableSectionsForGradeSkip(
   }
 }
 
+export async function getAvailableSectionsForCampusSkip(
+  studentId: number,
+  toGradeId: number,
+  toCampusId: number,
+  toShift: 'M' | 'A'
+) {
+  try {
+    const qs = new URLSearchParams();
+    qs.append('student_id', studentId.toString());
+    qs.append('to_grade_id', toGradeId.toString());
+    qs.append('to_campus_id', toCampusId.toString());
+    qs.append('to_shift', toShift === 'M' ? 'morning' : 'afternoon');
+    const url = `/api/transfers/campus/available-sections-for-skip/?${qs.toString()}`;
+    return await apiGet<AvailableClassroomOption[]>(url);
+  } catch (error) {
+    console.error('Failed to fetch available sections for campus skip:', error);
+    return [];
+  }
+}
+
 // Campus Transfer APIs
 export interface CampusTransfer {
   id: number;
@@ -2583,7 +2715,9 @@ export interface CampusTransfer {
   from_shift: 'morning' | 'afternoon';
   to_shift: 'morning' | 'afternoon';
   from_classroom: number | null;
+  from_classroom_display: string | null;
   to_classroom: number | null;
+  to_classroom_display: string | null;
   from_grade: number | null;
   to_grade: number | null;
   from_grade_name: string | null;
@@ -2603,13 +2737,13 @@ export interface CampusTransfer {
   to_principal_name?: string | null;
   transfer_request: number | null;
   status:
-    | 'pending_from_coord'
-    | 'pending_from_principal'
-    | 'pending_to_principal'
-    | 'pending_to_coord'
-    | 'approved'
-    | 'declined'
-    | 'cancelled';
+  | 'pending_from_coord'
+  | 'pending_from_principal'
+  | 'pending_to_principal'
+  | 'pending_to_coord'
+  | 'approved'
+  | 'declined'
+  | 'cancelled';
   reason: string;
   requested_date: string;
   decline_reason?: string | null;
@@ -2806,12 +2940,12 @@ export async function sendPasswordChangeOTP(email: string) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     });
-    
+
     if (!response.ok) {
       const errorData = await response.json();
       throw new ApiError(errorData.error || 'Failed to send OTP', response.status, response.statusText);
     }
-    
+
     return await response.json();
   } catch (error) {
     if (error instanceof ApiError) throw error;
@@ -2826,12 +2960,12 @@ export async function verifyPasswordChangeOTP(email: string, otpCode: string) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, otp_code: otpCode }),
     });
-    
+
     if (!response.ok) {
       const errorData = await response.json();
       throw new ApiError(errorData.message || 'Failed to verify OTP', response.status, response.statusText);
     }
-    
+
     return await response.json();
   } catch (error) {
     if (error instanceof ApiError) throw error;
@@ -2844,18 +2978,18 @@ export async function changePasswordWithOTP(sessionToken: string, newPassword: s
     const response = await fetch('/api/users/change-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         session_token: sessionToken,
         new_password: newPassword,
         confirm_password: confirmPassword
       }),
     });
-    
+
     if (!response.ok) {
       const errorData = await response.json();
       throw new ApiError(errorData.error || 'Failed to change password', response.status, response.statusText);
     }
-    
+
     return await response.json();
   } catch (error) {
     if (error instanceof ApiError) throw error;
@@ -2865,19 +2999,21 @@ export async function changePasswordWithOTP(sessionToken: string, newPassword: s
 
 // ==================== FORGOT PASSWORD OTP APIs ====================
 
-export async function sendForgotPasswordOTP(employeeCode: string) {
+export async function sendForgotPasswordOTP(email: string) {
   try {
     const response = await fetch('/api/users/send-forgot-password-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employee_code: employeeCode }),
+      body: JSON.stringify({
+        email: email
+      }),
     });
-    
+
     if (!response.ok) {
       const errorData = await response.json();
       throw new ApiError(errorData.error || 'Failed to send OTP', response.status, response.statusText);
     }
-    
+
     return await response.json();
   } catch (error) {
     if (error instanceof ApiError) throw error;
@@ -2912,22 +3048,22 @@ export async function getFilteredPrincipals(params: {
 }> {
   try {
     const queryParams = new URLSearchParams();
-    
+
     // Add pagination params
     if (params.page) queryParams.append('page', params.page.toString());
     if (params.page_size) queryParams.append('page_size', params.page_size.toString());
-    
+
     // Add search param
     if (params.search) queryParams.append('search', params.search);
-    
+
     // Add filter params
     if (params.campus) queryParams.append('campus', params.campus.toString());
     if (params.shift) queryParams.append('shift', params.shift);
     if (params.is_currently_active !== undefined) queryParams.append('is_currently_active', params.is_currently_active.toString());
-    
+
     // Add ordering param
     if (params.ordering) queryParams.append('ordering', params.ordering);
-    
+
     const response = await apiGet(`${API_ENDPOINTS.PRINCIPALS}?${queryParams.toString()}`);
     return response as {
       count: number;
@@ -2986,22 +3122,22 @@ export async function getPrincipalStats() {
   }
 }
 
-export async function verifyForgotPasswordOTP(employeeCode: string, otpCode: string) {
+export async function verifyForgotPasswordOTP(email: string, otpCode: string) {
   try {
     const response = await fetch('/api/users/verify-forgot-password-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        employee_code: employeeCode,
+      body: JSON.stringify({
+        email: email,
         otp_code: otpCode
       }),
     });
-    
+
     if (!response.ok) {
       const errorData = await response.json();
       throw new ApiError(errorData.message || 'Failed to verify OTP', response.status, response.statusText);
     }
-    
+
     return await response.json();
   } catch (error) {
     if (error instanceof ApiError) throw error;
@@ -3014,21 +3150,236 @@ export async function resetPasswordWithOTP(sessionToken: string, newPassword: st
     const response = await fetch('/api/users/reset-password-with-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         session_token: sessionToken,
         new_password: newPassword,
         confirm_password: confirmPassword
       }),
     });
-    
+
     if (!response.ok) {
       const errorData = await response.json();
       throw new ApiError(errorData.error || 'Failed to reset password', response.status, response.statusText);
     }
-    
+
     return await response.json();
   } catch (error) {
     if (error instanceof ApiError) throw error;
     throw new ApiError(`Network error: ${error}`, 0, 'Network Error');
   }
 }
+
+export async function getSubjects(params?: { campus?: number; level?: number; is_active?: boolean }) {
+  try {
+    const queryParams = new URLSearchParams();
+    if (params?.campus) queryParams.append('campus', params.campus.toString());
+    if (params?.level) queryParams.append('level', params.level.toString());
+    if (params?.is_active !== undefined) queryParams.append('is_active', params.is_active.toString());
+
+    const url = queryParams.toString()
+      ? API_ENDPOINTS.TIMETABLE_SUBJECTS + '?' + queryParams.toString()
+      : API_ENDPOINTS.TIMETABLE_SUBJECTS;
+
+    const response = await apiGet(url);
+    return Array.isArray(response) ? response : (response as any)?.results || [];
+  } catch (error) {
+    console.error('Failed to fetch subjects:', error);
+    return [];
+  }
+}
+
+/**
+ * Create a new subject
+ */
+export async function createSubject(data: { name: string; campus: number; level?: number; description?: string }) {
+  try {
+    return await apiPost(API_ENDPOINTS.TIMETABLE_SUBJECTS, data);
+  } catch (error) {
+    console.error('Failed to create subject:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get class timetable periods (optionally filtered)
+ */
+export async function getClassTimetable(params?: {
+  classroom?: number;
+  teacher?: number;
+  subject?: number;
+  day?: string;
+  grade?: string;
+  section?: string;
+}) {
+  try {
+    const queryParams = new URLSearchParams();
+    if (params?.classroom) queryParams.append('classroom', params.classroom.toString());
+    if (params?.teacher) queryParams.append('teacher', params.teacher.toString());
+    if (params?.subject) queryParams.append('subject', params.subject.toString());
+    if (params?.day) queryParams.append('day', params.day);
+    if (params?.grade) queryParams.append('grade', params.grade);
+    if (params?.section) queryParams.append('section', params.section);
+
+    const url = queryParams.toString()
+      ? API_ENDPOINTS.TIMETABLE_CLASS + '?' + queryParams.toString()
+      : API_ENDPOINTS.TIMETABLE_CLASS;
+
+    const response = await apiGet(url);
+    return Array.isArray(response) ? response : (response as any)?.results || [];
+  } catch (error) {
+    console.error('Failed to fetch class timetable:', error);
+    return [];
+  }
+}
+
+/**
+ * Get teacher timetable periods (optionally filtered)
+ */
+export async function getTeacherTimetable(params?: {
+  teacher?: number;
+  classroom?: number;
+  subject?: number;
+  day?: string;
+}) {
+  try {
+    const queryParams = new URLSearchParams();
+    if (params?.teacher) queryParams.append('teacher_id', params.teacher.toString());
+    if (params?.classroom) queryParams.append('classroom', params.classroom.toString());
+    if (params?.subject) queryParams.append('subject', params.subject.toString());
+    if (params?.day) queryParams.append('day', params.day);
+
+    const url = queryParams.toString()
+      ? API_ENDPOINTS.TIMETABLE_TEACHER + '?' + queryParams.toString()
+      : API_ENDPOINTS.TIMETABLE_TEACHER;
+
+    const response = await apiGet(url);
+    return Array.isArray(response) ? response : (response as any)?.results || [];
+  } catch (error) {
+    console.error('Failed to fetch teacher timetable:', error);
+    return [];
+  }
+}
+
+export async function createClassPeriod(data: {
+  classroom: number;
+  teacher: number;
+  subject: number;
+  day: string;
+  start_time: string;
+  end_time: string;
+  is_break?: boolean;
+  notes?: string;
+}) {
+  try {
+    return await apiPost(API_ENDPOINTS.TIMETABLE_CLASS, data);
+  } catch (error) {
+    console.error('Failed to create class period:', error);
+    throw error;
+  }
+}
+
+export async function deleteClassPeriods(params: {
+  classroom?: number;
+  teacher?: number;
+}) {
+  try {
+    const queryParams = new URLSearchParams();
+    if (params.classroom) queryParams.append('classroom', params.classroom.toString());
+    if (params.teacher) queryParams.append('teacher', params.teacher.toString());
+
+    const url = queryParams.toString()
+      ? API_ENDPOINTS.TIMETABLE_CLASS + 'bulk_delete/?' + queryParams.toString()
+      : API_ENDPOINTS.TIMETABLE_CLASS + 'bulk_delete/';
+
+    return await apiDelete(url);
+  } catch (error) {
+    console.error('Failed to delete class periods:', error);
+    throw error;
+  }
+}
+
+export async function bulkCreateClassPeriods(periods: Array<{
+  classroom: number;
+  teacher: number;
+  subject: number;
+  day: string;
+  start_time: string;
+  end_time: string;
+  is_break?: boolean;
+  notes?: string;
+}>) {
+  try {
+    return await apiPost(API_ENDPOINTS.TIMETABLE_CLASS + 'bulk_create/', { periods });
+  } catch (error) {
+    console.error('Failed to bulk create class periods:', error);
+    throw error;
+  }
+}
+
+
+export async function bulkCreateTeacherPeriods(periods: Array<{
+  classroom: number;
+  teacher: number;
+  subject: number;
+  day: string;
+  start_time: string;
+  end_time: string;
+  is_break?: boolean;
+  notes?: string;
+}>) {
+  try {
+    return await apiPost(API_ENDPOINTS.TIMETABLE_TEACHER + 'bulk_create/', { periods });
+  } catch (error) {
+    console.error('Failed to bulk create teacher periods:', error);
+    throw error;
+  }
+}
+// Shift Timing API
+export async function getShiftTimings(campusId: number, shift: string) {
+  try {
+    const data = await apiGet(`${API_ENDPOINTS.TIMETABLE}shift-timings/?campus=${campusId}&shift=${shift}`);
+    return Array.isArray(data) ? data : (data as any).results || [];
+  } catch (error) {
+    console.error('Failed to fetch shift timings:', error);
+    return [];
+  }
+}
+
+export async function createShiftTiming(data: any) {
+  return apiPost(`${API_ENDPOINTS.TIMETABLE}shift-timings/`, data);
+}
+
+export async function updateShiftTiming(id: number, data: any) {
+  return apiPut(`${API_ENDPOINTS.TIMETABLE}shift-timings/${id}/`, data);
+}
+
+export async function deleteShiftTiming(id: number) {
+  return apiDelete(`${API_ENDPOINTS.TIMETABLE}shift-timings/${id}/`);
+}
+
+export async function createClassTimetable(data: any) {
+  return apiPost(`${API_ENDPOINTS.TIMETABLE}class-timetable/`, data);
+}
+
+export async function updateClassTimetable(id: number, data: any) {
+  return apiPut(`${API_ENDPOINTS.TIMETABLE}class-timetable/${id}/`, data);
+}
+
+export async function deleteClassTimetable(id: number) {
+  return apiDelete(`${API_ENDPOINTS.TIMETABLE}class-timetable/${id}/`);
+}
+
+
+export async function createTeacherTimetable(data: any) {
+  return apiPost(`${API_ENDPOINTS.TIMETABLE}teacher-timetable/`, data);
+}
+
+export async function updateTeacherTimetable(id: number, data: any) {
+  return apiPut(`${API_ENDPOINTS.TIMETABLE}teacher-timetable/${id}/`, data);
+}
+
+export async function deleteTeacherTimetable(id: number) {
+  return apiDelete(`${API_ENDPOINTS.TIMETABLE}teacher-timetable/${id}/`);
+}
+
+

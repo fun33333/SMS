@@ -12,7 +12,6 @@ const DEVELOPMENT_PHASE_ROUTES: Record<string, string> = {
   // '/admin/students/leaving-certificate': 'Leaving Certificate',
   // '/admin/students/termination-certificate': 'Termination Certificate',
   '/admin/coordinator/result-approval': 'Result Approval',
-  '/admin/coordinator/subject-assign': 'Subject Assignment',
   '/admin/principals/transfers': 'Transfer Management',
   '/admin/principals/transfers/create': 'Create Transfer',
   '/admin/coordinator/requests' : 'Requests Management',

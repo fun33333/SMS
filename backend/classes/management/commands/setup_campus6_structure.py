@@ -36,15 +36,28 @@ class Command(BaseCommand):
         try:
             campus = Campus.objects.get(campus_code=campus_code)
             self.stdout.write(f'Found campus: {campus.campus_name} ({campus.campus_code})')
+            self.stdout.write(f'Campus shift: {campus.shift_available}')
         except Campus.DoesNotExist:
             self.stdout.write(
                 self.style.ERROR(f'Campus not found with code: {campus_code}')
             )
             return
         
+        # Determine shifts based on campus shift_available
+        campus_shift = campus.shift_available or 'morning'
+        if campus_shift == 'both':
+            shifts = ['morning', 'afternoon']
+            self.stdout.write(self.style.SUCCESS('Campus has both shifts - will create structure for both'))
+        elif campus_shift == 'afternoon':
+            shifts = ['afternoon']
+            self.stdout.write(self.style.SUCCESS('Campus has afternoon shift only'))
+        else:
+            shifts = ['morning']
+            self.stdout.write(self.style.SUCCESS('Campus has morning shift only'))
+        
         # Define levels and their grades with Roman numerals
         level_grades = {
-            'Pre-Primary': ['Nursery', 'KG-I', 'KG-II'],
+            'Pre-Primary': ['Nursery', 'KG-I', 'KG-II', 'Special Class'],
             'Primary': ['Grade I', 'Grade II', 'Grade III', 'Grade IV', 'Grade V'],
             'Secondary': ['Grade VI', 'Grade VII', 'Grade VIII', 'Grade IX', 'Grade X']
         }
@@ -54,6 +67,7 @@ class Command(BaseCommand):
             'Nursery': 'N',
             'KG-I': 'KG1', 
             'KG-II': 'KG2',
+            'Special Class': 'SC',
             'Grade I': 'G1',
             'Grade II': 'G2', 
             'Grade III': 'G3',
@@ -66,11 +80,10 @@ class Command(BaseCommand):
             'Grade X': 'G10'
         }
         
-        # Define shifts
-        shifts = ['morning', 'afternoon']
-        
-        # Define sections
-        sections = ['A', 'B', 'C', 'D', 'E']
+        # Define sections - Special Class has 4 sections, others have 5
+        # You can also calculate from campus.total_classrooms if needed
+        default_sections = ['A', 'B', 'C', 'D', 'E']
+        special_class_sections = ['A', 'B', 'C', 'D']
         
         total_levels_created = 0
         total_grades_created = 0
@@ -138,8 +151,11 @@ class Command(BaseCommand):
                         else:
                             self.stdout.write(f"    📋 Grade already exists: {grade_name}")
                         
+                        # Determine sections based on grade - Special Class has 4 sections, others have 5
+                        sections_to_use = special_class_sections if grade_name == 'Special Class' else default_sections
+                        
                         # Create classrooms for this grade
-                        for section in sections:
+                        for section in sections_to_use:
                             classroom, classroom_created = ClassRoom.objects.get_or_create(
                                 grade=grade,
                                 section=section,

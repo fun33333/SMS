@@ -40,6 +40,7 @@ from .services import (
     emit_transfer_event,
     detect_grade_skip_coordinators,
     apply_grade_skip_transfer,
+    apply_campus_transfer,
 )
 from notifications.services import create_notification
 from students.models import Student
@@ -1517,18 +1518,35 @@ def create_campus_transfer(request):
         try:
             if from_coord:
                 from django.contrib.auth import get_user_model
+                import logging
+                logger = logging.getLogger(__name__)
 
                 UserModel = get_user_model()
 
                 coord_user = getattr(from_coord, 'user', None)
+                logger.info(f"Campus Transfer Notification Debug:")
+                logger.info(f"  Coordinator ID: {from_coord.id}")
+                logger.info(f"  Coordinator Name: {from_coord.full_name}")
+                logger.info(f"  Coordinator Email: {from_coord.email}")
+                logger.info(f"  Coordinator Employee Code: {from_coord.employee_code}")
+                logger.info(f"  coord_user from getattr: {coord_user}")
+                
                 if not coord_user and getattr(from_coord, 'employee_code', None):
                     coord_user = UserModel.objects.filter(
                         username=from_coord.employee_code
                     ).first()
+                    logger.info(f"  coord_user from username lookup: {coord_user}")
+                    
                 if not coord_user and getattr(from_coord, 'email', None):
                     coord_user = UserModel.objects.filter(
                         email__iexact=from_coord.email
                     ).first()
+                    logger.info(f"  coord_user from email lookup: {coord_user}")
+
+                if coord_user:
+                    logger.info(f"  ✅ Found coord_user: {coord_user.username} (ID: {coord_user.id})")
+                else:
+                    logger.warning(f"  ❌ No User account found for coordinator {from_coord.full_name}")
 
                 if coord_user:
                     student_name = student.name
@@ -1637,7 +1655,9 @@ def list_campus_transfers(request):
                 queryset = queryset.filter(Q(to_principal=user))
             elif direction == 'outgoing':
                 queryset = queryset.filter(Q(from_principal=user))
-            # 'all' will show both
+            elif direction == 'all':
+                # Show both incoming and outgoing
+                queryset = queryset.filter(Q(from_principal=user) | Q(to_principal=user))
         else:
             return Response(
                 {'error': 'You do not have permission to view campus transfers'},
@@ -1925,17 +1945,24 @@ def approve_campus_transfer_to_principal(request, transfer_id):
             UserModel = get_user_model()
 
             to_coord = campus_transfer.to_coordinator
-            if not to_coord and campus_transfer.to_grade:
-                level = campus_transfer.to_grade.level
-                coord_qs = Coordinator.objects.filter(
-                    campus=campus_transfer.to_campus,
-                    is_currently_active=True,
-                )
-                coord_qs = coord_qs.filter(Q(level=level) | Q(assigned_levels=level)).distinct()
-                to_coord = coord_qs.first()
-                if to_coord:
-                    campus_transfer.to_coordinator = to_coord
-                    campus_transfer.save(update_fields=['to_coordinator'])
+            if not to_coord:
+                # Try to detect coordinator from to_grade or to_classroom
+                target_level = None
+                if campus_transfer.to_grade:
+                    target_level = campus_transfer.to_grade.level
+                elif campus_transfer.to_classroom and campus_transfer.to_classroom.grade:
+                    target_level = campus_transfer.to_classroom.grade.level
+                
+                if target_level:
+                    coord_qs = Coordinator.objects.filter(
+                        campus=campus_transfer.to_campus,
+                        is_currently_active=True,
+                    )
+                    coord_qs = coord_qs.filter(Q(level=target_level) | Q(assigned_levels=target_level)).distinct()
+                    to_coord = coord_qs.first()
+                    if to_coord:
+                        campus_transfer.to_coordinator = to_coord
+                        campus_transfer.save(update_fields=['to_coordinator'])
 
             if to_coord:
                 coord_user = getattr(to_coord, 'user', None)
@@ -2317,11 +2344,16 @@ def get_campus_transfer_letter(request, transfer_id):
 
         student = campus_transfer.student
 
+        # Get old ID from transfer request's ID history
+        old_id = student.student_id
+        if campus_transfer.transfer_request:
+            id_change = campus_transfer.transfer_request.id_changes.first()
+            if id_change:
+                old_id = id_change.old_id
+
         payload = {
             "student_name": student.name,
-            "student_old_id": campus_transfer.transfer_request.id_history.first().old_id
-            if campus_transfer.transfer_request and hasattr(campus_transfer.transfer_request, "id_changes")
-            else student.student_id,
+            "student_old_id": old_id,
             "student_new_id": campus_transfer.letter_new_student_id or student.student_id,
             "from_campus_name": campus_transfer.letter_from_campus_name or getattr(
                 campus_transfer.from_campus, 'campus_name', str(campus_transfer.from_campus)
@@ -3653,4 +3685,308 @@ def decline_grade_skip_transfer(request, transfer_id):
             }
         )
     except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def available_campus_transfer_sections(request):
+    """
+    Return available classrooms/sections for a campus transfer (same grade) for a given student + target campus + target shift.
+    """
+    try:
+        student_id = request.GET.get('student')
+        to_campus_id = request.GET.get('to_campus')
+        to_shift = request.GET.get('to_shift')
+        
+        if not student_id or not to_campus_id or not to_shift:
+            return Response(
+                {'error': 'student, to_campus, and to_shift parameters are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        student = get_object_or_404(Student, id=student_id)
+        to_campus = get_object_or_404(Campus, id=to_campus_id)
+        current_classroom = student.classroom
+        
+        if not current_classroom:
+            return Response(
+                {'error': 'Student is not currently assigned to any classroom'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not current_classroom.grade:
+            return Response(
+                {'error': 'Student\'s current classroom does not have a grade assigned'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from django.db.models import Q
+        from coordinator.models import Coordinator
+        
+        # Normalize shift value to match ClassRoom model format
+        shift_normalized = to_shift.lower()
+        
+        # Find classrooms in the same grade at the destination campus/shift
+        current_grade = current_classroom.grade
+        
+        # Debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[Campus Transfer Sections] Student: {student.id}, Current Grade: {current_grade.name} (ID: {current_grade.id})")
+        logger.info(f"[Campus Transfer Sections] To Campus: {to_campus.campus_name} (ID: {to_campus.id}), Shift: {shift_normalized}")
+        
+        # First check if there are ANY classrooms for this grade at destination campus
+        all_classrooms_in_grade = ClassRoom.objects.filter(
+            grade__name=current_grade.name,  # Match by grade name instead of grade object
+            shift=shift_normalized,
+            grade__level__campus=to_campus,
+        ).select_related('grade', 'grade__level', 'grade__level__campus')
+        
+        logger.info(f"[Campus Transfer Sections] Found {all_classrooms_in_grade.count()} classrooms with grade name '{current_grade.name}' at destination")
+        
+        available_classrooms = all_classrooms_in_grade.exclude(
+            students__id=student.id  # Exclude if student is already in this classroom
+        ).select_related(
+            'class_teacher', 'class_teacher__user'
+        ).prefetch_related('students').order_by('section')
+
+        options = []
+        for classroom in available_classrooms:
+            # Get coordinator for this classroom's level
+            coordinator = Coordinator.objects.filter(
+                level=classroom.grade.level,
+                campus=to_campus,
+            ).first()
+
+            options.append({
+                'id': classroom.id,
+                'grade_name': classroom.grade.name,
+                'section': classroom.section,
+                'shift': classroom.shift.title(),
+                'capacity': classroom.capacity,
+                'current_students': classroom.students.count(),
+                'class_teacher_name': classroom.class_teacher.full_name if classroom.class_teacher else None,
+                'coordinator_name': coordinator.full_name if coordinator else None,
+                'label': f"{classroom.grade.name} ({classroom.section}) • {classroom.shift.title()} • {to_campus.campus_name}",
+            })
+
+        return Response(options)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def available_grades_for_campus_skip(request):
+    """
+    Return available grade for campus transfer with grade skip.
+    Similar to grade skip but searches in destination campus instead of current campus.
+    """
+    try:
+        student_id = request.GET.get('student_id')
+        to_campus_id = request.GET.get('to_campus_id')
+        
+        if not student_id or not to_campus_id:
+            return Response(
+                {'error': 'student_id and to_campus_id parameters are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        student = get_object_or_404(Student, id=student_id)
+        to_campus = get_object_or_404(Campus, id=to_campus_id)
+        current_classroom = student.classroom
+        
+        if not current_classroom:
+            return Response(
+                {'error': 'Student is not currently assigned to any classroom'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from_grade = current_classroom.grade
+        if not from_grade:
+            return Response(
+                {'error': 'Student\'s current classroom does not have a grade assigned'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Extract grade number and handle both "Grade-X" and "KG-X" formats
+        import re
+        from classes.models import Grade
+        
+        grade_name = from_grade.name.strip()
+        grade_name_lower = grade_name.lower()
+        
+        # Roman numeral mapping
+        roman_map = {'i': 1, 'ii': 2, 'iii': 3, 'iv': 4, 'v': 5, 'vi': 6, 'vii': 7, 'viii': 8, 'ix': 9, 'x': 10}
+        roman_map_reverse = {1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X'}
+        
+        # Handle KG grades (KG-I, KG-II, KG-1, KG-2, etc.)
+        if grade_name_lower.startswith('kg'):
+            kg_match = re.search(r'(\d+)', grade_name)
+            if not kg_match:
+                kg_roman = re.search(r'kg[-\s]*(i{1,3}|iv|v|vi{0,3}|ix|x)', grade_name_lower)
+                if kg_roman:
+                    kg_num = roman_map.get(kg_roman.group(1).lower(), 1)
+                else:
+                    return Response(
+                        {'error': 'Unable to determine KG grade number'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            else:
+                kg_num = int(kg_match.group(1))
+            
+            to_grade_num = kg_num
+        else:
+            # Handle regular Grade-X format
+            from_match = re.search(r'(\d+)', grade_name)
+            if not from_match:
+                grade_roman = re.search(r'grade[-\s]*(i{1,3}|iv|v|vi{0,3}|ix|x)', grade_name_lower)
+                if grade_roman:
+                    from_grade_num = roman_map.get(grade_roman.group(1).lower(), 1)
+                else:
+                    return Response(
+                        {'error': 'Unable to determine current grade number'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            else:
+                from_grade_num = int(from_match.group(1))
+            
+            to_grade_num = from_grade_num + 2  # Skip exactly 1 grade
+
+        # Map number to Roman numeral for matching
+        roman_numeral = roman_map_reverse.get(to_grade_num, str(to_grade_num))
+        
+        # Search for grades in DESTINATION campus (not current campus)
+        to_grades = Grade.objects.filter(
+            level__campus=to_campus,  # Use destination campus
+        ).filter(
+            Q(name__iregex=rf'^Grade[-\s]*{to_grade_num}$') |
+            Q(name__iregex=rf'^Grade[-\s]*{roman_numeral}$') |
+            Q(name__iexact=f'Grade-{to_grade_num}') |
+            Q(name__iexact=f'Grade {to_grade_num}') |
+            Q(name__iexact=f'Grade-{roman_numeral}') |
+            Q(name__iexact=f'Grade {roman_numeral}') |
+            Q(name__icontains=f'Grade-{to_grade_num}') |
+            Q(name__icontains=f'Grade {to_grade_num}') |
+            Q(name__icontains=f'Grade-{roman_numeral}') |
+            Q(name__icontains=f'Grade {roman_numeral}')
+        )
+
+        if not to_grades.exists():
+            # Fallback: try to find any grade with just the number or roman numeral
+            fallback_grades = Grade.objects.filter(
+                level__campus=to_campus,  # Use destination campus
+            ).filter(
+                Q(name__icontains=str(to_grade_num)) |
+                Q(name__icontains=roman_numeral)
+            )
+            
+            if fallback_grades.exists():
+                to_grade = fallback_grades.first()
+            else:
+                return Response(
+                    {
+                        'error': f'No grade found for skip (looking for Grade {to_grade_num} or Grade {roman_numeral}) at destination campus'
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        else:
+            to_grade = to_grades.first()
+
+        # Return the skip grade info
+        return Response({
+            'id': to_grade.id,
+            'name': to_grade.name,
+            'level_name': to_grade.level.name if to_grade.level else None,
+            'campus_id': to_campus.id,
+            'campus_name': to_campus.campus_name,
+        })
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"[Campus Skip Grade] Error: {str(e)}")
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def available_sections_for_campus_skip(request):
+    """
+    Return available sections for campus transfer with grade skip.
+    Similar to grade skip sections but filters by destination campus instead of current campus.
+    """
+    try:
+        student_id = request.GET.get('student_id')
+        to_grade_id = request.GET.get('to_grade_id')
+        to_shift = request.GET.get('to_shift')  # Optional
+        to_campus_id = request.GET.get('to_campus_id')  # Required for campus transfer
+
+        if not student_id or not to_grade_id or not to_campus_id:
+            return Response(
+                {'error': 'student_id, to_grade_id, and to_campus_id parameters are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        student = get_object_or_404(Student, id=student_id)
+        to_campus = get_object_or_404(Campus, id=to_campus_id)
+        
+        from classes.models import Grade
+        to_grade = get_object_or_404(Grade, id=to_grade_id)
+        
+        # Normalize shift if provided
+        normalized_shift = None
+        if to_shift:
+            normalized_shift = to_shift.lower().strip()
+            if normalized_shift == 'm':
+                normalized_shift = 'morning'
+            elif normalized_shift == 'a':
+                normalized_shift = 'afternoon'
+
+        # Filter classrooms by target grade and destination campus
+        classrooms_query = ClassRoom.objects.filter(
+            grade=to_grade,
+            grade__level__campus=to_campus,
+        )
+
+        # Filter by shift if provided
+        if normalized_shift:
+            classrooms_query = classrooms_query.filter(shift=normalized_shift)
+
+        # Exclude classroom where student is already enrolled
+        classrooms_query = classrooms_query.exclude(students__id=student.id)
+
+        # Select related fields and prefetch students for capacity calculation
+        classrooms = classrooms_query.select_related(
+            'grade', 'grade__level', 'grade__level__campus', 'class_teacher', 'class_teacher__user'
+        ).prefetch_related('students').order_by('section')
+
+        from django.db.models import Q
+        from coordinator.models import Coordinator
+
+        options = []
+        for classroom in classrooms:
+            # Get coordinator for this classroom's level at destination campus
+            coordinator = Coordinator.objects.filter(
+                level=classroom.grade.level,
+                campus=to_campus,
+            ).first()
+
+            options.append({
+                'id': classroom.id,
+                'grade_name': classroom.grade.name,
+                'section': classroom.section,
+                'shift': classroom.shift.title(),
+                'capacity': classroom.capacity,
+                'current_students': classroom.students.count(),
+                'class_teacher_name': classroom.class_teacher.full_name if classroom.class_teacher else None,
+                'coordinator_name': coordinator.full_name if coordinator else None,
+                'label': f"{classroom.grade.name} ({classroom.section}) • {classroom.shift.title()} • {to_campus.campus_name}",
+            })
+
+        return Response(options)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"[Campus Skip Sections] Error: {str(e)}")
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)

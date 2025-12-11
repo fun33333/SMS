@@ -118,6 +118,7 @@ INSTALLED_APPS = [
     'result',
     'behaviour',
     'notifications',
+    'timetable',
 ]
 
 MIDDLEWARE = [

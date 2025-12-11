@@ -51,5 +51,8 @@ urlpatterns = [
     path('campus/<int:transfer_id>/decline/', views.decline_campus_transfer, name='decline_campus_transfer'),
     path('campus/<int:transfer_id>/cancel/', views.cancel_campus_transfer, name='cancel_campus_transfer'),
     path('campus/<int:transfer_id>/letter/', views.get_campus_transfer_letter, name='get_campus_transfer_letter'),
+    path('campus/available-sections/', views.available_campus_transfer_sections, name='available_campus_transfer_sections'),
+    path('campus/available-grades-for-skip/', views.available_grades_for_campus_skip, name='available_grades_for_campus_skip'),
+    path('campus/available-sections-for-skip/', views.available_sections_for_campus_skip, name='available_sections_for_campus_skip'),
 ]
 
